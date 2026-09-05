@@ -1,0 +1,140 @@
+#pragma once
+
+// The game: the simulation shared by the client and the server.
+//
+//   Game {
+//     Context  the static data a tick reads and never writes: map, anims, weapons, skeletons
+//     World    the state: the soldiers, bullets, things and corpses, stepped by world_step
+//     Match    the round around it: the clock, the scores, the settings, run by match_run
+//   }
+//
+// Rules:
+//   - No I/O, no rendering, no audio, no globals in a tick. Loading the Context is the
+//     only place files are read.
+//   - No allocation per tick: fixed-capacity arrays only.
+//   - Randomness comes from World.rng, from a soldier's own rng for what its player
+//     rolls, and from a bullet's own numbers for what happens to it in flight, so a
+//     bullet flies the same on every machine.
+//   - Nothing wounds a soldier on its own. Bullets and blasts emit a Hit; the server
+//     applies it through damage_apply. Health changes in one place.
+//   - Everything else that happened is emitted as an Event too.
+//   - The world never hears of the match. What it does that the match must know (a
+//     kill, a capture) it emits as an event; what the match decides (the round is over,
+//     friendly fire) reaches the world as values in World.rules.
+//
+// Who runs what. Every machine runs this same simulation on its own world, and one flag
+// on the world, authority, marks the server's: the one that decides. Only with
+// authority do hits become wounds, are things made, taken, returned and scored, and do
+// the dead respawn. Tools and tests run game_tick on a whole world with authority.
+
+#include "game/entities.h"
+#include "resources/skeleton.h"
+
+#define TICK_SECONDS (1.0 / TICK_RATE)
+#define DEFAULT_GRAVITY 0.06f
+
+// Static data a tick reads and never writes.
+typedef struct Context {
+    Map *map;
+    Anims *anims;
+    Skeletons *skeletons; // the things' and the corpses' particle objects
+    Weapons weapons;
+} Context;
+
+// What the match decides that the world reads.
+typedef struct WorldRules {
+    bool frozen; // between rounds nobody moves
+    bool friendly_fire;
+    bool kits_collide; // bullets and blasts knock kits (flags always)
+    int32_t respawn_time;
+    int32_t max_grenades;
+} WorldRules;
+
+typedef struct World {
+    uint32_t tick;
+    float gravity;
+    uint64_t rng;
+    Soldier soldiers[MAX_PLAYERS];
+    Bullet bullets[MAX_BULLETS];
+    Thing things[MAX_THINGS];
+    Ragdoll ragdolls[MAX_PLAYERS]; // the corpses, one per dead soldier
+    Vec2 flag_home[2];             // where the alpha and bravo flags spawn and return to
+    History *history;              // the server's rewind for judging shots; NULL elsewhere
+    WorldRules rules;
+
+    // This world decides: things are made, taken, returned and scored here, and the
+    // dead respawn. Elsewhere (a client's world) things only move, and what was decided
+    // arrives as facts.
+    bool authority;
+} World;
+
+typedef enum MatchState { MATCH_PLAYING, MATCH_ENDED, MATCH_PAUSED } MatchState;
+
+#define DEFAULT_RESPAWN_TIME 180
+#define DEFAULT_MAX_GRENADES 2
+#define DEFAULT_TIME_LIMIT (15 * 60 * TICK_RATE)
+#define DEFAULT_SCORE_LIMIT 10
+#define ROUND_END_TICKS (5 * TICK_RATE + 20) // the scores stand this long before the next round
+
+typedef struct MatchSettings {
+    int32_t time_limit; // ticks
+    int32_t score_limit;
+    int32_t respawn_time;
+    int32_t max_grenades;
+    bool friendly_fire;
+    bool kits_collide;
+} MatchSettings;
+
+typedef struct Match {
+    MatchSettings settings;
+    MatchState state;
+    int32_t scores[TEAM_COUNT];
+    int32_t time_left;
+    int32_t counter; // after it ends: ticks until the next round
+} Match;
+
+typedef struct Game {
+    Context ctx;
+    World world;
+    Match match;
+    Events events; // what the last tick left behind
+} Game;
+
+// --- Context -----------------------------------------------------------------------
+
+// The map, animations, skeletons and default weapons from a base assets folder
+// (the layout of opensoldat's base: maps/, anims/, objects/). Reports failures on stderr.
+bool context_load(Context *ctx, const char *base_dir, const char *map_name);
+void context_destroy(Context *ctx);
+
+// --- World -------------------------------------------------------------------------
+
+void world_init(World *w, uint64_t seed);
+
+// One tick of everything in the world, in the order the server and the clients run
+// it: every active soldier on its command, then the corpses, the things, the bullets;
+// then the tick advances.
+void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], Events *events);
+
+// --- Match -------------------------------------------------------------------------
+
+MatchSettings match_default_settings(void);
+void match_init(Match *m, MatchSettings settings);
+
+// The match's tick, after the world's: what the server keeps of every soldier (the
+// respawns, the spawn protection, the bonuses), the clock, the end of the round.
+void match_run(const Context *ctx, World *w, Match *m, Events *events);
+
+// The round has ended and its scores have stood long enough: time for the next.
+bool match_over(const Match *m);
+
+// What the match decides that the world reads.
+WorldRules match_rules(const Match *m);
+
+// --- Game --------------------------------------------------------------------------
+
+// A fresh world and match over an already loaded context.
+void game_init(Game *g, uint64_t seed, MatchSettings settings);
+
+// The whole-world tick: the match's rules into the world, world_step, match_run.
+void game_tick(Game *g, const Command cmds[MAX_PLAYERS]);
