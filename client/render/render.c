@@ -1,10 +1,6 @@
 #include "render/render.h"
 
-#include <rlgl.h>
-
-#define BONE_THICKNESS 1.2f
-
-static Vector2 rv(Vec2 v) { return (Vector2){v.x, v.y}; }
+#define BONE_THICKNESS 1.2f // world units, as the original's debug bones
 
 void render_init(Render *r, const char *base, const Context *ctx)
 {
@@ -30,60 +26,77 @@ static void draw_soldiers(const Render *r, const RenderState *state)
 // The skeleton under the sprites: the gostek's own constraints are the bones.
 static void draw_bones(const Render *r, const RenderState *state)
 {
+    const Rgba lime = {0, 158, 47, 255};
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const RenderSoldier *s = &state->soldiers[i];
         if (!s->active) continue;
         for (int c = 0; c < r->bones->constraint_count; c++) {
             int a = r->bones->constraints[c][0], b = r->bones->constraints[c][1];
             if (a < 0 || b < 0 || a >= POSE_POINTS || b >= POSE_POINTS) continue;
-            DrawLineEx(rv(s->pose.p[a]), rv(s->pose.p[b]), BONE_THICKNESS, LIME);
+            gfx_draw_line(s->pose.p[a], s->pose.p[b], BONE_THICKNESS, lime);
         }
     }
 }
 
-static Color poly_debug_color(PolyType type)
+static Rgba poly_debug_color(PolyType type)
 {
     switch (type) {
     case POLY_DEADLY:
     case POLY_BLOODY_DEADLY:
-    case POLY_EXPLODES: return RED;
+    case POLY_EXPLODES: return (Rgba){230, 41, 55, 255};
     case POLY_HURTS:
-    case POLY_LAVA: return ORANGE;
-    case POLY_ICE: return SKYBLUE;
-    case POLY_BOUNCY: return MAGENTA;
-    case POLY_ONLY_BULLETS: return BLUE;
-    case POLY_ONLY_PLAYER: return GREEN;
+    case POLY_LAVA: return (Rgba){255, 161, 0, 255};
+    case POLY_ICE: return (Rgba){102, 191, 255, 255};
+    case POLY_BOUNCY: return (Rgba){255, 0, 255, 255};
+    case POLY_ONLY_BULLETS: return (Rgba){0, 121, 241, 255};
+    case POLY_ONLY_PLAYER: return (Rgba){0, 228, 48, 255};
     case POLY_BACKGROUND:
-    case POLY_BACKGROUND_TRANSITION: return DARKBLUE;
-    default: return YELLOW; // team and flagger polys
+    case POLY_BACKGROUND_TRANSITION: return (Rgba){0, 82, 172, 255};
+    default: return (Rgba){253, 249, 0, 255}; // team and flagger polys
     }
 }
 
-static void draw_cross(Vec2 at, float size, Color color)
+static void draw_cross(Vec2 at, float size, float thickness, Rgba color)
 {
-    DrawLineV(rv(vec2_add(at, vec2(-size, -size))), rv(vec2_add(at, vec2(size, size))), color);
-    DrawLineV(rv(vec2_add(at, vec2(-size, size))), rv(vec2_add(at, vec2(size, -size))), color);
+    gfx_draw_line(vec2_add(at, vec2(-size, -size)), vec2_add(at, vec2(size, size)), thickness, color);
+    gfx_draw_line(vec2_add(at, vec2(-size, size)), vec2_add(at, vec2(size, -size)), thickness, color);
+}
+
+static void draw_circle(Vec2 center, float radius, float thickness, Rgba color)
+{
+    const int segments = 36;
+    Vec2 prev = vec2_add(center, vec2(radius, 0));
+    for (int i = 1; i <= segments; i++) {
+        float a = (float)i / segments * 6.2831853f;
+        Vec2 p = vec2_add(center, vec2(radius * cosf(a), radius * sinf(a)));
+        gfx_draw_line(prev, p, thickness, color);
+        prev = p;
+    }
 }
 
 // What the map is made of that the picture doesn't show: the special polys, the
 // colliders, the spawn points by team (then the flags', kits' and stat guns').
-static void draw_map_debug(const Map *map)
+static void draw_map_debug(const Map *map, const GameCamera *camera)
 {
+    float px = 1.0f / pixels_per_unit(camera); // one pixel, in world units
     for (int i = 0; i < map->poly_count; i++) {
         const Polygon *poly = &map->polys[i];
         if (poly->type == POLY_NORMAL) continue;
-        Color c = poly_debug_color((PolyType)poly->type);
-        for (int k = 0; k < 3; k++) DrawLineV(rv(poly->verts[k]), rv(poly->verts[(k + 1) % 3]), c);
+        Rgba c = poly_debug_color((PolyType)poly->type);
+        for (int k = 0; k < 3; k++) gfx_draw_line(poly->verts[k], poly->verts[(k + 1) % 3], px, c);
     }
 
     for (int i = 0; i < map->collider_count; i++) {
-        if (map->colliders[i].active) DrawCircleLinesV(rv(map->colliders[i].pos), map->colliders[i].radius, WHITE);
+        if (map->colliders[i].active) draw_circle(map->colliders[i].pos, map->colliders[i].radius, px, RGBA_WHITE);
     }
 
-    const Color team_colors[] = {WHITE, RED, BLUE, YELLOW, GREEN};
+    const Rgba team_colors[] = {
+        {255, 255, 255, 255}, {230, 41, 55, 255}, {0, 121, 241, 255}, {253, 249, 0, 255}, {0, 228, 48, 255},
+    };
+    const Rgba purple = {200, 122, 255, 255};
     for (int i = 0; i < map->spawnpoint_count; i++) {
         const Spawnpoint *s = &map->spawnpoints[i];
-        if (s->active) draw_cross(s->pos, 5.0f, s->team >= 0 && s->team <= 4 ? team_colors[s->team] : PURPLE);
+        if (s->active) draw_cross(s->pos, 5.0f, px, s->team >= 0 && s->team <= 4 ? team_colors[s->team] : purple);
     }
 }
 
@@ -91,14 +104,12 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
 {
     const MapView *v = &r->map_view;
     if (!v->map) {
-        ClearBackground(BLACK);
+        gfx_clear((Rgba){0, 0, 0, 255});
         return;
     }
 
-    Rgba bg = v->map->bg_bottom;
-    ClearBackground((Color){bg.r, bg.g, bg.b, bg.a});
-    BeginMode2D(camera_rl(camera));
-    rlDisableBackfaceCulling(); // the map's triangles wind either way
+    gfx_clear(camera->pos.y > 0 ? v->map->bg_bottom : v->map->bg_top); // the original's choice
+    gfx_transform(camera_transform(camera));
 
     map_draw_background(v->map, camera);
     map_draw_background_polys(v);
@@ -108,10 +119,9 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
     map_draw_terrain(v);
     map_draw_scenery(v, 2);
 
-    if (options.wireframe) map_draw_wireframe(v->map);
+    if (options.wireframe) map_draw_wireframe(v->map, camera);
     if (options.debug) {
-        draw_map_debug(v->map);
+        draw_map_debug(v->map, camera);
         draw_bones(r, state);
     }
-    EndMode2D();
 }

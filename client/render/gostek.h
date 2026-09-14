@@ -28,6 +28,6 @@ void gostek_load(Gostek *g, const char *base);
 void gostek_unload(Gostek *g);
 
 // The soldier's sprites on its pose. For a corpse (once ragdolls exist) the face hangs
-// from the head point rather than the neck, so a cut head rolls off with it. Between
-// BeginMode2D and EndMode2D.
+// from the head point rather than the neck, so a cut head rolls off with it. Under the
+// camera's transform.
 void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse);

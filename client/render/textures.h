@@ -1,20 +1,19 @@
 #pragma once
 
 // The map's own images, its texture and its scenery, found the way the original finds
-// them. Ported from soldat-odin's client/render/textures.odin. The window must be open.
+// them. Ported from soldat-odin's client/render/textures.odin. The context must be up.
 
-#include <raylib.h>
-
+#include "gfx/gfx.h"
 #include "resources/map.h"
 
 // <base>/textures/<name>, tiling (Soldat's polygon UVs run past 0..1) and mipmapped.
-// A texture with id 0 when it can't be found: the polygons then draw untextured.
-Texture2D map_texture_load(const char *base, const char *name);
+// A texture with handle 0 when it can't be found: the polygons then draw untextured.
+GfxTexture map_texture_load(const char *base, const char *name);
 
-// One texture per scenery name, from <base>/scenery-gfx, id 0 where one failed to load.
-// Pure green is the transparent colour. Free with scenery_unload.
-Texture2D *scenery_load(const char *base, const Map *map);
-void scenery_unload(Texture2D *scenery, int count);
+// One texture per scenery name, from <base>/scenery-gfx, handle 0 where one failed to
+// load. Pure green is the transparent colour. Free with scenery_unload.
+GfxTexture *scenery_load(const char *base, const Map *map);
+void scenery_unload(GfxTexture *scenery, int count);
 
 // Resolves an image name the way the original's FindImagePath does: case-insensitively,
 // preferring .png whatever extension the map asked for, then the name as written.

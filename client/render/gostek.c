@@ -1,6 +1,6 @@
 #include "render/gostek.h"
 
-#include <rlgl.h>
+#include <math.h>
 #include <stdio.h>
 
 typedef enum GostekColor {
@@ -159,23 +159,23 @@ static uint8_t blood_alpha(const RenderSoldier *s)
 
 // Shirt, pants and skin. The original takes these from each player's profile; fixed per
 // team until the roster carries them. Faded while the spawn protection lasts.
-static Color gostek_color(GostekColor c, const RenderSoldier *s)
+static Rgba gostek_color(GostekColor c, const RenderSoldier *s)
 {
     uint8_t alpha = s->spawn_protected ? 153 : 255;
     switch (c) {
-    case GOSTEK_COLOR_SKIN: return (Color){222, 181, 140, alpha};
-    case GOSTEK_COLOR_HAIR: return (Color){64, 46, 31, alpha};
-    case GOSTEK_COLOR_HEAD_BLOOD: return (Color){172, 169, 168, alpha};
-    case GOSTEK_COLOR_PANTS: return (Color){56, 61, 71, alpha};
+    case GOSTEK_COLOR_SKIN: return (Rgba){222, 181, 140, alpha};
+    case GOSTEK_COLOR_HAIR: return (Rgba){64, 46, 31, alpha};
+    case GOSTEK_COLOR_HEAD_BLOOD: return (Rgba){172, 169, 168, alpha};
+    case GOSTEK_COLOR_PANTS: return (Rgba){56, 61, 71, alpha};
     case GOSTEK_COLOR_MAIN:
         switch (s->team) {
-        case TEAM_ALPHA: return (Color){199, 56, 51, alpha};
-        case TEAM_BRAVO: return (Color){64, 107, 204, alpha};
-        case TEAM_CHARLIE: return (Color){230, 199, 64, alpha};
-        case TEAM_DELTA: return (Color){77, 179, 89, alpha};
-        default: return (Color){140, 140, 148, alpha};
+        case TEAM_ALPHA: return (Rgba){199, 56, 51, alpha};
+        case TEAM_BRAVO: return (Rgba){64, 107, 204, alpha};
+        case TEAM_CHARLIE: return (Rgba){230, 199, 64, alpha};
+        case TEAM_DELTA: return (Rgba){77, 179, 89, alpha};
+        default: return (Rgba){140, 140, 148, alpha};
         }
-    default: return (Color){255, 255, 255, alpha};
+    default: return (Rgba){255, 255, 255, alpha};
     }
 }
 
@@ -190,9 +190,9 @@ static void draw_weapon(const Gostek *g, const Pose *pose, WeaponId id, int p1_i
 {
     bool mirrored = facing_left;
     Sprite sprite = g->weapons[id][mirrored ? 1 : 0];
-    if (sprite.tex.id == 0) {
+    if (sprite.tex.handle == 0) {
         sprite = g->weapons[id][0];
-        if (sprite.tex.id == 0) return;
+        if (sprite.tex.handle == 0) return;
         mirrored = false;
     }
 
@@ -203,7 +203,7 @@ static void draw_weapon(const Gostek *g, const Pose *pose, WeaponId id, int p1_i
         else sy = -1.0f;
     }
     draw_sprite(sprite, vec2_add(p1, vec2(0, 1)), vec2(cx * sprite.width, anchor_y * sprite.height), vec2(1, sy),
-                angle_between(p1, p2), WHITE);
+                angle_between(p1, p2), RGBA_WHITE);
 }
 
 static void draw_held_weapon(const Gostek *g, const RenderSoldier *s)
@@ -214,10 +214,10 @@ static void draw_held_weapon(const Gostek *g, const RenderSoldier *s)
 
     if (!s->fired) return;
     Sprite flash = g->flashes[s->weapon];
-    if (flash.tex.id == 0) return;
+    if (flash.tex.handle == 0) return;
     Vec2 p1 = s->pose.p[16 - 1], p2 = s->pose.p[15 - 1];
     draw_sprite(flash, vec2_add(p1, vec2(0, 1)), vec2(art->fx * flash.width, art->fy * flash.height),
-                vec2(1, s->facing_left ? -1.0f : 1.0f), angle_between(p1, p2), WHITE);
+                vec2(1, s->facing_left ? -1.0f : 1.0f), angle_between(p1, p2), RGBA_WHITE);
 }
 
 void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
@@ -251,7 +251,7 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
 
         bool mirrored = facing_left && part->flip;
         Sprite sprite = g->parts[i][part->team ? team : 0][mirrored ? 1 : 0];
-        if (sprite.tex.id == 0) continue;
+        if (sprite.tex.handle == 0) continue;
 
         Vec2 p1 = pose->p[part->p1 - 1];
         Vec2 p2 = pose->p[part->p2 - 1];
@@ -270,10 +270,9 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
         }
         if (part->flex > 0.0f) sx = minf(1.5f, vec2_length(along) / part->flex);
 
-        Color tint = gostek_color(part->color, s);
+        Rgba tint = gostek_color(part->color, s);
         if (part->blood) tint.a = bleeding;
         if (part->nade > 0) tint.a = (uint8_t)(0.75f * (float)tint.a); // ALPHA_NADES
         draw_sprite(sprite, vec2_add(p1, vec2(0, 1)), vec2(cx * sprite.width, cy * sprite.height), vec2(sx, sy), angle, tint);
     }
-    rlSetTexture(0);
 }

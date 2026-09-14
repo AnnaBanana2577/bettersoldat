@@ -30,5 +30,5 @@ void render_destroy(Render *r);
 
 // The world's part of the frame, in the original's layer order: the sky, the
 // background polys, scenery behind, everything alive, scenery in front of it, the
-// terrain, scenery in front of the players. Between BeginDrawing and EndDrawing.
+// terrain, scenery in front of the players. Sets the transform to the camera's.
 void render_draw(const Render *r, const RenderState *state, const GameCamera *camera, RenderOptions options);
