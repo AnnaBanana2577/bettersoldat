@@ -28,6 +28,8 @@ typedef struct RenderSoldier {
     Vec2 pos;  // the body, where the frame shows it
     bool facing_left;
     WeaponId weapon;    // in the hands
+    Weapon gun;         // its ammo, and the ticks of firing and reloading left: the HUD's bars
+    int jets;           // fuel left
     WeaponId secondary; // slung across the back
     AnimId body_anim;
     int grenades;

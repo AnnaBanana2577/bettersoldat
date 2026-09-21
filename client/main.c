@@ -4,17 +4,17 @@
 //           sandbox with one soldier, until the connection to a server is ported
 //   input   the keys and mouse (input/)
 //   gfx     the window's GL context and everything drawn into it (gfx/)
-//   render  the world's picture: camera, map, soldiers (render/)
+//   render  the world's picture: camera, map, soldiers, and the HUD over it (render/)
 //
 // Each tick: the game's tick on this frame's input, and a snapshot of it. Each frame: a
 // RenderState built between the last two snapshots (render/render_state.h), the camera
 // following me in it, and the world drawn from it. Everything the client is lives in
 // App; nothing else is global.
 //
-//   client [-assets <opensoldat base dir>] [-map <name>]
+//   client [-assets <opensoldat base dir>] [-map <name>] [-size <width>x<height>]
 //
-// Tab toggles the wireframe, F3 the debug overlay, F4 vsync (off for now, to measure
-// the frame rate), the wheel zooms, Escape quits.
+// Tab toggles the wireframe, F3 the debug overlay, F4 vsync (off, as the original's
+// default), F5 the FPS line, the wheel zooms, Escape quits.
 
 #include <SDL.h>
 #include <stdio.h>
@@ -23,15 +23,17 @@
 
 #include "game/game.h"
 #include "game/systems/systems.h"
+#include "gfx/font.h"
 #include "gfx/gfx.h"
 #include "input/input.h"
+#include "render/interface.h"
 #include "render/render.h"
+#include "render/scale_data.h"
 
 #define ME 0
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
 #define WINDOW_WIDTH 1280
 #define WINDOW_HEIGHT 960
-#define CURSOR_IMAGE_SCALE 10.0f
 
 // The original's frame pacing, its defaults: vsync off (r_swapeffect 0), frames no closer
 // than 1/500 s (r_fpslimit, r_maxfps), and a millisecond's sleep after each so the loop
@@ -42,6 +44,7 @@
 typedef struct Settings {
     const char *base; // the opensoldat base assets: maps/, anims/, objects/, textures/...
     const char *map;
+    int width, height; // the window
 } Settings;
 
 typedef struct App {
@@ -61,19 +64,25 @@ typedef struct App {
     GameCamera camera;
     Render render;
     RenderOptions render_options;
-    GfxTexture cursor; // the original's interface-gfx/cursor.png, drawn where the game's cursor is
+    ScaleData scales; // mod.ini: how big each image is
+    Interface hud;
 
     // the frame rate, counted over each second for the title
     int frames;
     double frame_timer;
+    int fps;
 } App;
 
 static Settings settings_parse(int argc, char *argv[])
 {
-    Settings s = {.base = "assets", .map = "Arena"};
+    Settings s = {.base = "assets", .map = "Arena", .width = WINDOW_WIDTH, .height = WINDOW_HEIGHT};
     for (int i = 1; i + 1 < argc; i += 2) {
         if (strcmp(argv[i], "-assets") == 0) s.base = argv[i + 1];
         else if (strcmp(argv[i], "-map") == 0) s.map = argv[i + 1];
+        else if (strcmp(argv[i], "-size") == 0 && sscanf(argv[i + 1], "%dx%d", &s.width, &s.height) != 2) {
+            s.width = WINDOW_WIDTH;
+            s.height = WINDOW_HEIGHT;
+        }
     }
     return s;
 }
@@ -110,8 +119,8 @@ static bool window_open(App *app)
         return false;
     }
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    app->window = SDL_CreateWindow("csoldat", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH,
-                                   WINDOW_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+    app->window = SDL_CreateWindow("csoldat", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, app->settings.width,
+                                   app->settings.height, SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!app->window) {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         return false;
@@ -178,6 +187,8 @@ static Vec2 cursor(const App *app)
     return vec2_scale(app->input.cursor, scale);
 }
 
+static void interface_open(App *app);
+
 // This frame's events: the window's, the view's own keys, the mouse.
 static void poll_events(App *app)
 {
@@ -191,6 +202,7 @@ static void poll_events(App *app)
             case SDL_SCANCODE_ESCAPE: app->quit = true; break;
             case SDL_SCANCODE_TAB: app->render_options.wireframe = !app->render_options.wireframe; break;
             case SDL_SCANCODE_F3: app->render_options.debug = !app->render_options.debug; break;
+            case SDL_SCANCODE_F5: app->hud.show_info = !app->hud.show_info; break;
             case SDL_SCANCODE_F4:
                 app->vsync = !app->vsync;
                 gfx_vsync(app->vsync);
@@ -205,50 +217,32 @@ static void poll_events(App *app)
             if (e.wheel.y != 0) camera_zoom_at(&app->camera, e.wheel.y > 0 ? 1.15f : 1.0f / 1.15f, cursor(app));
             break;
         case SDL_WINDOWEVENT:
-            if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) input_resize(&app->input, view_size(app));
+            if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                input_resize(&app->input, view_size(app));
+                interface_open(app);
+            }
             break;
         default: break;
         }
     }
 }
 
-// The cursor over everything: the original's crosshair, less the bink and the sniper
-// line, which come with the HUD. The interface is drawn for a 480-tall view and scaled
-// to the window (r_scaleinterface), and the cursor's image is 10 times too big for it
-// (mod.ini's interface-gfx/cursor.png=10; read from there once the HUD is ported).
-static void draw_cursor(const App *app)
-{
-    Rect vp = app->camera.viewport;
-    gfx_transform(mat3_ortho(0, vp.width, 0, vp.height));
-    if (app->cursor.handle == 0) return;
-
-    Vec2 c = cursor(app);
-    float scale = vp.height / GAME_HEIGHT / CURSOR_IMAGE_SCALE;
-    float w = (float)app->cursor.width * scale, h = (float)app->cursor.height * scale;
-    float x = floorf(c.x - w / 2), y = floorf(c.y - h / 2); // the original's PixelAlign
-    GfxVertex v[4] = {
-        gfx_vertex(x, y, 0, 0, RGBA_WHITE),
-        gfx_vertex(x + w, y, 1, 0, RGBA_WHITE),
-        gfx_vertex(x + w, y + h, 1, 1, RGBA_WHITE),
-        gfx_vertex(x, y + h, 0, 1, RGBA_WHITE),
-    };
-    gfx_draw_quad(app->cursor, v);
-}
-
-// What the HUD will show, for now in the title once a second: text comes with the fonts.
-static void update_title(App *app, double dt)
+// The frame rate, counted over each second: the original's FrameTiming.Fps.
+static void count_frame(App *app, double dt)
 {
     app->frames++;
     app->frame_timer += dt;
     if (app->frame_timer < 1.0) return;
-
-    const Soldier *me = &app->game->world.soldiers[ME];
-    char title[256];
-    snprintf(title, sizeof(title), "csoldat   %s   health %.0f   jets %d/%d   %d fps%s", app->settings.map, me->health,
-             me->jets, app->game->ctx.map->start_jet, app->frames, app->vsync ? " (vsync)" : "");
-    SDL_SetWindowTitle(app->window, title);
+    app->fps = app->frames;
     app->frames = 0;
     app->frame_timer = 0;
+}
+
+// The fonts and the HUD, sized to the window; again whenever its height changes.
+static void interface_open(App *app)
+{
+    Rect r = window_rect(app);
+    if (!fonts_load(app->settings.base, r.height)) fprintf(stderr, "no fonts: the HUD draws without text\n");
 }
 
 int main(int argc, char *argv[])
@@ -268,9 +262,9 @@ int main(int argc, char *argv[])
     }
 
     render_init(&app.render, app.settings.base, &app.game->ctx);
-    char path[512];
-    snprintf(path, sizeof(path), "%s/interface-gfx/cursor.png", app.settings.base);
-    if (!gfx_texture_load(&app.cursor, path, NULL)) fprintf(stderr, "no cursor image at %s\n", path);
+    scale_data_load(&app.scales, app.settings.base);
+    interface_load(&app.hud, app.settings.base, &app.scales);
+    interface_open(&app);
 
     snapshot_tick(&app);
     snapshot_tick(&app); // both snapshots start as the world before the first tick
@@ -300,15 +294,17 @@ int main(int argc, char *argv[])
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);
             render_draw(&app.render, &app.frame, &app.camera, app.render_options);
-            draw_cursor(&app);
+            interface_draw(&app.hud, &app.frame.soldiers[ME], &app.game->ctx, app.input.cursor, app.fps,
+                           app.camera.viewport);
             gfx_present(app.window);
-            update_title(&app, since_frame);
+            count_frame(&app, since_frame);
             since_frame = 0;
         }
         SDL_Delay(SLEEP_AFTER_FRAME_MS);
     }
 
-    gfx_texture_delete(&app.cursor);
+    fonts_unload();
+    interface_unload(&app.hud);
     render_destroy(&app.render);
     window_close(&app);
     game_close(&app);

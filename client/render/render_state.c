@@ -36,6 +36,8 @@ static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, cons
     out.team = to->team;
     out.facing_left = to->direction != 1;
     out.weapon = to->weapon.id;
+    out.gun = to->weapon;
+    out.jets = to->jets;
     out.secondary = to->secondary.id;
     out.body_anim = to->body.id;
     out.grenades = to->grenades;
