@@ -82,6 +82,7 @@ typedef ptrdiff_t GLintptr;
     X(void, glClearColor, (GLfloat r, GLfloat g, GLfloat b, GLfloat a))                                              \
     X(void, glClear, (GLbitfield mask))                                                                              \
     X(void, glGetIntegerv, (GLenum pname, GLint *params))                                                            \
+    X(void, glReadPixels, (GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void *pixels)) \
     X(const GLubyte *, glGetString, (GLenum name))                                                                   \
     X(void, glDrawArrays, (GLenum mode, GLint first, GLsizei count))                                                 \
     X(void, glGenTextures, (GLsizei n, GLuint *textures))                                                            \
@@ -91,6 +92,8 @@ typedef ptrdiff_t GLintptr;
     X(void, glTexParameterf, (GLenum target, GLenum pname, GLfloat param))                                           \
     X(void, glTexImage2D, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,          \
                            GLint border, GLenum format, GLenum type, const void *pixels))                            \
+    X(void, glTexSubImage2D, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,              \
+                              GLsizei height, GLenum format, GLenum type, const void *pixels))                       \
     X(void, glGenerateMipmap, (GLenum target))                                                                       \
     X(void, glActiveTexture, (GLenum texture))                                                                       \
     X(void, glGenBuffers, (GLsizei n, GLuint *buffers))                                                              \

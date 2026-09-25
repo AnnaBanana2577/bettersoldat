@@ -1,6 +1,7 @@
 #include "render/interface.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "gfx/font.h"
 #include "render/textures.h"
@@ -8,7 +9,14 @@
 #define DEFAULT_WIDTH 640.0f // what the layout was drawn for
 #define START_HEALTH 150.0f  // the original's STARTHEALTH
 #define DEFAULT_VEST 100.0f
-#define STATUS_TRANSPARENCY 200 // ui_status_transparency: the crosshair's alpha
+#define STATUS_TRANSPARENCY 200 // ui_status_transparency
+#define BACKGROUND_WIDTH 64.0f  // the original's back image, in units
+#define FRAGSMENU_PLAYER_HEIGHT 15
+#define KILLCONSOLE_SEPARATE_HEIGHT 8
+#define FONT_WEAPONMENUSIZE 8         // font_weaponmenusize
+#define FONT_CONSOLELINEHEIGHT 1.5f   // font_consolelineheight
+#define MORECHATTEXT 60               // chat longer than this doesn't show above the head
+#define TICK_RATE_HUD 60.0f
 
 typedef enum BarPos { BAR_HORIZONTAL, BAR_VERTICAL, BAR_TEXT } BarPos;
 
@@ -28,6 +36,9 @@ static const struct {
     float weapon_x, weapon_y;
     float fire_ico_x, fire_ico_y, fire_ico_rotate;
     float fire_bar_x, fire_bar_y, fire_bar_rotate;
+    float team_box_x, team_box_y;
+    float ping_x, ping_y;
+    float status_x, status_y;
     BarPos health_bar_pos, ammo_bar_pos, jet_bar_pos, vest_bar_pos, fire_bar_pos, nades_pos;
     bool weapon_right, bullets_right; // IntAlign: 1 is right
     bool health_bar_left, ammo_bar_left, reload_bar_left, fire_bar_left, jet_bar_left, vest_bar_left;
@@ -44,6 +55,9 @@ static const struct {
     .fire_ico_x = 409, .fire_ico_y = 464,
     .nades_x = 305 - 7 + 10, .nades_y = 468 - 6,
     .vest_bar_x = 45, .vest_bar_y = 465 - 6,
+    .team_box_x = 575, .team_box_y = 330,
+    .status_x = 575, .status_y = 421,
+    .ping_x = 600, .ping_y = 18,
     .weapon_x = 285, .weapon_y = 454,
     .health_bar_pos = BAR_HORIZONTAL, .ammo_bar_pos = BAR_HORIZONTAL, .jet_bar_pos = BAR_HORIZONTAL,
     .vest_bar_pos = BAR_HORIZONTAL, .fire_bar_pos = BAR_HORIZONTAL, .nades_pos = BAR_HORIZONTAL,
@@ -52,11 +66,25 @@ static const struct {
     .jet_bar_left = true, .vest_bar_left = true,
 };
 
+// The original's message colours (Constants.pas), $AARRGGBB there.
+static const Rgba COLOR_ENTER = {0xC3, 0xC3, 0xC3, 0xF1};
+static const Rgba COLOR_GAME = {0x71, 0xF9, 0x81, 0xEE};
+static const Rgba COLOR_ABOVECHAT = {0xFD, 0xFD, 0xF9, 0xFF};
+static const Rgba COLOR_CHAT = {0xEF, 0xFE, 0xEA, 0xEE};
+static const Rgba COLOR_TEAMCHAT = {0xFE, 0xDA, 0x7C, 0xEE};
+static const Rgba COLOR_CHARLIEJ = {0xDF, 0xDF, 0x53, 0xFF};
+static const Rgba COLOR_DELTAJ = {0x53, 0xDF, 0x53, 0xFF}; // DELTAJ_MESSAGE_COLOR
+static const Rgba COLOR_OUTOFSCREEN = {0xFF, 0xFF, 0xFF, 0xFF};      // white
+static const Rgba COLOR_OUTOFSCREEN_FLAG = {0xF8, 0xF8, 0x35, 0xFF}; // the carrier
+static const Rgba COLOR_OUTOFSCREEN_DEAD = {0xFF, 0x2E, 0x2E, 0xFF};
+
 // What a frame's drawing is relative to: the original's globals for one RenderInterface.
 typedef struct Frame {
-    float game_width;  // the view's width in units; the height is GAME_HEIGHT
-    float iscale_x;    // game_width / 640, how anchors stretch; y is 1
-    float pixel;       // one window pixel in units
+    float game_width; // the view's width in units; the height is GAME_HEIGHT
+    float iscale_x;   // game_width / 640, how anchors stretch; y is 1
+    float pixel;      // one window pixel in units
+    float fragx;      // where the frags menu starts
+    const GameCamera *camera;
 } Frame;
 
 // --- loading -----------------------------------------------------------------------
@@ -64,19 +92,32 @@ typedef struct Frame {
 static void hud_sprite_load(HudSprite *s, const char *base, const ScaleData *scales, const char *name)
 {
     *s = (HudSprite){0};
-    char dir[512], path[512], rel[256];
-    snprintf(dir, sizeof(dir), "%s/interface-gfx", base);
-    if (!find_image(dir, name, path, sizeof(path))) {
-        fprintf(stderr, "interface image '%s' not found in %s\n", name, dir);
+    char dir[512], path[512], rel[256], file[128];
+    snprintf(rel, sizeof(rel), "interface-gfx/%s", name);
+    const char *slash = strrchr(name, '/');
+    snprintf(dir, sizeof(dir), "%s/interface-gfx%s%.*s", base, slash ? "/" : "", slash ? (int)(slash - name) : 0, name);
+    snprintf(file, sizeof(file), "%s", slash ? slash + 1 : name);
+    if (!find_image(dir, file, path, sizeof(path))) {
+        fprintf(stderr, "interface image '%s' not found in %s\n", file, dir);
         return;
     }
     const Rgba green = {0, 255, 0, 255};
     if (!gfx_texture_load(&s->tex, path, &green)) return;
-    snprintf(rel, sizeof(rel), "interface-gfx/%s", name);
     float scale = scale_data_get(scales, rel);
     s->width = (float)s->tex.width / scale;
     s->height = (float)s->tex.height / scale;
 }
+
+// The kill console's icon for each weapon: the original's GFX_INTERFACE_GUNS_ files.
+static const char *GUN_ICONS[WEAPON_COUNT] = {
+    [WEAPON_NONE] = "guns/fist.png",       [WEAPON_EAGLE] = "guns/1.png",     [WEAPON_MP5] = "guns/2.png",
+    [WEAPON_AK74] = "guns/3.png",          [WEAPON_STEYR] = "guns/4.png",     [WEAPON_SPAS] = "guns/5.png",
+    [WEAPON_RUGER] = "guns/6.png",         [WEAPON_M79] = "guns/7.png",       [WEAPON_BARRETT] = "guns/8.png",
+    [WEAPON_M249] = "guns/9.png",          [WEAPON_MINIGUN] = "guns/0.png",   [WEAPON_COLT] = "guns/10.png",
+    [WEAPON_KNIFE] = "guns/knife.png",     [WEAPON_CHAINSAW] = "guns/chainsaw.png", [WEAPON_LAW] = "guns/law.png",
+    [WEAPON_FLAMER] = "guns/flamer.png",   [WEAPON_BOW] = "guns/bow.png",     [WEAPON_BOW2] = "guns/bow.png",
+    [WEAPON_M2] = "guns/m2.png",           [WEAPON_THROWN_KNIFE] = "guns/knife.png",
+};
 
 void interface_load(Interface *hud, const char *base, const ScaleData *scales)
 {
@@ -94,28 +135,50 @@ void interface_load(Interface *hud, const char *base, const ScaleData *scales)
     hud_sprite_load(&hud->cluster_nade, base, scales, "cluster-nade.png");
     hud_sprite_load(&hud->dot, base, scales, "dot.png");
     hud_sprite_load(&hud->cursor, base, scales, "cursor.png");
+    hud_sprite_load(&hud->back, base, scales, "back.png");
+    hud_sprite_load(&hud->noflag, base, scales, "noflag.png");
+    hud_sprite_load(&hud->arrow, base, scales, "arrow.png");
+    hud_sprite_load(&hud->scroll, base, scales, "scroll.png");
+    for (int i = 0; i < WEAPON_COUNT; i++) {
+        if (GUN_ICONS[i]) hud_sprite_load(&hud->guns[i], base, scales, GUN_ICONS[i]);
+    }
 }
 
 void interface_unload(Interface *hud)
 {
-    HudSprite *all[] = {&hud->health,   &hud->ammo,       &hud->jet,  &hud->health_bar,   &hud->jet_bar,
+    HudSprite *all[] = {&hud->health,   &hud->ammo,       &hud->jet,      &hud->health_bar, &hud->jet_bar,
                         &hud->reload_bar, &hud->vest_bar, &hud->fire_bar, &hud->fire_bar_r, &hud->nade,
-                        &hud->cluster_nade, &hud->dot,    &hud->cursor};
+                        &hud->cluster_nade, &hud->dot,    &hud->cursor,   &hud->back,       &hud->noflag,
+                        &hud->arrow,    &hud->scroll};
     for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) gfx_texture_delete(&all[i]->tex);
+    for (int i = 0; i < WEAPON_COUNT; i++) gfx_texture_delete(&hud->guns[i].tex);
     *hud = (Interface){0};
 }
 
-// --- drawing -----------------------------------------------------------------------
+// --- primitives --------------------------------------------------------------------
 
 static float pixel_align(const Frame *f, float v)
 {
     return f->pixel * floorf(v / f->pixel);
 }
 
-// A sprite's part `rect` (in its image's pixels) at x, y, rotated about its top-left:
-// the original's GfxDrawSprite with a rect.
-static void draw_part(const HudSprite *s, float x, float y, float rotation, Rgba color, float left, float top,
-                      float right, float bottom)
+static float deg_to_rad(float deg)
+{
+    return deg * 3.14159265f / 180.0f;
+}
+
+// A point in the world, on the interface: the original's WorldToInterface about the
+// camera, from the view's middle.
+static Vec2 world_to_interface(const Frame *f, Vec2 p)
+{
+    const GameCamera *c = f->camera;
+    return (Vec2){(p.x - c->pos.x) / c->zoom + f->game_width / 2, (p.y - c->pos.y) / c->zoom + GAME_HEIGHT / 2};
+}
+
+// A sprite's part `rect` (in its image's pixels) at x, y, scaled and rotated about its
+// top-left: the original's GfxDrawSprite with a rect.
+static void draw_part(const HudSprite *s, float x, float y, float sx, float sy, float rotation, Rgba color,
+                      float left, float top, float right, float bottom)
 {
     if (s->tex.handle == 0) return;
     float scale = s->width / (float)s->tex.width; // units per image pixel
@@ -123,7 +186,7 @@ static void draw_part(const HudSprite *s, float x, float y, float rotation, Rgba
     float u0 = left / (float)s->tex.width, u1 = right / (float)s->tex.width;
     float v0 = top / (float)s->tex.height, v1 = bottom / (float)s->tex.height;
 
-    Mat3 m = mat3_transform(x, y, 1, 1, 0, 0, rotation);
+    Mat3 m = mat3_transform(x, y, sx, sy, 0, 0, rotation);
     Vec2 p0 = mat3_apply(m, vec2(0, 0)), p1 = mat3_apply(m, vec2(w, 0));
     Vec2 p2 = mat3_apply(m, vec2(w, h)), p3 = mat3_apply(m, vec2(0, h));
     GfxVertex v[4] = {
@@ -137,12 +200,30 @@ static void draw_part(const HudSprite *s, float x, float y, float rotation, Rgba
 
 static void draw_sprite(const HudSprite *s, float x, float y, float rotation, Rgba color)
 {
-    draw_part(s, x, y, rotation, color, 0, 0, (float)s->tex.width, (float)s->tex.height);
+    draw_part(s, x, y, 1, 1, rotation, color, 0, 0, (float)s->tex.width, (float)s->tex.height);
 }
 
-static float deg_to_rad(float deg)
+static void draw_sprite_scaled(const HudSprite *s, float x, float y, float sx, float sy, Rgba color)
 {
-    return deg * 3.14159265f / 180.0f;
+    draw_part(s, x, y, sx, sy, 0, color, 0, 0, (float)s->tex.width, (float)s->tex.height);
+}
+
+static void draw_rect(float x0, float y0, float x1, float y1, Rgba color)
+{
+    GfxVertex v[4] = {
+        gfx_vertex(x0, y0, 0, 0, color),
+        gfx_vertex(x1, y0, 0, 0, color),
+        gfx_vertex(x1, y1, 0, 0, color),
+        gfx_vertex(x0, y1, 0, 0, color),
+    };
+    gfx_draw_quad(gfx_white(), v);
+}
+
+// A pixel-tall line `w` units long: the original's DrawLine.
+static void draw_line(const Frame *f, float x, float y, float w, Rgba color)
+{
+    float x0 = pixel_align(f, x), y0 = pixel_align(f, y);
+    draw_rect(x0, y0, pixel_align(f, x0 + w), y0 + f->pixel, color);
 }
 
 // The original's RenderBar: the bar's image cut to the share `p`, growing from its left
@@ -173,7 +254,96 @@ static void draw_bar(const Frame *f, const HudSprite *bar, BarPos pos, float x, 
             py += h * (1 - p) * scale;
         }
     }
-    draw_part(bar, px, py, deg_to_rad(rotation), (Rgba){255, 255, 255, INT.alpha}, left, top, right, bottom);
+    draw_part(bar, px, py, 1, 1, deg_to_rad(rotation), (Rgba){255, 255, 255, INT.alpha}, left, top, right, bottom);
+}
+
+static Rgba with_alpha(Rgba c, int a)
+{
+    c.a = (uint8_t)clampi(a, 0, 255);
+    return c;
+}
+
+static Rgba team_message_color(Team team)
+{
+    switch (team) {
+    case TEAM_ALPHA: return (Rgba){255, 0, 0, 255};
+    case TEAM_BRAVO: return (Rgba){0, 0, 255, 255};
+    case TEAM_CHARLIE: return COLOR_CHARLIEJ;
+    case TEAM_DELTA: return COLOR_DELTAJ;
+    default: return COLOR_ENTER;
+    }
+}
+
+// --- the players, sorted -----------------------------------------------------------
+
+// The original keeps SortedPlayers by kills; here the ranking is made where it is read.
+static int rank_players(const HudData *d, int out[MAX_PLAYERS])
+{
+    int n = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (d->players[i].active) out[n++] = i;
+    }
+    for (int i = 1; i < n; i++) { // insertion sort, by kills descending, then by deaths
+        int p = out[i], j = i - 1;
+        while (j >= 0 && (d->players[out[j]].kills < d->players[p].kills ||
+                          (d->players[out[j]].kills == d->players[p].kills &&
+                           d->players[out[j]].deaths > d->players[p].deaths))) {
+            out[j + 1] = out[j];
+            j--;
+        }
+        out[j + 1] = p;
+    }
+    return n;
+}
+
+static int count_spectators(const HudData *d)
+{
+    int n = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) n += d->players[i].active && d->players[i].spectator;
+    return n;
+}
+
+static int count_team(const HudData *d, Team team)
+{
+    int n = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        n += d->players[i].active && !d->players[i].spectator && d->players[i].team == team;
+    }
+    return n;
+}
+
+// --- the sections, in the original's order -----------------------------------------
+
+// The big messages, centred where they were posted, shrinking to fit the window.
+static void draw_big_messages(const Frame *f, const HudData *d, Rect viewport)
+{
+    int npot = 1;
+    while (npot < (int)viewport.height / 2) npot *= 2;
+    float max_size = 0.8f * (float)npot;
+
+    for (int i = 0; i < d->big_count; i++) {
+        const HudBigMessage *m = &d->big[i];
+        if (m->delay <= 0) continue;
+        int alpha = m->color.a ? m->color.a : 255;
+        alpha = clampi(3 * m->delay + 25, 0, alpha);
+        float scale = m->scale * (viewport.height / GAME_HEIGHT) * 4.8f;
+        float extra = 1.0f;
+        if (scale * text_style_size(FONT_BIG) > max_size) {
+            extra = scale;
+            scale = max_size / text_style_size(FONT_BIG);
+            extra /= scale;
+        }
+        text_align(i == 0 ? TEXT_BASELINE : TEXT_TOP);
+        text_scale(extra);
+        text_style_scaled(FONT_BIG, scale);
+        text_color(with_alpha(m->color, alpha));
+        float a = alpha / 255.0f;
+        text_shadow(1, 1, (Rgba){0, 0, 0, (uint8_t)(a * a * a * a * alpha)});
+        text_draw(m->text, m->x, m->y);
+        text_align(TEXT_TOP);
+        text_scale(1.0f);
+    }
+    text_shadow(0, 0, (Rgba){0});
 }
 
 // The bars and their icons: the original's RenderInterface, the IsInteractiveInterface
@@ -244,6 +414,129 @@ static void draw_bars(const Interface *hud, const Frame *f, const RenderSoldier 
     }
 }
 
+// The crosshair, bigger with the bink, coloured by whoever is under it: the original's,
+// less the sniper line.
+static void draw_cursor(const Interface *hud, const Frame *f, const HudData *d, const RenderSoldier *me, Vec2 cursor)
+{
+    const HudSprite *s = &hud->cursor;
+    if (s->tex.handle == 0) return;
+
+    float scale = 1.0f;
+    float inaccuracy = (float)me->hit_spray + me->move_acc * 100.0f;
+    if (inaccuracy > 0) scale += powf(inaccuracy, 0.6f) / 20.0f * scale;
+
+    int alpha = STATUS_TRANSPARENCY;
+    Rgba color = {255, 255, 255, 255};
+    if (d->cursor_text[0]) {
+        alpha = STATUS_TRANSPARENCY - 50;
+        color = d->cursor_friendly ? (Rgba){0x33, 0xFF, 0x33, 255} : (Rgba){0xFF, 0x33, 0x33, 255};
+    }
+    float x = pixel_align(f, cursor.x - s->width / 2 * scale);
+    float y = pixel_align(f, cursor.y - s->height / 2 * scale);
+    draw_sprite_scaled(s, x, y, scale, scale, with_alpha(color, alpha));
+}
+
+// The arrow over my head, bobbing; steadier and fainter while spawn protection lasts.
+static void draw_player_indicator(const Interface *hud, const Frame *f, const HudData *d, const RenderSoldier *me)
+{
+    const HudSprite *s = &hud->arrow;
+    if (s->tex.handle == 0 || !me->active) return;
+    Vec2 at = world_to_interface(f, me->pose.p[12 - 1]);
+    float x = at.x - s->width / 2, y = at.y - s->height / 2 - 15;
+    int alpha;
+    if (me->spawn_protected && !d->survival) {
+        alpha = d->cease_fire_counter * 2 + 75;
+    } else {
+        alpha = 100;
+        y += 2 * sinf(5.1f * (float)d->time);
+    }
+    draw_sprite(s, x, y, 0, (Rgba){255, 255, 255, (uint8_t)clampi(alpha, 0, 255)});
+}
+
+// The ping dot, greener and smaller the lower the ping.
+static void draw_ping_dot(const Interface *hud, const Frame *f, const HudData *d)
+{
+    if (!d->player_names || hud->dot.tex.handle == 0) return;
+    int ping = d->ping;
+    float x = INT.ping_x * f->iscale_x, y = INT.ping_y;
+    float sx = 0.5f + ping / 600.0f, sy = 0.45f + ping / 600.0f;
+    Rgba c;
+    if (ping <= 50) c = (Rgba){0x00, 0xFF, 0x00};
+    else if (ping <= 100) c = (Rgba){0x22, 0xFF, 0x00};
+    else if (ping <= 150) c = (Rgba){0x54, 0xC7, 0x00};
+    else if (ping <= 200) c = (Rgba){0x76, 0xA7, 0x00};
+    else if (ping <= 250) c = (Rgba){0x93, 0x88, 0x00};
+    else if (ping <= 300) c = (Rgba){0xA1, 0x77, 0x00};
+    else if (ping <= 350) c = (Rgba){0xCC, 0x48, 0x00};
+    else c = (Rgba){0xFF, 0x00, 0x00};
+    draw_sprite_scaled(&hud->dot, x, y, sx, sy, with_alpha(c, ping > 255 ? 255 : ping));
+}
+
+// The kill console's weapon icons, beside the lines drawn later with the texts.
+static void draw_kill_console_icons(const Interface *hud, const Frame *f, const HudData *d, Rect viewport)
+{
+    int alpha = 255;
+    if (viewport.width < 1024) {
+        if (d->frags_menu) alpha = 50;
+        if (d->chat_type != HUD_CHAT_NONE) alpha = 150;
+    }
+    float l2 = 0;
+    for (int j = 0; j < d->kill_count; j++) {
+        const HudKillLine *k = &d->kills[j];
+        if (!k->text[0] || !k->has_icon) continue;
+        l2 += KILLCONSOLE_SEPARATE_HEIGHT;
+        float x = 605 * f->iscale_x;
+        float y = (float)j * (FONT_WEAPONMENUSIZE + 2) + 59 + l2;
+        draw_sprite_scaled(&hud->guns[k->weapon], x, y, 0.8f, 0.8f, (Rgba){255, 255, 255, (uint8_t)alpha});
+    }
+}
+
+// The frags menu's box: the original's "Background For Frags Stats". Returns where its
+// bottom is, for the texts.
+static float draw_frags_background(const Interface *hud, const Frame *f, const HudData *d, Rect viewport)
+{
+    float x = 25 + f->fragx, y = 5;
+    int groups = 0;
+    for (Team t = TEAM_ALPHA; t <= TEAM_DELTA; t++) groups += count_team(d, t) > 0;
+    groups += count_team(d, TEAM_NONE) > 0;
+    int spectators = count_spectators(d);
+    groups += spectators > 0;
+    int players = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) players += d->players[i].active;
+
+    float bottom = 70 + (float)((players + 1) * FRAGSMENU_PLAYER_HEIGHT) + (float)groups * 15;
+    float sx = 590 / BACKGROUND_WIDTH, sy = bottom / BACKGROUND_WIDTH;
+    draw_sprite_scaled(&hud->back, x, y, sx, sy, (Rgba){255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.56f)});
+
+    if (sy * BACKGROUND_WIDTH > GAME_HEIGHT - 80) { // more than fits: the scroll hint blinks
+        float bx = 580 + f->fragx, by = GAME_HEIGHT / 2;
+        draw_sprite(&hud->scroll, bx, by, 0, (Rgba){255, 255, 255, (uint8_t)fabsf(sinf(5.1f * (float)d->time) * 255)});
+    }
+    return bottom;
+}
+
+// The team box with the flags away from home: the original's "Team Box".
+static void draw_team_box(const Interface *hud, const Frame *f, const HudData *d)
+{
+    if (!d->team_game) return;
+    float x = INT.team_box_x * f->iscale_x, y = INT.team_box_y;
+    draw_sprite_scaled(&hud->back, x, y, 57 / BACKGROUND_WIDTH, 88 / BACKGROUND_WIDTH,
+                       (Rgba){255, 255, 255, (uint8_t)(INT.alpha * 0.56f)});
+
+    if (!d->flags_known) return;
+    if (d->mode == HUD_MODE_CTF) {
+        x = pixel_align(f, (INT.team_box_x + 4) * f->iscale_x);
+        y = pixel_align(f, INT.team_box_y + 5);
+        if (!d->flag_in_base[TEAM_ALPHA]) draw_sprite(&hud->noflag, x, y, 0, (Rgba){255, 0, 0, INT.alpha});
+        x = pixel_align(f, x + 31);
+        if (!d->flag_in_base[TEAM_BRAVO]) draw_sprite(&hud->noflag, x, y, 0, (Rgba){0, 0, 255, INT.alpha});
+    } else if (d->mode == HUD_MODE_INF && !d->flag_in_base[TEAM_BRAVO]) {
+        x = pixel_align(f, (INT.team_box_x + 19) * f->iscale_x);
+        y = pixel_align(f, INT.team_box_y + 3);
+        draw_sprite(&hud->noflag, x, y, 0, (Rgba){0, 0, 255, INT.alpha});
+    }
+}
+
 static bool has_display_name(WeaponId id)
 {
     switch (id) {
@@ -258,49 +551,409 @@ static bool has_display_name(WeaponId id)
     }
 }
 
-// The numbers and names: the original's RenderPlayerInterfaceTexts, the living part.
-static void draw_texts(const Frame *f, const RenderSoldier *me, const Context *ctx)
+// The numbers and names: the original's RenderPlayerInterfaceTexts.
+static void draw_player_texts(const Frame *f, const HudData *d, const RenderSoldier *me, const Context *ctx)
 {
-    if (me->dead) return;
     char str[64];
+    if (!me->dead) {
+        // bullets
+        text_style(FONT_MENU);
+        text_color((Rgba){242, 244, 40, INT.alpha});
+        float x = INT.ammo_ico_x * f->iscale_x + (INT.bullets_x - INT.ammo_ico_x);
+        float y = INT.ammo_ico_y + (INT.bullets_y - INT.ammo_ico_y);
+        snprintf(str, sizeof(str), "%d", me->gun.ammo);
+        text_draw(str, INT.bullets_right ? x - text_width(str) : x, y);
 
-    // bullets
+        // the weapon
+        if (has_display_name(me->weapon)) {
+            x = INT.ammo_ico_x * f->iscale_x + (INT.weapon_x - INT.ammo_ico_x);
+            y = INT.ammo_ico_y + (INT.weapon_y - INT.ammo_ico_y);
+            text_style(FONT_WEAPONS_MENU);
+            text_color((Rgba){255, 245, 177, INT.alpha});
+            const char *name = ctx->weapons.info[me->weapon].name;
+            text_draw(name, INT.weapon_right ? x - text_width(name) : x, y);
+        }
+    }
+
+    // my place, my kills against the leader's, the kill limit
+    int ranked[MAX_PLAYERS];
+    int n = rank_players(d, ranked);
+    int spectators = count_spectators(d);
+    int playing = n - spectators;
+    int pos = 0;
+    for (int i = 0; i < n; i++) {
+        if (ranked[i] == d->me) pos = i + 1;
+    }
+    text_style(FONT_SMALL);
+    float x = INT.status_x * f->iscale_x, y = INT.status_y;
+    if (pos > 0 && pos <= playing) {
+        snprintf(str, sizeof(str), "%d/%d", pos, playing);
+        text_color((Rgba){88, 255, 90, INT.alpha});
+        text_draw(str, x, y);
+    }
+    const HudPlayer *mine = &d->players[d->me];
+    text_color((Rgba){255, 55, 50, INT.alpha});
+    if (pos == 1 && playing > 1) {
+        int lead = mine->kills - d->players[ranked[1]].kills;
+        snprintf(str, sizeof(str), "%d (%s%d)", mine->kills, lead > 0 ? "+" : "", lead);
+    } else {
+        int behind = n > 0 ? mine->kills - d->players[ranked[0]].kills : 0;
+        snprintf(str, sizeof(str), "%d (%d)", mine->kills, behind);
+    }
+    text_draw(str, x, y + 10);
+    text_color((Rgba){114, 120, 255, INT.alpha});
+    snprintf(str, sizeof(str), "%d", d->kill_limit);
+    text_draw(str, x, y + 20);
+}
+
+// The teams' scores in the team box, best first.
+static void draw_team_scores(const Frame *f, const HudData *d)
+{
+    if (!d->team_game) return;
     text_style(FONT_MENU);
-    text_color((Rgba){242, 244, 40, INT.alpha});
-    float x = INT.ammo_ico_x * f->iscale_x + (INT.bullets_x - INT.ammo_ico_x);
-    float y = INT.ammo_ico_y + (INT.bullets_y - INT.ammo_ico_y);
-    snprintf(str, sizeof(str), "%d", me->gun.ammo);
-    text_draw(str, INT.bullets_right ? x - text_width(str) : x, y);
-
-    // the weapon
-    if (has_display_name(me->weapon)) {
-        x = INT.ammo_ico_x * f->iscale_x + (INT.weapon_x - INT.ammo_ico_x);
-        y = INT.ammo_ico_y + (INT.weapon_y - INT.ammo_ico_y);
-        text_style(FONT_WEAPONS_MENU);
-        text_color((Rgba){255, 245, 177, INT.alpha});
-        const char *name = ctx->weapons.info[me->weapon].name;
-        text_draw(name, INT.weapon_right ? x - text_width(name) : x, y);
+    float x = INT.team_box_x * f->iscale_x + 2, y = INT.team_box_y + 25;
+    int count = 2, spacing = 40;
+    if (d->mode == HUD_MODE_TEAMMATCH) {
+        count = 4;
+        spacing = 24;
+        y -= 25;
+    }
+    Team order[4] = {TEAM_ALPHA, TEAM_BRAVO, TEAM_CHARLIE, TEAM_DELTA};
+    for (int i = 1; i < count; i++) { // by kills, the original's SortedTeamScore
+        Team t = order[i];
+        int j = i - 1;
+        while (j >= 0 && d->team_kills[order[j]] < d->team_kills[t]) {
+            order[j + 1] = order[j];
+            j--;
+        }
+        order[j + 1] = t;
+    }
+    for (int i = 0; i < count; i++) {
+        char str[16];
+        snprintf(str, sizeof(str), "%d", d->team_kills[order[i]]);
+        text_color(team_message_color(order[i]));
+        text_draw(str, x, y + (float)(spacing * i));
     }
 }
 
-// The crosshair: the original's, less the bink and the sniper line.
-static void draw_cursor(const Interface *hud, const Frame *f, Vec2 cursor)
+// The scoreboard: the original's RenderFragsMenuTexts.
+static void draw_frags_texts(const Frame *f, const HudData *d, float menu_bottom)
 {
-    const HudSprite *s = &hud->cursor;
-    if (s->tex.handle == 0) return;
-    float x = pixel_align(f, cursor.x - s->width / 2);
-    float y = pixel_align(f, cursor.y - s->height / 2);
-    draw_sprite(s, x, y, 0, (Rgba){255, 255, 255, STATUS_TRANSPARENCY});
+    float x = f->fragx, y = 0;
+    char str[96];
+    int spectators = count_spectators(d);
+    int ranked[MAX_PLAYERS];
+    int n = rank_players(d, ranked);
+
+    // where each group's rows start; the order is alpha, bravo, charlie, delta, none,
+    // then the spectators (index 5)
+    Vec2 lines[6] = {0};
+    const int groups[6] = {TEAM_ALPHA, TEAM_BRAVO, TEAM_CHARLIE, TEAM_DELTA, TEAM_NONE, 5};
+    int counts[6];
+    for (int g = 0; g < 6; g++) counts[g] = g == 5 ? spectators : count_team(d, (Team)groups[g]);
+    if (d->team_game) {
+        int step = 0, k = 0;
+        for (int g = 0; g < 6; g++) {
+            if (counts[g] <= 0) continue;
+            int slot = groups[g];
+            lines[slot] = vec2(x + 35, y + 50 + (float)step + (float)(k * FRAGSMENU_PLAYER_HEIGHT));
+            step += 20;
+            k += counts[g];
+            Rgba c = slot == 5 ? (Rgba){129, 52, 118, 255} : team_message_color((Team)slot);
+            draw_line(f, lines[slot].x, lines[slot].y + 15, 565, c);
+        }
+    } else {
+        lines[0].y = y + 40 + FRAGSMENU_PLAYER_HEIGHT;
+        lines[5].y = y + 40 + (float)((n - spectators + 1) * FRAGSMENU_PLAYER_HEIGHT);
+    }
+
+    // columns
+    const char *points = d->mode == HUD_MODE_DEATHMATCH || d->mode == HUD_MODE_TEAMMATCH ? "Kills:" : "Points:";
+    text_style(FONT_MENU);
+    text_color((Rgba){255, 255, 230, 255});
+    text_draw(points, x + 280 - (strlen(points) > 7 ? 80 : 0), y + 40);
+    text_draw("Deaths:", x + 390, y + 40);
+    text_draw("Ping:", x + 530, y + 40);
+
+    // the server
+    text_style(FONT_SMALL_BOLD);
+    text_color((Rgba){233, 180, 12, 255});
+    text_draw(d->hostname, x + 30, y + 15);
+
+    snprintf(str, sizeof(str), "Time %02d:%02d", d->time_left_min, d->time_left_sec);
+    text_style(FONT_SMALL);
+    text_color((Rgba){170, 160, 200, 230});
+    text_draw(str, x + 485, y + 15);
+    text_color((Rgba){200, 150, 0, 255});
+    text_draw(d->info, x + 30, y + 30);
+
+    // how many play
+    text_color((Rgba){200, 190, 180, 240});
+    text_draw("Players", x + 330, y + 15);
+    if (d->team_game) {
+        int teams = d->mode == HUD_MODE_TEAMMATCH ? 4 : 2;
+        const Rgba colors[4] = {{233, 0, 0, 240}, {0, 0, 233, 240}, {233, 233, 0, 240}, {0, 233, 0, 240}};
+        for (int i = 0; i < teams; i++) {
+            text_color(colors[i]);
+            snprintf(str, sizeof(str), "%d", count_team(d, (Team)(TEAM_ALPHA + i)));
+            text_draw(str, x + 440 + (float)(20 * (i / 2)), y + 10 + (float)(10 * (i % 2)));
+        }
+    } else {
+        snprintf(str, sizeof(str), "%d", n);
+        text_draw(str, x + 450, y + 15);
+    }
+
+    // the players, each in its group
+    int ids[6] = {0}, team_total[6] = {0};
+    for (int j = 0; j < n; j++) {
+        const HudPlayer *p = &d->players[ranked[j]];
+        int k = p->spectator ? 5 : d->team_game ? (int)p->team : 0;
+        text_color(k == 5 ? (Rgba){220, 50, 200, 113} : with_alpha(p->shirt, 255));
+        float py = lines[k].y + 20 + (float)(FRAGSMENU_PLAYER_HEIGHT * ids[k]);
+        text_draw(p->name, x + 44, py);
+        snprintf(str, sizeof(str), "%d", p->kills);
+        text_draw(str, x + 284, py);
+        snprintf(str, sizeof(str), "%d", p->deaths);
+        text_draw(str, x + 394, py);
+        if (p->flags > 0) {
+            snprintf(str, sizeof(str), "x%d", p->flags);
+            text_draw(str, x + 348, py);
+        }
+        if (!p->bot) {
+            snprintf(str, sizeof(str), "%d", p->ping);
+            text_draw(str, x + 534, py);
+        }
+        if (d->chat_type != HUD_CHAT_NONE && d->chat_text[0] == '/') { // numbers, for the commands
+            text_color((Rgba){245, 255, 230, 155});
+            snprintf(str, sizeof(str), "%d", ranked[j] + 1);
+            text_draw(str, x + 20 - text_width(str), py);
+        }
+        ids[k]++;
+        team_total[k] += p->kills;
+    }
+
+    // the groups' captions
+    if (d->team_game) {
+        const char *captions[6] = {"Player", "Alpha", "Bravo", "Charlie", "Delta", "Spectator"};
+        const Rgba totals[5] = {{0}, {0xD2, 0x0F, 0x05, 0xDD}, {0x15, 0x1F, 0xD9, 0xDD}, {0xD2, 0xD2, 0x05, 0xDD}, {0x05, 0xD2, 0x05, 0xDD}};
+        for (int g = 0; g < 6; g++) {
+            if (counts[g] <= 0) continue;
+            int slot = groups[g];
+            text_color(slot == 5 ? (Rgba){129, 52, 118, 255} : team_message_color((Team)slot));
+            text_style(FONT_SMALL_BOLD);
+            text_draw(captions[slot], lines[slot].x, lines[slot].y);
+            if (g < 4) {
+                text_color(totals[slot]);
+                text_style(FONT_SMALL);
+                snprintf(str, sizeof(str), "%d", team_total[slot]);
+                text_draw(str, x + 284, lines[slot].y + 3);
+            }
+        }
+    }
+    (void)menu_bottom; // the demo's name goes above it, once demos are recorded
 }
 
-void interface_draw(const Interface *hud, const RenderSoldier *me, const Context *ctx, Vec2 cursor, int fps,
-                    Rect viewport)
+// The console in the corner, smaller when a line runs past the window.
+static void draw_console(const Frame *f, const HudData *d)
+{
+    text_style(FONT_SMALL);
+    float line = FONT_CONSOLELINEHEIGHT * f->pixel * text_style_size(FONT_SMALL);
+    int alpha = d->frags_menu ? 60 : 255;
+    bool tiny = false;
+    for (int i = 0; i < d->console_count; i++) {
+        const HudLine *l = &d->console[i];
+        if (!l->text[0]) continue;
+        text_color(with_alpha(l->color, alpha));
+        if ((text_width(l->text) > f->game_width - 10) != tiny) {
+            tiny = !tiny;
+            text_style(tiny ? FONT_SMALLEST : FONT_SMALL);
+        }
+        text_draw(l->text, 5, 1 + (float)i * line);
+    }
+}
+
+// The kill console's lines, right-aligned, smaller when long.
+static void draw_kill_console(const Frame *f, const HudData *d, Rect viewport)
+{
+    int alpha = 245;
+    if (viewport.width < 1024) {
+        if (d->frags_menu) alpha = 80;
+        if (d->chat_type != HUD_CHAT_NONE) alpha = 180;
+    }
+    text_style(FONT_WEAPONS_MENU);
+    bool tiny = false;
+    float dy = 0;
+    for (int i = 0; i < d->kill_count; i++) {
+        const HudKillLine *k = &d->kills[i];
+        if (!k->text[0]) continue;
+        if (k->has_icon) dy += KILLCONSOLE_SEPARATE_HEIGHT;
+        if ((strlen(k->text) > 14) != tiny) {
+            tiny = !tiny;
+            text_style(tiny ? FONT_SMALLEST : FONT_WEAPONS_MENU);
+        }
+        float x = 595 * f->iscale_x - text_width(k->text);
+        float y = 60 + (float)i * (FONT_WEAPONMENUSIZE + 2) + dy;
+        text_color(with_alpha(k->color, alpha));
+        text_draw(k->text, x, y);
+    }
+}
+
+// "Respawn in..." and the survival round's state, in a box at the top.
+static void draw_respawn_texts(const Interface *hud, const Frame *f, const HudData *d, const RenderSoldier *me)
+{
+    const HudPlayer *mine = &d->players[d->me];
+    if (mine->spectator) {
+        if (d->survival_round_over) {
+            text_style(FONT_MENU);
+            text_color((Rgba){115, 255, 100, 255});
+            text_draw("End of round...", 240 * f->iscale_x, 400);
+        }
+        return;
+    }
+    if (me->dead || d->survival_round_over) {
+        draw_sprite_scaled(&hud->back, 180 * f->iscale_x, 1, 300 / BACKGROUND_WIDTH, 22 / BACKGROUND_WIDTH,
+                           (Rgba){255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.56f)});
+    }
+    char str[96] = "";
+    if (!d->survival && d->respawn_counter > 0) {
+        snprintf(str, sizeof(str), "Respawn in... %.1f", d->respawn_counter / TICK_RATE_HUD);
+        text_color((Rgba){255, 65, 55, 255});
+    } else if (d->survival && me->dead && !d->survival_round_over) {
+        text_color((Rgba){115, 255, 100, 255});
+        if (!d->team_game) snprintf(str, sizeof(str), "%d players left", d->alive);
+        else snprintf(str, sizeof(str), "%d team players left", d->team_alive[mine->team]);
+    } else if (d->survival_round_over) {
+        if (me->dead) {
+            snprintf(str, sizeof(str), "End of round...%.1f", d->respawn_counter / TICK_RATE_HUD);
+            text_color((Rgba){115, 255, 100, 255});
+        } else {
+            snprintf(str, sizeof(str), "You have survived");
+            text_color((Rgba){155, 245, 100, 255});
+        }
+    }
+    text_style(FONT_MENU);
+    text_draw(str, 200 * f->iscale_x, 4);
+}
+
+// What I am typing, with its caret blinking.
+static void draw_chat_input(const Frame *f, const HudData *d)
+{
+    const char *prefix;
+    Rgba color;
+    switch (d->chat_type) {
+    case HUD_CHAT_PUBLIC: prefix = "Say:", color = COLOR_CHAT; break;
+    case HUD_CHAT_TEAM: prefix = "Team Say:", color = COLOR_TEAMCHAT; break;
+    case HUD_CHAT_COMMAND: prefix = "Cmd: ", color = COLOR_ENTER; break;
+    default: return;
+    }
+    text_style(FONT_SMALL);
+    text_color(color);
+
+    char str[HUD_TEXT + 16];
+    snprintf(str, sizeof(str), "%s%s", prefix, d->chat_text);
+    float width = text_width(str), height = text_height(str);
+    if (width >= f->game_width - 80) text_style(FONT_SMALLEST);
+    text_align(TEXT_BASELINE);
+    text_draw(str, 5, 420);
+
+    double t = d->time - d->chat_changed_at;
+    if (t - floor(t) <= 0.5) {
+        char before[HUD_TEXT + 16];
+        size_t n = strlen(prefix) + (size_t)clampi(d->chat_cursor, 0, (int)strlen(d->chat_text));
+        snprintf(before, sizeof(before), "%.*s", (int)n, str);
+        // a trailing space is measured by doubling it, as the original works around
+        if (n > 0 && before[n - 1] == ' ') strncat(before, " ", sizeof(before) - strlen(before) - 1);
+        float x = pixel_align(f, 5 + text_width(before)) + 2 * f->pixel;
+        float y = pixel_align(f, 420 - height);
+        draw_rect(x, y, x + f->pixel, y + pixel_align(f, 1.4f * height), (Rgba){255, 230, 170, 255});
+    }
+    text_align(TEXT_TOP);
+}
+
+// What each player says, over their head, and the dots while they type.
+static void draw_chat_texts(const Frame *f, const HudData *d, const RenderState *state)
+{
+    text_style(FONT_SMALL);
+    text_align(TEXT_BOTTOM);
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        const HudPlayer *p = &d->players[i];
+        const RenderSoldier *s = &state->soldiers[i];
+        if (!p->active || !s->active || (!p->typing && p->chat_delay <= 0)) continue;
+        Vec2 at = world_to_interface(f, s->pose.p[12 - 1]);
+        float dy = -25;
+        if (p->typing) {
+            const char *dots = "...";
+            char str[4];
+            snprintf(str, sizeof(str), "%.*s", d->tick / 30 % 3 + 1, dots);
+            text_color(COLOR_ABOVECHAT);
+            text_draw(str, at.x - text_width(dots) / 2, at.y + dy);
+            dy -= 15;
+        }
+        if (p->chat_delay > 0 && strlen(p->chat) < MORECHATTEXT) {
+            text_color(with_alpha(COLOR_ABOVECHAT, 9 * p->chat_delay));
+            text_draw(p->chat, at.x - text_width(p->chat) / 2, at.y + dy);
+        }
+    }
+    text_align(TEXT_TOP);
+}
+
+// A teammate's name, only when they are off the screen (or everyone's, watching).
+static void draw_player_name(const Frame *f, const HudData *d, const RenderState *state, int i, bool only_offscreen)
+{
+    const HudPlayer *p = &d->players[i];
+    const RenderSoldier *s = &state->soldiers[i];
+    const RenderSoldier *me = &state->soldiers[d->me];
+    float dy = ((only_offscreen ? -10 : 5) + 15) / maxf(1.0f, f->camera->zoom);
+    float w = text_width(p->name), h = text_height(p->name);
+    Vec2 at = world_to_interface(f, s->pose.p[7 - 1]);
+    float x = at.x, y = at.y + dy;
+    if (only_offscreen && x >= 0 && x <= f->game_width && y >= 0 && y <= GAME_HEIGHT) return;
+
+    x = maxf(0, minf(f->game_width - w, x - w / 2));
+    y = maxf(0, minf(GAME_HEIGHT - h, y - (only_offscreen ? 0 : h / 2)));
+    float dx = maxf(fabsf(me->pose.p[7 - 1].x - s->pose.p[7 - 1].x), 1);
+    float ddy = maxf(fabsf(me->pose.p[7 - 1].y - s->pose.p[7 - 1].y), 1);
+    int alpha = mini(255, 50 + (int)roundf(100000.0f / (dx + ddy / 2)));
+    Rgba c = p->holding_flag ? COLOR_OUTOFSCREEN_FLAG : p->dead ? COLOR_OUTOFSCREEN_DEAD : COLOR_OUTOFSCREEN;
+    text_color(with_alpha(c, alpha));
+    text_draw(p->name, x, y);
+}
+
+static void draw_player_names(const Frame *f, const HudData *d, const RenderState *state)
+{
+    text_style(FONT_WEAPONS_MENU);
+    const HudPlayer *mine = &d->players[d->me];
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        const HudPlayer *p = &d->players[i];
+        if (!p->active || !state->soldiers[i].active || p->spectator) continue;
+        if (mine->spectator) draw_player_name(f, d, state, i, false);
+        else if (d->team_game && i != d->me && p->team == mine->team) draw_player_name(f, d, state, i, true);
+    }
+}
+
+// The seconds of spawn protection left, over my head, in survival.
+static void draw_cease_fire(const Frame *f, const HudData *d, const RenderSoldier *me)
+{
+    Vec2 at = world_to_interface(f, vec2_add(me->pose.p[9 - 1], vec2(-2, -15)));
+    char str[16];
+    snprintf(str, sizeof(str), "%d", d->cease_fire_counter / 60 + 1);
+    text_style(FONT_SMALL);
+    text_color(COLOR_GAME);
+    text_draw(str, at.x, at.y);
+}
+
+void interface_draw(const Interface *hud, const HudData *d, const RenderState *state, const Context *ctx,
+                    const GameCamera *camera, Vec2 cursor, Rect viewport)
 {
     Frame f = {
         .game_width = GAME_HEIGHT * viewport.width / viewport.height,
         .pixel = GAME_HEIGHT / viewport.height,
+        .camera = camera,
     };
     f.iscale_x = f.game_width / DEFAULT_WIDTH;
+    f.fragx = floorf(f.game_width / 2 - 300) - 25;
+    const RenderSoldier *me = &state->soldiers[d->me];
+    const HudPlayer *mine = &d->players[d->me];
 
     gfx_transform(mat3_ortho(0, f.game_width, 0, GAME_HEIGHT));
     text_pixel_ratio(vec2(f.pixel, f.pixel));
@@ -308,17 +961,52 @@ void interface_draw(const Interface *hud, const RenderSoldier *me, const Context
     text_align(TEXT_TOP);
     text_scale(1.0f);
 
+    draw_big_messages(&f, d, viewport);
+
     if (me->active) {
-        draw_bars(hud, &f, me, ctx);
-        if (!me->dead) draw_cursor(hud, &f, cursor);
-        draw_texts(&f, me, ctx);
+        if (!mine->spectator) draw_bars(hud, &f, me, ctx);
+        if (!me->dead && !mine->spectator) draw_cursor(hud, &f, d, me, cursor);
+        if (!mine->spectator) draw_player_indicator(hud, &f, d, me);
+        draw_ping_dot(hud, &f, d);
     }
 
-    if (hud->show_info) {
-        char str[32];
-        text_style(FONT_SMALL);
-        text_color((Rgba){239, 170, 200, 255});
-        snprintf(str, sizeof(str), "FPS: %d", fps);
-        text_draw(str, 460 * f.iscale_x, 10);
+    draw_kill_console_icons(hud, &f, d, viewport);
+    float frags_bottom = 0;
+    if (d->frags_menu) frags_bottom = draw_frags_background(hud, &f, d, viewport);
+    draw_team_box(hud, &f, d);
+
+    // the texts, shadowed
+    text_shadow(1, 1, (Rgba){0, 0, 0, 255});
+    if (me->active) draw_player_texts(&f, d, me, ctx);
+    draw_team_scores(&f, d);
+    if (d->paused) {
+        text_color((Rgba){185, 250, 138, 255});
+        text_draw("Game paused", 197 + f.fragx, 24);
     }
+    if (d->frags_menu) draw_frags_texts(&f, d, frags_bottom);
+    draw_console(&f, d);
+    if (me->active) draw_respawn_texts(hud, &f, d, me);
+    draw_chat_input(&f, d);
+    draw_kill_console(&f, d, viewport);
+
+    if (me->active) {
+        draw_chat_texts(&f, d, state);
+        if (d->player_names) draw_player_names(&f, d, state);
+        if (d->survival && d->cease_fire_counter > 0) draw_cease_fire(&f, d, me);
+    }
+
+    text_style(FONT_SMALL);
+    if (d->cursor_text[0] && !me->dead) { // the name under the cursor
+        text_color((Rgba){255, 255, 255, 0x77});
+        text_draw(d->cursor_text, cursor.x - text_width(d->cursor_text) / 2, cursor.y + 10);
+    }
+    if (d->show_info) {
+        char str[32];
+        text_color((Rgba){239, 170, 200, 255});
+        snprintf(str, sizeof(str), "FPS: %d", d->fps);
+        text_draw(str, 460 * f.iscale_x, 10);
+        snprintf(str, sizeof(str), "Ping: %d", d->ping);
+        text_draw(str, 550 * f.iscale_x, 10);
+    }
+    text_shadow(0, 0, (Rgba){0});
 }

@@ -85,6 +85,10 @@ void gfx_image_free(GfxImage *img);
 GfxTexture gfx_texture_create(int width, int height, const uint8_t *rgba);
 void gfx_texture_delete(GfxTexture *tex);
 
+// Replaces a rectangle of a texture with straight-alpha RGBA8 pixels (premultiplied on
+// the way up).
+void gfx_texture_update(GfxTexture tex, int x, int y, int width, int height, const uint8_t *rgba);
+
 // An image file straight to a texture; false when missing. With `key`, colour-keyed.
 bool gfx_texture_load(GfxTexture *tex, const char *path, const Rgba *key);
 
@@ -114,6 +118,9 @@ void gfx_buffer_delete(GfxBuffer *buf);
 // `count` vertices from `offset` in a static buffer, drawn now (after a flush, so the
 // order holds).
 void gfx_draw_buffer(GfxBuffer buf, GfxTexture tex, int offset, int count);
+
+// The window's pixels to a PNG, as the original's GfxSaveScreen. Flushes first.
+bool gfx_save_screen(const char *path, int width, int height);
 
 // --- matrices ----------------------------------------------------------------------
 

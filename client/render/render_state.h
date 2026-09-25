@@ -30,6 +30,8 @@ typedef struct RenderSoldier {
     WeaponId weapon;    // in the hands
     Weapon gun;         // its ammo, and the ticks of firing and reloading left: the HUD's bars
     int jets;           // fuel left
+    int hit_spray;      // the bink from being hit, and the aim's wobble from moving: the crosshair grows
+    float move_acc;
     WeaponId secondary; // slung across the back
     AnimId body_anim;
     int grenades;

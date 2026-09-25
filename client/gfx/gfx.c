@@ -491,3 +491,49 @@ Rgba rgba_faded(Rgba color, float alpha)
 {
     return (Rgba){color.r, color.g, color.b, alpha8((float)color.a * alpha / 255.0f)};
 }
+
+void gfx_texture_update(GfxTexture tex, int x, int y, int width, int height, const uint8_t *rgba)
+{
+    if (!tex.handle || width <= 0 || height <= 0) return;
+    size_t size = (size_t)width * (size_t)height * 4;
+    uint8_t *pre = malloc(size);
+    if (!pre) return;
+    for (size_t i = 0; i < size; i += 4) {
+        unsigned a = rgba[i + 3];
+        pre[i + 0] = (uint8_t)(rgba[i + 0] * a / 255);
+        pre[i + 1] = (uint8_t)(rgba[i + 1] * a / 255);
+        pre[i + 2] = (uint8_t)(rgba[i + 2] * a / 255);
+        pre[i + 3] = (uint8_t)a;
+    }
+    glBindTexture(GL_TEXTURE_2D, tex.handle);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pre);
+    free(pre);
+}
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
+bool gfx_save_screen(const char *path, int width, int height)
+{
+    gfx_flush();
+    size_t stride = (size_t)width * 4;
+    uint8_t *px = malloc(stride * (size_t)height);
+    if (!px) return false;
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    // GL reads bottom row first; the file wants the top
+    uint8_t *row = malloc(stride);
+    if (!row) {
+        free(px);
+        return false;
+    }
+    for (int y = 0; y < height / 2; y++) {
+        uint8_t *a = px + (size_t)y * stride, *b = px + (size_t)(height - 1 - y) * stride;
+        memcpy(row, a, stride);
+        memcpy(a, b, stride);
+        memcpy(b, row, stride);
+    }
+    free(row);
+    bool ok = stbi_write_png(path, width, height, 4, px, (int)stride) != 0;
+    free(px);
+    return ok;
+}
