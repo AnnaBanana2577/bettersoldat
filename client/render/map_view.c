@@ -50,6 +50,7 @@ void map_view_load(MapView *v, const char *base, const Map *map)
 void map_view_unload(MapView *v)
 {
     if (!v->map) return;
+    gfx_texture_delete(&v->minimap.tex);
     gfx_buffer_delete(&v->polys.buffer);
     scenery_unload(v->scenery, v->map->scenery_count);
     gfx_texture_delete(&v->texture);
@@ -161,4 +162,102 @@ void map_view_bounds(const Map *map, Vec2 *low, Vec2 *high)
             high->y = fmaxf(high->y, p.y);
         }
     }
+}
+
+// --- the minimap -------------------------------------------------------------------
+
+static int npot(int x)
+{
+    int n = 1;
+    while (n < x) n *= 2;
+    return n;
+}
+
+// The original's minimap: the sky and every polygon drawn four times over into a
+// target, then that shrunk into the texture the interface shows, so the edges come out
+// smooth.
+void map_view_build_minimap(MapView *v, float render_height)
+{
+    Minimap *m = &v->minimap;
+    gfx_texture_delete(&m->tex);
+    if (!v->map) return;
+    const Map *map = v->map;
+
+    Vec2 low, high;
+    map_view_bounds(map, &low, &high);
+    float bw = high.x - low.x, bh = high.y - low.y;
+    if (bw <= 0 || bh <= 0) return;
+
+    // 260 interface units of width plus height, in pixels at this window
+    float unit = render_height / GAME_HEIGHT; // pixels per interface unit
+    float w = 260.0f * unit;
+    float sx = w / (bw + bh);
+    int i = (int)roundf(sx * bw), j = (int)roundf(sx * bh);
+    if (i <= 0 || j <= 0) return;
+
+    m->scale = sx / unit;
+    m->offset = low;
+    m->width = (float)i / unit;
+    m->height = (float)j / unit;
+
+    // four times over: the sky above and below the map, the gradient, the polygons
+    const int n = 4;
+    GfxTexture big = gfx_render_target_create(npot(n * i), npot(n * j));
+    if (big.handle == 0) return;
+    gfx_target(&big);
+    gfx_viewport(0, 0, n * i, n * j);
+    gfx_clear((Rgba){0, 0, 0, 0});
+
+    float d = (float)MAX_SECTOR * fmaxf((float)map->sectors_division, ceilf(0.5f * GAME_HEIGHT / (float)MAX_SECTOR));
+    Rgba top = map->bg_top, bottom = map->bg_bottom;
+    top.a = bottom.a = 255;
+    gfx_transform(mat3_ortho(0, 1, low.y, high.y));
+    GfxVertex above[4] = {
+        gfx_vertex(0, fminf(-d, low.y), 0, 0, top), gfx_vertex(1, fminf(-d, low.y), 0, 0, top),
+        gfx_vertex(1, low.y, 0, 0, top),            gfx_vertex(0, low.y, 0, 0, top),
+    };
+    GfxVertex below[4] = {
+        gfx_vertex(0, high.y, 0, 0, bottom),           gfx_vertex(1, high.y, 0, 0, bottom),
+        gfx_vertex(1, fmaxf(d, high.y), 0, 0, bottom), gfx_vertex(0, fmaxf(d, high.y), 0, 0, bottom),
+    };
+    GfxVertex sky[4] = {
+        gfx_vertex(0, -d, 0, 0, top), gfx_vertex(1, -d, 0, 0, top),
+        gfx_vertex(1, d, 0, 0, bottom), gfx_vertex(0, d, 0, 0, bottom),
+    };
+    gfx_draw_quad(gfx_white(), above);
+    gfx_draw_quad(gfx_white(), below);
+    gfx_draw_quad(gfx_white(), sky);
+
+    gfx_transform(mat3_ortho(low.x, high.x, low.y, high.y));
+    gfx_draw_buffer(v->polys.buffer, v->texture, 0, v->polys.background_count + v->polys.terrain_count);
+
+    // shrunk into the texture the interface draws
+    m->tex = gfx_render_target_create(npot(i), npot(j));
+    if (m->tex.handle == 0) {
+        gfx_target(NULL);
+        gfx_texture_delete(&big);
+        return;
+    }
+    gfx_target(&m->tex);
+    gfx_viewport(0, 0, i, j);
+    gfx_clear((Rgba){0, 0, 0, 0});
+    gfx_transform(mat3_ortho(0, 1, 0, 1));
+    float u = (float)(n * i) / (float)big.width, vv = (float)(n * j) / (float)big.height;
+    GfxVertex quad[4] = {
+        gfx_vertex(0, 0, 0, 0, RGBA_WHITE), gfx_vertex(1, 0, u, 0, RGBA_WHITE),
+        gfx_vertex(1, 1, u, vv, RGBA_WHITE), gfx_vertex(0, 1, 0, vv, RGBA_WHITE),
+    };
+    gfx_draw_quad(big, quad);
+    gfx_target(NULL);
+    gfx_texture_delete(&big);
+
+    m->u1 = (float)i / (float)m->tex.width;
+    m->v1 = (float)j / (float)m->tex.height;
+    gfx_texture_filter(m->tex, true);
+}
+
+Vec2 map_view_to_minimap(const MapView *v, Vec2 world)
+{
+    const Minimap *m = &v->minimap;
+    return (Vec2){(world.x - m->offset.x) * m->scale, (world.y - m->offset.y) * m->scale};
 }

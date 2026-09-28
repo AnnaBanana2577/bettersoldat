@@ -70,6 +70,9 @@ typedef ptrdiff_t GLintptr;
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
 #define GL_INFO_LOG_LENGTH 0x8B84
+#define GL_FRAMEBUFFER 0x8D40
+#define GL_COLOR_ATTACHMENT0 0x8CE0
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
 
 // Every function the client calls, as (return type, name, argument list). gl.c turns
 // the list into the pointer definitions and the loader; here into the declarations.
@@ -96,6 +99,11 @@ typedef ptrdiff_t GLintptr;
                               GLsizei height, GLenum format, GLenum type, const void *pixels))                       \
     X(void, glGenerateMipmap, (GLenum target))                                                                       \
     X(void, glActiveTexture, (GLenum texture))                                                                       \
+    X(void, glGenFramebuffers, (GLsizei n, GLuint *framebuffers))                                                    \
+    X(void, glDeleteFramebuffers, (GLsizei n, const GLuint *framebuffers))                                           \
+    X(void, glBindFramebuffer, (GLenum target, GLuint framebuffer))                                                  \
+    X(void, glFramebufferTexture2D, (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level)) \
+    X(GLenum, glCheckFramebufferStatus, (GLenum target))                                                             \
     X(void, glGenBuffers, (GLsizei n, GLuint *buffers))                                                              \
     X(void, glDeleteBuffers, (GLsizei n, const GLuint *buffers))                                                     \
     X(void, glBindBuffer, (GLenum target, GLuint buffer))                                                            \

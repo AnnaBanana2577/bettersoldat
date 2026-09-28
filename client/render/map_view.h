@@ -18,11 +18,23 @@ typedef struct MapPolys {
     int terrain_count;    // vertices, from background_count
 } MapPolys;
 
+// The map in small, for the corner of the screen: the original's MapGfx.Minimap. The
+// image spans 260 interface units of width plus height; the scale and offset map a
+// world point onto it.
+typedef struct Minimap {
+    GfxTexture tex;      // handle 0 until built
+    float width, height; // in interface units
+    float u1, v1;        // the image's share of the texture
+    float scale;         // world units to interface units
+    Vec2 offset;         // the world's top-left
+} Minimap;
+
 typedef struct MapView {
     const Map *map;      // borrowed; the owner outlives the view
     GfxTexture texture;  // handle 0 draws the polygons untextured
     GfxTexture *scenery; // one per Map.scenery entry, handle 0 where it failed to load
     MapPolys polys;
+    Minimap minimap;
 } MapView;
 
 // The pieces of a map, so a caller can leave some out.
@@ -42,6 +54,14 @@ void map_view_unload(MapView *v);
 // The map and nothing else, in the original's layer order. Under the camera's
 // transform.
 void map_view_draw(const MapView *v, const GameCamera *camera, unsigned parts);
+
+// Draws the map into the minimap's texture, sized for a window `render_height` pixels
+// tall (again when that changes). Leaves the window as the target, with no viewport or
+// transform set.
+void map_view_build_minimap(MapView *v, float render_height);
+
+// A world point on the minimap, from its top-left.
+Vec2 map_view_to_minimap(const MapView *v, Vec2 world);
 
 // The box the map's polygons fill, which is what a view frames when a map opens.
 void map_view_bounds(const Map *map, Vec2 *low, Vec2 *high);

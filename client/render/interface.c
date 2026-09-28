@@ -139,6 +139,10 @@ void interface_load(Interface *hud, const char *base, const ScaleData *scales)
     hud_sprite_load(&hud->noflag, base, scales, "noflag.png");
     hud_sprite_load(&hud->arrow, base, scales, "arrow.png");
     hud_sprite_load(&hud->scroll, base, scales, "scroll.png");
+    hud_sprite_load(&hud->menucursor, base, scales, "menucursor.png");
+    hud_sprite_load(&hud->smalldot, base, scales, "smalldot.png");
+    hud_sprite_load(&hud->overlay, base, scales, "overlay.png");
+    hud_sprite_load(&hud->sight, base, scales, "sight.png");
     for (int i = 0; i < WEAPON_COUNT; i++) {
         if (GUN_ICONS[i]) hud_sprite_load(&hud->guns[i], base, scales, GUN_ICONS[i]);
     }
@@ -149,7 +153,8 @@ void interface_unload(Interface *hud)
     HudSprite *all[] = {&hud->health,   &hud->ammo,       &hud->jet,      &hud->health_bar, &hud->jet_bar,
                         &hud->reload_bar, &hud->vest_bar, &hud->fire_bar, &hud->fire_bar_r, &hud->nade,
                         &hud->cluster_nade, &hud->dot,    &hud->cursor,   &hud->back,       &hud->noflag,
-                        &hud->arrow,    &hud->scroll};
+                        &hud->arrow,    &hud->scroll,   &hud->menucursor, &hud->smalldot, &hud->overlay,
+                        &hud->sight};
     for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) gfx_texture_delete(&all[i]->tex);
     for (int i = 0; i < WEAPON_COUNT; i++) gfx_texture_delete(&hud->guns[i].tex);
     *hud = (Interface){0};
@@ -942,8 +947,428 @@ static void draw_cease_fire(const Frame *f, const HudData *d, const RenderSoldie
     text_draw(str, at.x, at.y);
 }
 
-void interface_draw(const Interface *hud, const HudData *d, const RenderState *state, const Context *ctx,
-                    const GameCamera *camera, Vec2 cursor, Rect viewport)
+// --- the rest of the original's RenderInterface --------------------------------------
+
+// The bonus tint over everything: the original's "Bonus all colored".
+static void draw_bonus_overlay(const Interface *hud, const Frame *f, const HudData *d)
+{
+    Rgba color = {0};
+    switch (d->bonus) {
+    case HUD_BONUS_FLAMEGOD: color = (Rgba){0xFF, 0xFF, 0x00, 62}; break;
+    case HUD_BONUS_PREDATOR: color = (Rgba){0xFE, 0x00, 0xDC, 82}; break;
+    case HUD_BONUS_BERSERKER: color = (Rgba){0xFE, 0x00, 0x00, 82}; break;
+    default: return;
+    }
+    const HudSprite *s = &hud->overlay;
+    if (s->tex.handle == 0) return;
+    draw_sprite_scaled(s, 0, 0, f->game_width / s->width, GAME_HEIGHT / s->height, color);
+}
+
+// The line from my hand toward the cursor, when the server allows it.
+static void draw_sniper_line(const Interface *hud, const Frame *f, const RenderSoldier *me, Vec2 cursor)
+{
+    if (hud->sight.tex.handle == 0) return;
+    Vec2 hand = world_to_interface(f, me->pose.p[15 - 1]);
+    float length = vec2_length(vec2_sub(cursor, hand));
+    if (length >= 1200) return;
+    float x = pixel_align(f, hand.x), y = pixel_align(f, hand.y);
+    float angle = atan2f(cursor.y - y, cursor.x - x);
+    Mat3 m = mat3_transform(x - 1, y - 1, length / 240, length / 480, 1, 1, angle);
+    const HudSprite *s = &hud->sight;
+    Rgba color = {255, 255, 255, (uint8_t)clampi((int)(length / 240 * 32), 0, 255)};
+    Vec2 p0 = mat3_apply(m, vec2(0, 0)), p1 = mat3_apply(m, vec2(s->width, 0));
+    Vec2 p2 = mat3_apply(m, vec2(s->width, s->height)), p3 = mat3_apply(m, vec2(0, s->height));
+    GfxVertex v[4] = {gfx_vertex(p0.x, p0.y, 0, 0, color), gfx_vertex(p1.x, p1.y, 1, 0, color),
+                      gfx_vertex(p2.x, p2.y, 1, 1, color), gfx_vertex(p3.x, p3.y, 0, 1, color)};
+    gfx_draw_quad(s->tex, v);
+}
+
+#define MINIMAP_X 285 // ui_minimap_posx
+#define MINIMAP_Y 5   // ui_minimap_posy
+#define MINIMAP_TRANSPARENCY 230
+
+// A point on the minimap, centred on a dot of `scale`: the original's ToMinimap.
+static Vec2 to_minimap(const Interface *hud, const Frame *f, const MapView *mv, Vec2 world, float scale)
+{
+    Vec2 p = map_view_to_minimap(mv, world);
+    return (Vec2){pixel_align(f, MINIMAP_X + p.x - scale * hud->smalldot.width / 2),
+                  pixel_align(f, MINIMAP_Y + p.y - scale * hud->smalldot.height / 2)};
+}
+
+static void draw_minimap_dot(const Interface *hud, Vec2 at, float scale, Rgba color)
+{
+    draw_sprite_scaled(&hud->smalldot, at.x, at.y, scale, scale, color);
+}
+
+// The map in the corner with everyone on my side on it, and the view's box when I
+// only watch: the original's "Minimap".
+static void draw_minimap(const Interface *hud, const Frame *f, const HudData *d, const RenderState *state,
+                         const MapView *mv)
+{
+    const Minimap *m = &mv->minimap;
+    if (m->tex.handle == 0) return;
+    float x = pixel_align(f, MINIMAP_X), y = pixel_align(f, MINIMAP_Y);
+    Rgba c = {255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.85f)};
+    GfxVertex v[4] = {
+        gfx_vertex(x, y, 0, 0, c),
+        gfx_vertex(x + m->width, y, m->u1, 0, c),
+        gfx_vertex(x + m->width, y + m->height, m->u1, m->v1, c),
+        gfx_vertex(x, y + m->height, 0, m->v1, c),
+    };
+    gfx_draw_quad(m->tex, v);
+
+    int alpha = MINIMAP_TRANSPARENCY;
+    const HudPlayer *mine = &d->players[d->me];
+    for (int j = 0; j < MAX_PLAYERS; j++) {
+        const HudPlayer *p = &d->players[j];
+        const RenderSoldier *s = &state->soldiers[j];
+        if (!p->active || !s->active || p->spectator) continue;
+        if (!mine->spectator && p->team != mine->team) continue;
+        Vec2 head = s->pose.p[7 - 1];
+        if (p->holding_flag) {
+            draw_minimap_dot(hud, to_minimap(hud, f, mv, head, 1), 1, with_alpha((Rgba){0xFF, 0xFF, 0x00}, alpha));
+        } else if (j == d->me || (mine->spectator && j == d->camera_follow)) {
+            draw_minimap_dot(hud, to_minimap(hud, f, mv, head, 0.8f), 0.8f, with_alpha(RGBA_WHITE, alpha));
+        } else {
+            Rgba dot = {0};
+            if (!p->dead) {
+                switch (p->team) {
+                case TEAM_ALPHA: dot = (Rgba){0xFF, 0x00, 0x00}; break;
+                case TEAM_BRAVO: dot = (Rgba){0x13, 0x13, 0xFF}; break;
+                case TEAM_CHARLIE: dot = (Rgba){0xFF, 0xFF, 0x00}; break;
+                case TEAM_DELTA: dot = (Rgba){0x00, 0xFF, 0x00}; break;
+                default: break;
+                }
+            }
+            draw_minimap_dot(hud, to_minimap(hud, f, mv, head, 0.65f), 0.65f, with_alpha(dot, alpha));
+            if (p->chat_delay > 0) { // a word over the dot
+                Vec2 above = vec2_add(head, vec2(0, -40));
+                draw_minimap_dot(hud, to_minimap(hud, f, mv, above, 0.5f), 0.5f, with_alpha(RGBA_WHITE, alpha));
+            }
+        }
+    }
+
+    if (mine->spectator) { // the view's box: the original's RenderMinimapSquare
+        Vec2 view = camera_view_size(f->camera);
+        Vec2 start = map_view_to_minimap(mv, vec2_sub(f->camera->pos, vec2_scale(view, 0.5f)));
+        Vec2 end = map_view_to_minimap(mv, vec2_add(f->camera->pos, vec2_scale(view, 0.5f)));
+        float min_x = x, min_y = y, max_x = x + m->width, max_y = y + m->height;
+        float sx = maxf(min_x, pixel_align(f, MINIMAP_X + start.x));
+        float sy = maxf(min_y, pixel_align(f, MINIMAP_Y + start.y));
+        float ex = minf(max_x, pixel_align(f, MINIMAP_X + end.x));
+        float ey = minf(max_y, pixel_align(f, MINIMAP_Y + end.y));
+        Rgba box = {255, 255, 255, 127};
+        float t = 0.5f; // the original's DrawBox, half a unit thick
+        draw_rect(sx - t, sy - t, ex + t, sy, box);
+        draw_rect(ex, sy, ex + t, ey, box);
+        draw_rect(sx - t, ey, ex + t, ey + t, box);
+        draw_rect(sx - t, sy, sx, ey, box);
+    }
+}
+
+// The weapon stats (F2): the box, the icons and the numbers.
+static void draw_weapon_stats(const Interface *hud, const Frame *f, const HudData *d)
+{
+    float x = f->fragx, y = 0;
+    int n = 0;
+    for (int i = 0; i < d->weapon_stat_count; i++) n += d->weapon_stats[i].shots > 0;
+
+    if (!d->frags_menu) {
+        draw_sprite_scaled(&hud->back, 25 + x, 5 + y, 590 / BACKGROUND_WIDTH, (float)(n * 20 + 85) / BACKGROUND_WIDTH,
+                           (Rgba){255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.56f)});
+        int z = 0;
+        for (int i = 0; i < d->weapon_stat_count; i++) {
+            if (d->weapon_stats[i].shots <= 0) continue;
+            z++;
+            draw_sprite(&hud->guns[d->weapon_stats[i].weapon], 30 + x, (float)(z * 20 + 50) + y, 0, RGBA_WHITE);
+        }
+    }
+
+    char str[64];
+    text_style(FONT_SMALL);
+    text_color((Rgba){170, 160, 200, 230});
+    text_draw("% = Accuracy", x + 465, y + 15);
+    text_draw("HS = Headshots", x + 465, y + 25);
+    text_style(FONT_MENU);
+    text_color((Rgba){255, 255, 230, 255});
+    text_draw("Weapon:", x + 70, y + 40);
+    text_draw(" %", x + 240, y + 40);
+    text_draw("Shots:", x + 290, y + 40);
+    text_draw("Hits:", x + 390, y + 40);
+    text_draw("Kills (HS):", x + 470, y + 40);
+    text_style(FONT_SMALL);
+    text_color(RGBA_WHITE);
+    int j = 0;
+    for (int i = 0; i < d->weapon_stat_count; i++) {
+        const HudWeaponStat *s = &d->weapon_stats[i];
+        if (s->shots <= 0) continue;
+        j++;
+        float py = y + (float)(j * 20 + 50);
+        text_draw(s->name, x + 90, py);
+        snprintf(str, sizeof(str), "%d%%", (int)roundf(s->hits * 100.0f / (float)s->shots));
+        text_draw(str, x + 245, py);
+        snprintf(str, sizeof(str), "%d", s->shots);
+        text_draw(str, x + 295, py);
+        snprintf(str, sizeof(str), "%d", s->hits);
+        text_draw(str, x + 395, py);
+        snprintf(str, sizeof(str), "%d (%d)", s->kills, s->headshots);
+        text_draw(str, x + 475, py);
+    }
+    text_color((Rgba){255, 255, 230, 100});
+    text_draw("(Updated every 10 seconds)", x + 230, y + (float)((j + 1) * 20 + 50));
+}
+
+// The boxes behind the team and weapons menus, and the weapons' pictures.
+static void draw_menu_boxes(const Interface *hud, const Frame *f, const HudData *d, const GameMenus *menus)
+{
+    const Rgba box = {255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.56f)};
+    if (menus->menus[MENU_TEAM].active) {
+        draw_sprite_scaled(&hud->back, 45, 140, 262 / BACKGROUND_WIDTH, 250 / BACKGROUND_WIDTH, box);
+    }
+    if (menus->menus[MENU_LIMBO].active) {
+        float sx = 252 / BACKGROUND_WIDTH;
+        draw_sprite_scaled(&hud->back, 45, 140, sx, 210 / BACKGROUND_WIDTH, box);
+        draw_sprite_scaled(&hud->back, 45, 350, sx, 80 / BACKGROUND_WIDTH, box);
+
+        float x = pixel_align(f, 55), y = 157;
+        for (int k = 1; k <= 10; k++) { // the primaries
+            if (!menus->weapons_active[k]) continue;
+            const HudSprite *s = &hud->guns[k];
+            float dy = maxf(0, 18 - s->height) / 2;
+            draw_sprite(s, x, pixel_align(f, y + (float)(18 * (k - 1)) + dy), 0,
+                        (Rgba){255, 255, 255, STATUS_TRANSPARENCY});
+        }
+        for (int k = 11; k <= 14; k++) { // the secondaries, the chosen one bright
+            if (!menus->weapons_active[k]) continue;
+            const HudSprite *s = &hud->guns[k];
+            float dy = maxf(0, 18 - s->height) / 2;
+            int alpha = d->selected_secondary == (WeaponId)k ? STATUS_TRANSPARENCY : STATUS_TRANSPARENCY / 2;
+            draw_sprite(s, x, pixel_align(f, y + (float)(k * 18) + dy), 0, (Rgba){255, 255, 255, (uint8_t)alpha});
+        }
+    }
+}
+
+// The vote's box and its texts.
+static void draw_vote(const Interface *hud, const Frame *f, const HudData *d)
+{
+    if (d->vote != HUD_VOTE_NONE) {
+        float x = 45 * f->iscale_x, y = 400;
+        draw_sprite_scaled(&hud->back, x, y, 252 / BACKGROUND_WIDTH, 40 / BACKGROUND_WIDTH,
+                           (Rgba){255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.36f)});
+        char str[HUD_TEXT + 16];
+        text_style(FONT_WEAPONS_MENU);
+        text_color((Rgba){254, 104, 104, 225});
+        text_draw(d->vote == HUD_VOTE_KICK ? "Kick" : "Map", x + 30, y);
+        text_color((Rgba){244, 244, 244, 225});
+        text_draw(d->vote_target, x + 65, y);
+        text_color((Rgba){224, 218, 244, 205});
+        snprintf(str, sizeof(str), "Voter: %s", d->vote_starter);
+        text_draw(str, x + 10, y + 11);
+        snprintf(str, sizeof(str), "Reason:%s", d->vote_reason);
+        text_draw(str, x + 10, y + 20);
+        text_color((Rgba){234, 234, 114, 205});
+        text_draw("F12 - Yes   F11 - No", x + 50, y + 31);
+    }
+    if (d->vote_reason_typing) {
+        text_style(FONT_SMALL);
+        text_color((Rgba){254, 124, 124, 255});
+        text_draw("Type reason for vote:", 5, 390);
+    }
+}
+
+// The radio menu's two columns.
+static void draw_radio_menu(const Interface *hud, const HudData *d)
+{
+    if (d->mode != HUD_MODE_CTF && d->mode != HUD_MODE_INF && d->mode != HUD_MODE_HTF) return;
+    const Rgba box = {255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.56f)};
+    float sx = 180 / BACKGROUND_WIDTH, sy = 80 / BACKGROUND_WIDTH;
+    draw_sprite_scaled(&hud->back, 5, 250, sx, sy, box);
+    if (d->radio_state) draw_sprite_scaled(&hud->back, 185, 250, sx, sy, box);
+
+    int alpha = d->frags_menu || d->stats_menu ? 80 : 230;
+    text_style(FONT_MENU);
+    text_color((Rgba){255, 255, 255, (uint8_t)alpha});
+    text_draw("Radio:", 10, 252);
+    text_style(FONT_SMALL);
+    const Rgba plain = {200, 200, 200, (uint8_t)alpha}, chosen = {210, 210, 5, (uint8_t)alpha};
+    char str[HUD_NAME + 8];
+    for (int i = 0; i < HUD_RADIO_LINES; i++) {
+        text_color(d->radio_state == i + 1 ? chosen : plain);
+        snprintf(str, sizeof(str), "%d: %s", i + 1, d->radio_first[i]);
+        text_draw(str, 10, 270 + (float)(12 * i));
+    }
+    if (d->radio_state) {
+        text_color(plain);
+        for (int i = 0; i < HUD_RADIO_LINES; i++) {
+            snprintf(str, sizeof(str), "%d: %s", i + 1, d->radio_second[i]);
+            text_draw(str, 190, 270 + (float)(12 * i));
+        }
+    }
+}
+
+static bool hovered(const GameMenus *menus, MenuId id, int button)
+{
+    return menus->hovered_menu == (int)id && menus->hovered_button == button;
+}
+
+// The weapons menu's captions and the tips under the cursor.
+static void draw_weapon_menu_texts(const HudData *d, const GameMenus *menus)
+{
+    const GameMenu *menu = &menus->menus[MENU_LIMBO];
+    text_style(FONT_SMALL);
+    text_shadow(1, 1, (Rgba){0, 0, 0, 255});
+    text_color((Rgba){234, 234, 234, 255});
+    text_draw("Primary Weapon:", 65, 142);
+    text_align(TEXT_BASELINE);
+    text_color((Rgba){214, 214, 214, 255});
+    text_draw("Secondary Weapon:", 65, 349);
+    text_align(TEXT_TOP);
+
+    int cursor_on = 0;
+    for (int i = 0; i < menu->button_count; i++) {
+        const MenuButton *b = &menu->buttons[i];
+        if (!b->active) continue;
+        bool hover = hovered(menus, MENU_LIMBO, i);
+        if (hover) cursor_on = i;
+        float x = b->x1 + 85, y = b->y1 + (b->y2 - b->y1) / 2 - 2;
+        text_color((Rgba){255, 255, 255, 230});
+        if ((WeaponId)(i + 1) == d->selected_weapon || (i >= 10 && (WeaponId)(i + 1) == d->selected_secondary)) {
+            text_color(hover ? (Rgba){85, 105, 55, 230} : (Rgba){55, 165, 55, 230});
+        } else if (hover) {
+            x += 1;
+            y -= 1;
+        }
+        text_draw(b->caption, x, y);
+    }
+
+    // the tips for the first few runs (cl_runs < 4), for the weapons that need them
+    text_style(FONT_WEAPONS_MENU);
+    const MenuButton *b = &menu->buttons[cursor_on];
+    float tip_y = b->y1 + (b->y2 - b->y1) / 2;
+    const char *tip = NULL;
+    switch (cursor_on + 1) {
+    case 8: tip = "Hold fire to shoot, inaccurate while moving"; break;
+    case 12: tip = "Can be thrown by holding throw weapon button"; break;
+    case 14: tip = "Hold fire to shoot, while crouching or prone"; break;
+    default: break;
+    }
+    if (tip && menus->noob_show) {
+        text_color((Rgba){225, 195, 195, 250});
+        text_draw(tip, b->x1 + 245, tip_y - 2);
+    }
+}
+
+static void draw_esc_menu_texts(const Interface *hud, const Frame *f, const GameMenus *menus)
+{
+    const GameMenu *menu = &menus->menus[MENU_ESC];
+    float sx = menu->w / BACKGROUND_WIDTH, sy = menu->h / BACKGROUND_WIDTH;
+    float dx = (f->game_width / 2 - menu->w / 2) - menu->x, dy = (GAME_HEIGHT / 2 - menu->h / 2) - menu->y;
+    draw_sprite_scaled(&hud->back, menu->x + dx, menu->y + dy, sx, sy,
+                       (Rgba){255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.56f)});
+
+    text_style(FONT_SMALL);
+    text_shadow(1, 1, (Rgba){0, 0, 0, 255});
+    text_color((Rgba){250, 245, 255, 240});
+    text_draw("ESC - return to game", menu->x + dx + 20, menu->y + menu->h + dy - 45);
+    text_color((Rgba){230, 235, 255, 190});
+    text_align(TEXT_BOTTOM);
+    const char *version = "csoldat 0.1.0";
+    text_draw(version, menu->x + menu->w + dx - 2 - text_width(version), menu->y + menu->h + dy);
+    text_align(TEXT_TOP);
+
+    text_style(FONT_MENU);
+    text_color((Rgba){255, 255, 255, 250});
+    for (int i = 0; i < menu->button_count; i++) {
+        const MenuButton *b = &menu->buttons[i];
+        if (!b->active) continue;
+        int h = hovered(menus, MENU_ESC, i);
+        float x = b->x1 + dx + (float)h + 10;
+        float y = b->y1 + dy - (float)h + (b->y2 - b->y1) / 2 - text_height(b->caption) / 2;
+        text_draw(b->caption, x, y);
+    }
+}
+
+static void draw_team_menu_texts(const HudData *d, const GameMenus *menus)
+{
+    const GameMenu *menu = &menus->menus[MENU_TEAM];
+    uint8_t alpha = d->frags_menu || d->stats_menu ? 80 : 255;
+    const Rgba colors[6][2] = {
+        {{255, 255, 255, alpha}, {255, 255, 255, 250}}, {{210, 15, 5, alpha}, {210, 15, 5, 250}},
+        {{5, 15, 205, alpha}, {5, 15, 205, 250}},       {{210, 210, 5, alpha}, {210, 210, 5, 250}},
+        {{5, 210, 5, alpha}, {5, 210, 5, 250}},         {{210, 210, 105, alpha}, {210, 210, 105, 250}},
+    };
+    text_style(FONT_MENU);
+    text_shadow(1, 1, (Rgba){0, 0, 0, 255});
+    text_color((Rgba){234, 234, 234, alpha});
+    text_draw("Select Team:", 55, 165);
+
+    for (int i = 0; i < menu->button_count; i++) {
+        const MenuButton *b = &menu->buttons[i];
+        if (!b->active) continue;
+        int h = hovered(menus, MENU_TEAM, i);
+        text_shadow(1, 1, i == 2 ? (Rgba){0x33, 0x33, 0x33, 255} : (Rgba){0, 0, 0, 255});
+        text_color(colors[i][h]);
+        float x = b->x1 + 10 + (float)h;
+        float y = b->y1 - (float)h + (b->y2 - b->y1) / 2 - text_height(b->caption) / 2;
+        text_draw(b->caption, x, y);
+        if (i > 0 && i < 5) {
+            char str[16];
+            snprintf(str, sizeof(str), "(%d)", count_team(d, (Team)i));
+            text_draw(str, 269 + (float)h, y);
+        }
+    }
+}
+
+// The kick and map windows: a box, the name it shows, its buttons.
+static void draw_window_texts(const Interface *hud, const HudData *d, const GameMenus *menus, MenuId id)
+{
+    const GameMenu *menu = &menus->menus[id];
+    draw_sprite_scaled(&hud->back, menu->x, menu->y, menu->w / BACKGROUND_WIDTH, menu->h / BACKGROUND_WIDTH,
+                       (Rgba){255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.56f)});
+    text_style(FONT_MENU);
+    text_shadow(1, 1, (Rgba){0, 0, 0, 255});
+    const MenuButton *first = &menu->buttons[0];
+    if (id == MENU_KICK) {
+        const HudPlayer *p = &d->players[menus->kick_index];
+        if (p->active) {
+            text_color(with_alpha(p->shirt, 255));
+            text_draw(p->name, first->x1, first->y1 - 15);
+        }
+    } else {
+        text_color((Rgba){135, 235, 135, 230});
+        text_draw(d->vote_target, first->x1, first->y1 - 15); // the map the window offers
+    }
+    text_color((Rgba){255, 255, 255, 250});
+    for (int i = 0; i < menu->button_count; i++) {
+        const MenuButton *b = &menu->buttons[i];
+        if (!b->active) continue;
+        int h = hovered(menus, id, i);
+        float x = b->x1 + 10 + (float)h;
+        float y = b->y1 + (b->y2 - b->y1) / 2 - (float)h - text_height(b->caption) / 2;
+        text_draw(b->caption, x, y);
+    }
+}
+
+// The keys, shown in the escape menu for the first three runs.
+static void draw_keys_help(void)
+{
+    text_style(FONT_SMALLEST);
+    text_color((Rgba){250, 90, 95, 255});
+    text_draw("Default keys (shown for first 3 game runs)", 30, 28);
+    text_style(FONT_SMALL);
+    const char *lines[8] = {
+        "[A]/[D] move left/right", "[W]/[S]/[X] jump / crouch / lie down", "[Left Mouse] fire!",
+        "[Right Mouse] jet boots", "hold [E] to toss grenade", "[R] reloads weapon",
+        "[Q] change weapon / [F] throw weapon", "[T] chat / [Y] team chat",
+    };
+    for (int i = 1; i <= 8; i++) {
+        text_color((Rgba){230, (uint8_t)(232 - 2 * i), 255, 255});
+        text_draw(lines[i - 1], 30, (float)(28 + 12 * i));
+    }
+}
+
+void interface_draw(const Interface *hud, const HudData *d, const GameMenus *menus, const RenderState *state,
+                    const Context *ctx, const MapView *map_view, const GameCamera *camera, Vec2 cursor, Rect viewport)
 {
     Frame f = {
         .game_width = GAME_HEIGHT * viewport.width / viewport.height,
@@ -954,6 +1379,8 @@ void interface_draw(const Interface *hud, const HudData *d, const RenderState *s
     f.fragx = floorf(f.game_width / 2 - 300) - 25;
     const RenderSoldier *me = &state->soldiers[d->me];
     const HudPlayer *mine = &d->players[d->me];
+    bool esc = menus->menus[MENU_ESC].active, limbo = menus->menus[MENU_LIMBO].active;
+    bool team = menus->menus[MENU_TEAM].active;
 
     gfx_transform(mat3_ortho(0, f.game_width, 0, GAME_HEIGHT));
     text_pixel_ratio(vec2(f.pixel, f.pixel));
@@ -964,15 +1391,21 @@ void interface_draw(const Interface *hud, const HudData *d, const RenderState *s
     draw_big_messages(&f, d, viewport);
 
     if (me->active) {
+        draw_bonus_overlay(hud, &f, d);
         if (!mine->spectator) draw_bars(hud, &f, me, ctx);
-        if (!me->dead && !mine->spectator) draw_cursor(hud, &f, d, me, cursor);
+        if (!limbo && !team && !esc && !me->dead && !mine->spectator) {
+            if (d->sniper_line) draw_sniper_line(hud, &f, me, cursor);
+            draw_cursor(hud, &f, d, me, cursor);
+        }
         if (!mine->spectator) draw_player_indicator(hud, &f, d, me);
         draw_ping_dot(hud, &f, d);
     }
 
     draw_kill_console_icons(hud, &f, d, viewport);
+    if (d->minimap) draw_minimap(hud, &f, d, state, map_view);
     float frags_bottom = 0;
     if (d->frags_menu) frags_bottom = draw_frags_background(hud, &f, d, viewport);
+    draw_menu_boxes(hud, &f, d, menus);
     draw_team_box(hud, &f, d);
 
     // the texts, shadowed
@@ -983,9 +1416,12 @@ void interface_draw(const Interface *hud, const HudData *d, const RenderState *s
         text_color((Rgba){185, 250, 138, 255});
         text_draw("Game paused", 197 + f.fragx, 24);
     }
+    if (d->stats_menu) draw_weapon_stats(hud, &f, d);
     if (d->frags_menu) draw_frags_texts(&f, d, frags_bottom);
     draw_console(&f, d);
     if (me->active) draw_respawn_texts(hud, &f, d, me);
+    draw_vote(hud, &f, d);
+    if (d->radio_menu && !esc) draw_radio_menu(hud, d);
     draw_chat_input(&f, d);
     draw_kill_console(&f, d, viewport);
 
@@ -996,9 +1432,19 @@ void interface_draw(const Interface *hud, const HudData *d, const RenderState *s
     }
 
     text_style(FONT_SMALL);
-    if (d->cursor_text[0] && !me->dead) { // the name under the cursor
+    if (d->cursor_text[0] && !me->dead && !team && !esc) { // the name under the cursor
         text_color((Rgba){255, 255, 255, 0x77});
         text_draw(d->cursor_text, cursor.x - text_width(d->cursor_text) / 2, cursor.y + 10);
+    }
+    if (d->free_camera) {
+        text_color((Rgba){205, 205, 205, 255});
+        text_draw("Free Camera", (f.game_width - text_width("Free Camera")) / 2, 430);
+    } else if (d->camera_follow >= 0 && d->camera_follow != d->me) {
+        char str[HUD_NAME + 16];
+        snprintf(str, sizeof(str), "Following %s", d->players[d->camera_follow].name);
+        int dead = d->players[d->camera_follow].dead;
+        text_color((Rgba){205, (uint8_t)(205 - dead * 105), (uint8_t)(205 - dead * 105), 255});
+        text_draw(str, (f.game_width - text_width(str)) / 2, 430);
     }
     if (d->show_info) {
         char str[32];
@@ -1008,5 +1454,40 @@ void interface_draw(const Interface *hud, const HudData *d, const RenderState *s
         snprintf(str, sizeof(str), "Ping: %d", d->ping);
         text_draw(str, 550 * f.iscale_x, 10);
     }
+    if (d->recording) {
+        text_color((Rgba){195, 0, 0, (uint8_t)fabsf(sinf(5.1f * (float)d->time / 2) * 255)});
+        text_draw("REC", 612 * f.iscale_x, 1);
+    }
+    if (menus->noob_show && esc && d->chat_type == HUD_CHAT_NONE) draw_keys_help();
+    if (d->shot_distance_shown) {
+        char str[64];
+        text_color((Rgba){230, 65, 60, (uint8_t)(150 + fabsf(sinf(5.1f * (float)d->time) * 100))});
+        snprintf(str, sizeof(str), "DISTANCE: %.2fm", d->shot_distance);
+        text_draw(str, 390 * f.iscale_x, 431);
+        snprintf(str, sizeof(str), "AIRTIME: %.2fs", d->shot_airtime);
+        text_draw(str, 228 * f.iscale_x, 431);
+        if (d->shot_ricochets > 0) {
+            snprintf(str, sizeof(str), "RICOCHETS: %d", d->shot_ricochets);
+            text_draw(str, 62 * f.iscale_x, 431);
+        }
+    }
+
+    // bullet time's widescreen cut
+    if (d->bullet_time) {
+        draw_rect(0, 0, f.game_width, 80, (Rgba){0, 0, 0, 255});
+        draw_rect(0, GAME_HEIGHT - 80, f.game_width, GAME_HEIGHT, (Rgba){0, 0, 0, 255});
+    }
+
+    // the menus' texts, then the pointer
+    if (limbo) draw_weapon_menu_texts(d, menus);
+    if (esc) draw_esc_menu_texts(hud, &f, menus);
+    if (team) draw_team_menu_texts(d, menus);
+    if (menus->menus[MENU_KICK].active) draw_window_texts(hud, d, menus, MENU_KICK);
+    if (menus->menus[MENU_MAP].active) draw_window_texts(hud, d, menus, MENU_MAP);
     text_shadow(0, 0, (Rgba){0});
+
+    if (esc || limbo || team || me->dead) {
+        draw_sprite(&hud->menucursor, pixel_align(&f, cursor.x), pixel_align(&f, cursor.y), 0,
+                    (Rgba){255, 255, 255, STATUS_TRANSPARENCY});
+    }
 }

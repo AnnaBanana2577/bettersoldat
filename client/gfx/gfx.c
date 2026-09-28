@@ -288,6 +288,7 @@ GfxTexture gfx_texture_create(int width, int height, const uint8_t *rgba)
 
 void gfx_texture_delete(GfxTexture *tex)
 {
+    if (tex->framebuffer) glDeleteFramebuffers(1, &tex->framebuffer);
     if (tex->handle) glDeleteTextures(1, &tex->handle);
     *tex = (GfxTexture){0};
 }
@@ -536,4 +537,40 @@ bool gfx_save_screen(const char *path, int width, int height)
     bool ok = stbi_write_png(path, width, height, 4, px, (int)stride) != 0;
     free(px);
     return ok;
+}
+
+// --- render targets ----------------------------------------------------------------
+
+GfxTexture gfx_render_target_create(int width, int height)
+{
+    GfxTexture tex = {0, width, height, 0};
+    if (width <= 0 || height <= 0) return tex;
+    glGenTextures(1, &tex.handle);
+    glBindTexture(GL_TEXTURE_2D, tex.handle);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+    glGenFramebuffers(1, &tex.framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, tex.framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex.handle, 0);
+    bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (ok) {
+        glClearColor(0, 0, 0, 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (!ok) {
+        fprintf(stderr, "render target %dx%d is incomplete\n", width, height);
+        gfx_texture_delete(&tex);
+    }
+    return tex;
+}
+
+void gfx_target(const GfxTexture *target)
+{
+    gfx_flush();
+    glBindFramebuffer(GL_FRAMEBUFFER, target ? target->framebuffer : 0);
 }

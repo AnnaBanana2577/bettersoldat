@@ -11,12 +11,13 @@
 // following me in it, and the world drawn from it. Everything the client is lives in
 // App; nothing else is global.
 //
-//   client [-assets <opensoldat base dir>] [-map <name>] [-size <width>x<height>] [-hud-demo]
+//   client [-assets <opensoldat base dir>] [-map <name>] [-size <width>x<height>] [-hud-demo <page>]
 //          [-screenshot <file.png>]
 //
-// Tab toggles the wireframe, F3 the debug overlay, F4 vsync (off, as the original's
-// default), F1 the scoreboard, F5 the FPS line, F7 the names, the wheel zooms, Escape
-// quits.
+// The keys are the config's defaults: Escape the menu, Tab the weapons, M the teams, F1
+// the scoreboard, F2 the weapon stats, F3 the minimap, F5 the FPS line, F7 the names.
+// F9 toggles the wireframe, F10 the debug overlay, F4 vsync (off, as the original's
+// default); the wheel zooms.
 
 #include <SDL.h>
 #include <stdio.h>
@@ -31,6 +32,7 @@
 #include "render/interface.h"
 #include "render/render.h"
 #include "render/scale_data.h"
+#include "ui/menus.h"
 
 #define ME 0
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
@@ -47,7 +49,7 @@ typedef struct Settings {
     const char *base; // the opensoldat base assets: maps/, anims/, objects/, textures/...
     const char *map;
     int width, height; // the window
-    bool hud_demo;     // the HUD full of sample data, to see every part of it
+    int hud_demo;      // the HUD full of sample data, to see every part of it: page 1, 2 or 3
     const char *screenshot; // a PNG of the 60th frame, then quit
 } Settings;
 
@@ -71,6 +73,7 @@ typedef struct App {
     ScaleData scales; // mod.ini: how big each image is
     Interface hud;
     HudData hud_data; // what the HUD shows beyond the frame: filled here from what there is
+    GameMenus menus;
     double time;      // seconds since the start
 
     // the frame rate, counted over each second for the title
@@ -85,7 +88,7 @@ static Settings settings_parse(int argc, char *argv[])
     for (int i = 1; i + 1 < argc; i += 2) {
         if (strcmp(argv[i], "-assets") == 0) s.base = argv[i + 1];
         else if (strcmp(argv[i], "-map") == 0) s.map = argv[i + 1];
-        else if (strcmp(argv[i], "-hud-demo") == 0) s.hud_demo = true, i--;
+        else if (strcmp(argv[i], "-hud-demo") == 0) s.hud_demo = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "-screenshot") == 0) s.screenshot = argv[i + 1];
         else if (strcmp(argv[i], "-size") == 0 && sscanf(argv[i + 1], "%dx%d", &s.width, &s.height) != 2) {
             s.width = WINDOW_WIDTH;
@@ -196,24 +199,74 @@ static Vec2 cursor(const App *app)
 }
 
 static void interface_open(App *app);
-static void hud_data_demo(HudData *d);
+static void hud_data_demo(HudData *d, int page);
 
-// This frame's events: the window's, the view's own keys, the mouse.
+// What a menu's choice does: the original's GameMenuAction, on this side of it.
+static void apply_menu_action(App *app, MenuAction action)
+{
+    Soldier *me = &app->game->world.soldiers[ME];
+    switch (action.kind) {
+    case MENU_ACTION_QUIT: app->quit = true; break; // the main menu, when there is one
+    case MENU_ACTION_OPEN_TEAM_MENU:
+        menus_show(&app->menus, MENU_TEAM, true, app->hud_data.mode, 1);
+        break;
+    case MENU_ACTION_PICK_PRIMARY:
+        app->hud_data.selected_weapon = (WeaponId)action.value;
+        me->primary_choice = (WeaponId)action.value;
+        if (!me->dead) me->weapon = weapon_state(&app->game->ctx, (WeaponId)action.value);
+        break;
+    case MENU_ACTION_PICK_SECONDARY:
+        app->hud_data.selected_secondary = (WeaponId)action.value;
+        me->secondary_choice = (WeaponId)action.value;
+        if (!me->dead) me->secondary = weapon_state(&app->game->ctx, (WeaponId)action.value);
+        break;
+    case MENU_ACTION_PICK_TEAM: // a change of team goes to the server, once there is one
+    case MENU_ACTION_KICK:
+    case MENU_ACTION_VOTE_MAP:
+    default: break;
+    }
+}
+
+// This frame's events: the window's, the menus' keys and clicks, the view's own keys,
+// the mouse. The binds are the config's defaults (config.cfg); the dev toggles sit on
+// the keys nothing else uses.
 static void poll_events(App *app)
 {
+    HudData *d = &app->hud_data;
+    GameMenus *m = &app->menus;
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
         case SDL_QUIT: app->quit = true; break;
-        case SDL_KEYDOWN:
+        case SDL_KEYDOWN: {
             if (e.key.repeat) break;
-            switch (e.key.keysym.scancode) {
-            case SDL_SCANCODE_ESCAPE: app->quit = true; break;
-            case SDL_SCANCODE_TAB: app->render_options.wireframe = !app->render_options.wireframe; break;
-            case SDL_SCANCODE_F3: app->render_options.debug = !app->render_options.debug; break;
-            case SDL_SCANCODE_F1: app->hud_data.frags_menu = true; break;
-            case SDL_SCANCODE_F5: app->hud_data.show_info = !app->hud_data.show_info; break;
-            case SDL_SCANCODE_F7: app->hud_data.player_names = !app->hud_data.player_names; break;
+            SDL_Scancode key = e.key.keysym.scancode;
+            if (key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_0) { // the menus' numbers
+                int digit = key == SDL_SCANCODE_0 ? 0 : key - SDL_SCANCODE_1 + 1;
+                apply_menu_action(app, menus_number_key(m, digit));
+                break;
+            }
+            switch (key) {
+            case SDL_SCANCODE_ESCAPE: menus_show(m, MENU_ESC, !m->menus[MENU_ESC].active, d->mode, 1); break;
+            case SDL_SCANCODE_TAB: menus_show(m, MENU_LIMBO, !m->menus[MENU_LIMBO].active, d->mode, 1); break;
+            case SDL_SCANCODE_M: menus_show(m, MENU_TEAM, !m->menus[MENU_TEAM].active, d->mode, 1); break;
+            case SDL_SCANCODE_F1:
+                if (!m->menus[MENU_ESC].active) {
+                    d->frags_menu = !d->frags_menu;
+                    if (d->frags_menu) d->stats_menu = false;
+                }
+                break;
+            case SDL_SCANCODE_F2:
+                if (!m->menus[MENU_ESC].active) {
+                    d->stats_menu = !d->stats_menu;
+                    if (d->stats_menu) d->frags_menu = false;
+                }
+                break;
+            case SDL_SCANCODE_F3: d->minimap = !d->minimap; break;
+            case SDL_SCANCODE_F5: d->show_info = !d->show_info; break;
+            case SDL_SCANCODE_F7: d->player_names = !d->player_names; break;
+            case SDL_SCANCODE_F9: app->render_options.wireframe = !app->render_options.wireframe; break;
+            case SDL_SCANCODE_F10: app->render_options.debug = !app->render_options.debug; break;
             case SDL_SCANCODE_F4:
                 app->vsync = !app->vsync;
                 gfx_vsync(app->vsync);
@@ -221,11 +274,17 @@ static void poll_events(App *app)
             default: break;
             }
             break;
-        case SDL_KEYUP:
-            if (e.key.keysym.scancode == SDL_SCANCODE_F1) app->hud_data.frags_menu = false;
-            break;
+        }
         case SDL_MOUSEMOTION:
-            if (SDL_GetWindowFlags(app->window) & SDL_WINDOW_INPUT_FOCUS) input_mouse_motion(&app->input, &e.motion);
+            if (SDL_GetWindowFlags(app->window) & SDL_WINDOW_INPUT_FOCUS) {
+                input_mouse_motion(&app->input, &e.motion);
+                menus_mouse_move(m, app->input.cursor);
+            }
+            break;
+        case SDL_MOUSEBUTTONDOWN:
+            if (e.button.button == SDL_BUTTON_LEFT && menus_any_active(m)) {
+                apply_menu_action(app, menus_click(m, d->selected_weapon != WEAPON_NONE));
+            }
             break;
         case SDL_MOUSEWHEEL:
             if (e.wheel.y != 0) camera_zoom_at(&app->camera, e.wheel.y > 0 ? 1.15f : 1.0f / 1.15f, cursor(app));
@@ -271,16 +330,19 @@ static void hud_data_build(App *app)
         p->shirt = (Rgba){199, 56, 51, 255}; // the gostek's, until players carry colours
     }
     d->me = ME;
+    d->camera_follow = -1;
+    d->selected_weapon = me->weapon.id;
+    d->selected_secondary = me->secondary.id;
     d->respawn_counter = me->respawn_counter;
     d->cease_fire_counter = me->cease_fire_counter;
     d->fps = app->fps;
     d->time = app->time;
     d->tick = (int)g->world.tick;
-    if (app->settings.hud_demo) hud_data_demo(d);
+    if (app->settings.hud_demo) hud_data_demo(d, app->settings.hud_demo);
 }
 
 // Sample data in every part of the HUD, for looking at it before the game fills it.
-static void hud_data_demo(HudData *d)
+static void hud_data_demo(HudData *d, int page)
 {
     const char *names[] = {"Player 1", "Crow", "Mabuse", "Ceres", "Spec"};
     const Team teams[] = {TEAM_ALPHA, TEAM_ALPHA, TEAM_BRAVO, TEAM_BRAVO, TEAM_SPECTATOR};
@@ -337,6 +399,39 @@ static void hud_data_demo(HudData *d)
     d->chat_cursor = 2;
     d->players[0].chat_delay = 20;
     snprintf(d->players[0].chat, sizeof(d->players[0].chat), "hello");
+
+    if (page >= 2) { // the stats, a vote, the radio, a shot, the rest
+        d->frags_menu = false;
+        d->stats_menu = true;
+        d->weapon_stat_count = 2;
+        d->weapon_stats[0] = (HudWeaponStat){WEAPON_AK74, "Ak-74", 120, 40, 5, 1};
+        d->weapon_stats[1] = (HudWeaponStat){WEAPON_COLT, "USSOCOM", 30, 12, 2, 0};
+        d->vote = HUD_VOTE_KICK;
+        snprintf(d->vote_target, sizeof(d->vote_target), "Mabuse");
+        snprintf(d->vote_starter, sizeof(d->vote_starter), "Crow");
+        snprintf(d->vote_reason, sizeof(d->vote_reason), " afk");
+        d->radio_menu = true;
+        d->radio_state = 1;
+        const char *first[] = {"Enemy flagger", "Friendly flagger", "Enemy spotted"};
+        const char *second[] = {"up!", "middle!", "down!"};
+        for (int i = 0; i < 3; i++) {
+            snprintf(d->radio_first[i], sizeof(d->radio_first[i]), "%s", first[i]);
+            snprintf(d->radio_second[i], sizeof(d->radio_second[i]), "%s", second[i]);
+        }
+        d->recording = true;
+        d->shot_distance_shown = true;
+        d->shot_distance = 42.5f;
+        d->shot_airtime = 1.2f;
+        d->shot_ricochets = 1;
+        d->minimap = true;
+        d->chat_type = HUD_CHAT_NONE;
+    }
+    if (page >= 3) { // the bonus, watching someone
+        d->bonus = HUD_BONUS_BERSERKER;
+        d->camera_follow = 1;
+        d->stats_menu = false;
+        d->minimap = true;
+    }
 }
 
 // The frame rate, counted over each second: the original's FrameTiming.Fps.
@@ -350,11 +445,13 @@ static void count_frame(App *app, double dt)
     app->frame_timer = 0;
 }
 
-// The fonts and the HUD, sized to the window; again whenever its height changes.
+// The fonts, the minimap and the menus, sized to the window; again whenever it changes.
 static void interface_open(App *app)
 {
     Rect r = window_rect(app);
     if (!fonts_load(app->settings.base, r.height)) fprintf(stderr, "no fonts: the HUD draws without text\n");
+    map_view_build_minimap(&app->render.map_view, r.height);
+    menus_init(&app->menus, GAME_HEIGHT * r.width / r.height, &app->game->ctx.weapons);
 }
 
 int main(int argc, char *argv[])
@@ -377,6 +474,11 @@ int main(int argc, char *argv[])
     scale_data_load(&app.scales, app.settings.base);
     interface_load(&app.hud, app.settings.base, &app.scales);
     interface_open(&app);
+    if (app.settings.hud_demo == 2) menus_show(&app.menus, MENU_LIMBO, true, HUD_MODE_CTF, 1);
+    if (app.settings.hud_demo == 3) {
+        menus_show(&app.menus, MENU_ESC, true, HUD_MODE_CTF, 1);
+        app.menus.noob_show = true;
+    }
 
     snapshot_tick(&app);
     snapshot_tick(&app); // both snapshots start as the world before the first tick
@@ -409,8 +511,8 @@ int main(int argc, char *argv[])
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);
             render_draw(&app.render, &app.frame, &app.camera, app.render_options);
             hud_data_build(&app);
-            interface_draw(&app.hud, &app.hud_data, &app.frame, &app.game->ctx, &app.camera, app.input.cursor,
-                           app.camera.viewport);
+            interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
+                           &app.camera, app.input.cursor, app.camera.viewport);
             if (app.settings.screenshot && ++frames_drawn == 60) {
                 Rect r = app.camera.viewport;
                 if (!gfx_save_screen(app.settings.screenshot, (int)r.width, (int)r.height)) {

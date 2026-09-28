@@ -7,127 +7,18 @@
 // don't, and every image is its pixel size over its mod.ini scale.
 //
 // Everything the HUD shows that isn't in the frame's render state comes through a
-// HudData: the match and its players, the consoles, the chat, the big messages. The
-// app fills one each frame from whatever it has; the drawing never reads the game.
-// Until the server, the scoring and the messages are ported, most of it is empty and
-// the parts it feeds stay hidden, as they are in the original with nothing to show.
-//
-// Not here: the menus (GameMenus.pas), the minimap (a render target), the weapon
-// stats (F2), the vote and radio menus.
+// HudData (ui/hud_data.h); the menus through a GameMenus (ui/menus.h). The drawing
+// never reads the game.
 
 #include "game/game.h"
 #include "gfx/gfx.h"
 #include "render/camera.h"
 #include "render/render_state.h"
+#include "render/map_view.h"
 #include "render/scale_data.h"
+#include "ui/hud_data.h"
+#include "ui/menus.h"
 
-#define HUD_TEXT 160
-#define HUD_NAME 32
-#define HUD_CONSOLE_LINES 20   // the original's console length cvars top out here
-#define HUD_KILL_LINES 15      // ui_killconsole_length
-#define HUD_BIG_MESSAGES 4
-#define HUD_TEAMS 5            // none, alpha, bravo, charlie, delta
-
-typedef enum HudGameMode {
-    HUD_MODE_DEATHMATCH,
-    HUD_MODE_POINTMATCH,
-    HUD_MODE_TEAMMATCH,
-    HUD_MODE_CTF,
-    HUD_MODE_RAMBO,
-    HUD_MODE_INF,
-    HUD_MODE_HTF,
-} HudGameMode;
-
-typedef enum HudChatType { HUD_CHAT_NONE, HUD_CHAT_PUBLIC, HUD_CHAT_TEAM, HUD_CHAT_COMMAND } HudChatType;
-
-typedef struct HudLine {
-    char text[HUD_TEXT];
-    Rgba color;
-} HudLine;
-
-// One kill console entry: the text and the weapon's icon beside it (WEAPON_NONE for a
-// line without one, which also skips the gap the icon leaves).
-typedef struct HudKillLine {
-    char text[HUD_TEXT];
-    Rgba color;
-    WeaponId weapon;
-    bool has_icon;
-} HudKillLine;
-
-// A big message: shown while `delay` ticks remain, fading in its last seconds.
-typedef struct HudBigMessage {
-    char text[HUD_TEXT];
-    Rgba color;
-    float scale;
-    int delay;
-    float x, y; // in the interface's units
-} HudBigMessage;
-
-typedef struct HudPlayer {
-    bool active;
-    char name[HUD_NAME];
-    Team team;
-    bool spectator;
-    bool dead;
-    bool bot;
-    bool holding_flag;
-    int kills, deaths, flags;
-    int ping;
-    Rgba shirt;
-    // said above the head
-    bool typing;
-    char chat[HUD_TEXT];
-    int chat_delay; // ticks left
-    bool chat_team;
-} HudPlayer;
-
-typedef struct HudData {
-    // the match
-    HudGameMode mode;
-    bool team_game;
-    char hostname[HUD_TEXT];
-    char info[HUD_TEXT];
-    int time_left_min, time_left_sec;
-    int kill_limit;
-    int team_kills[HUD_TEAMS]; // by team
-    bool flags_known;          // a CTF match with both flags placed
-    bool flag_in_base[HUD_TEAMS];
-    bool paused;
-    bool survival;
-    bool survival_round_over;
-    int alive, team_alive[HUD_TEAMS];
-
-    // the players, me among them
-    HudPlayer players[MAX_PLAYERS];
-    int me;
-    int ping;
-    int respawn_counter; // ticks until I respawn
-    int cease_fire_counter;
-
-    // the text
-    HudLine console[HUD_CONSOLE_LINES];
-    int console_count;
-    HudKillLine kills[HUD_KILL_LINES];
-    int kill_count;
-    HudBigMessage big[HUD_BIG_MESSAGES];
-    int big_count;
-    char cursor_text[HUD_NAME]; // the player under the cursor
-    bool cursor_friendly;
-
-    // what I am typing
-    HudChatType chat_type;
-    char chat_text[HUD_TEXT];
-    int chat_cursor;
-    double chat_changed_at; // seconds, for the caret's blink
-
-    // toggles and clocks
-    bool frags_menu;   // F1
-    bool show_info;    // F5: the FPS and ping line
-    bool player_names; // the original's PlayerNamesShow
-    int fps;
-    double time; // seconds since the start, for what blinks and bobs
-    int tick;    // the main tick counter, for what steps
-} HudData;
 
 // An interface image with its size in game units.
 typedef struct HudSprite {
@@ -146,6 +37,10 @@ typedef struct Interface {
     HudSprite noflag;   // a team's flag away from its base
     HudSprite arrow;    // the indicator above my head
     HudSprite scroll;   // the frags menu's scroll hint
+    HudSprite menucursor; // the pointer in the menus
+    HudSprite smalldot;   // the minimap's dots
+    HudSprite overlay;    // the bonus tint over the screen
+    HudSprite sight;      // the sniper line
     HudSprite guns[WEAPON_COUNT]; // the kill console's icons, by weapon
 } Interface;
 
@@ -156,5 +51,5 @@ void interface_unload(Interface *hud);
 
 // The HUD over the world: sets its own transform. `cursor` is the game's cursor in the
 // 480-tall view's units, `viewport` the window's pixels.
-void interface_draw(const Interface *hud, const HudData *data, const RenderState *state, const Context *ctx,
-                    const GameCamera *camera, Vec2 cursor, Rect viewport);
+void interface_draw(const Interface *hud, const HudData *data, const GameMenus *menus, const RenderState *state,
+                    const Context *ctx, const MapView *map_view, const GameCamera *camera, Vec2 cursor, Rect viewport);

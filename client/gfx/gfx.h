@@ -32,6 +32,7 @@ static inline GfxVertex gfx_vertex(float x, float y, float u, float v, Rgba colo
 typedef struct GfxTexture {
     GLuint handle; // 0 is no texture
     int width, height;
+    GLuint framebuffer; // set on a render target: the texture can be drawn into
 } GfxTexture;
 
 // Pixels in memory, straight alpha, RGBA8, top row first.
@@ -96,6 +97,14 @@ void gfx_texture_wrap(GfxTexture tex, bool repeat);
 void gfx_texture_filter(GfxTexture tex, bool linear);
 void gfx_texture_mipmap(GfxTexture tex); // builds mipmaps and filters through them
 void gfx_texture_lod_bias(GfxTexture tex, float bias); // negative picks sharper mipmaps (r_mipmapbias)
+
+// A texture to draw into, cleared to transparent and linear filtered: the original's
+// GfxCreateRenderTarget. Handle 0 when the driver can't.
+GfxTexture gfx_render_target_create(int width, int height);
+
+// Where drawing goes: a render target, or NULL for the window. Flushes first. The
+// caller sets the viewport and transform for it.
+void gfx_target(const GfxTexture *target);
 
 // A 1x1 white texture, so untextured shapes draw through the same shader.
 GfxTexture gfx_white(void);
