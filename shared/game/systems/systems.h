@@ -112,6 +112,10 @@ Weapon weapon_state(const Context *ctx, WeaponId id);
 // This tick's buttons on the weapon, in the control order.
 void combat_control(const Context *ctx, World *w, uint8_t index, Events *events);
 
+// A soldier asks for a bullet (EVENT_SHOT), numbered as its next, for the bullet pass
+// to make. The index of the event, or -1 if the tick's buffer was full.
+int soldier_shoot(World *w, uint8_t index, WeaponId weapon, Vec2 pos, Vec2 vel, float damage, Events *events);
+
 // The two parts of the weapon's control that come later in the original's order: the
 // Barrett's bolt and the stationary gun's after going prone, the reload animations after
 // the locomotion.
@@ -174,11 +178,14 @@ void die(const Context *ctx, World *w, Hit hit, Events *events);
 #define BULLET_GRAVITY 2.25f // a bullet falls this many times the world's gravity
 #define ARROW_RESIST 280     // an arrow stuck in a wall stays this long
 
-// A bullet into the first free slot of the pool; its index, or -1 if none was made.
+// The bullet system's own spawn, for the bullets a bullet makes (a cluster's children):
+// the next of its owner's numbers, into the first free slot. Its index, or -1 if none
+// was made. Everyone else asks with an EVENT_SHOT (soldier_shoot).
 int bullet_spawn(const Context *ctx, World *w, Vec2 pos, Vec2 vel, WeaponId weapon, uint8_t owner, float damage, Events *events);
 
-// Every bullet's tick, then every bullet's flight.
-void bullets_update(const Context *ctx, World *w, Events *events);
+// The bullet pass: the shots asked for since it last ran become bullets, then every
+// bullet's tick, then every bullet's flight.
+void bullets_update(const Context *ctx, World *w, const Events *last, Events *events);
 
 // Every deactivation goes through here, so the end is heard where it happens. `impact`
 // is where it stopped against something, if it did (may be NULL).
@@ -349,6 +356,18 @@ Vec2 spawn_point(const Map *m, Team team, uint64_t *rng);
 // Dropped silently once the tick's buffer is full.
 void event_emit(Events *events, Event e);
 void events_clear(Events *events);
+
+// The events a pass has not seen, in order: the last tick's from where the pass stood
+// when it ran, then this tick's up to where it begins now. Taking the cursor marks the
+// pass as begun; what the pass emits itself is for the next time.
+typedef struct EventCursor {
+    const Events *last, *now;
+    int i, end;
+    bool in_now;
+} EventCursor;
+
+EventCursor events_pending(const Events *last, Events *now, Pass pass);
+const Event *events_next(EventCursor *c); // NULL once they are all seen
 
 // --- history.c ---------------------------------------------------------------------
 

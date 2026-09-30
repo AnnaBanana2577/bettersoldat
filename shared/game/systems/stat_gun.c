@@ -48,7 +48,7 @@ void stat_gun_update(const Context *ctx, World *w, int index, Events *events)
         vel.x = -vel.x + (float)wander;
         vel.y += (float)wander;
         Vec2 muzzle = vec2(t->pos[3].x + 4.0f, t->pos[3].y - 10.0f);
-        if (w->authority) bullet_spawn(ctx, w, muzzle, vel, WEAPON_M2, (uint8_t)i, m2->damage, events);
+        if (w->authority) soldier_shoot(w, (uint8_t)i, WEAPON_M2, muzzle, vel, m2->damage, events);
         event_emit(events, (Event){.type = EVENT_FIRE, .fire = {.player = (uint8_t)i, .weapon = WEAPON_M2, .pos = muzzle, .vel = vel}});
         s->use_time++;
         return;

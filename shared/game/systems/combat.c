@@ -111,7 +111,19 @@ static void recoil_animation(const Anims *anims, Soldier *s)
     }
 }
 
-// One pull of the trigger: the bullets, the self-push, the ammo, the recoil, the bink.
+int soldier_shoot(World *w, uint8_t index, WeaponId weapon, Vec2 pos, Vec2 vel, float damage, Events *events)
+{
+    Soldier *s = &w->soldiers[index];
+    if (events->count >= MAX_EVENTS) return -1;
+    event_emit(events, (Event){
+        .type = EVENT_SHOT,
+        .shot = {.player = index, .weapon = weapon, .pos = pos, .vel = vel, .damage = damage, .shot = ++s->shot_count},
+    });
+    return events->count - 1;
+}
+
+// One pull of the trigger: the bullets asked for, the self-push, the ammo, the recoil,
+// the bink.
 static void fire(const Context *ctx, World *w, uint8_t index, Events *events)
 {
     Soldier *s = &w->soldiers[index];
@@ -144,24 +156,24 @@ static void fire(const Context *ctx, World *w, uint8_t index, Events *events)
     // a muzzle inside a wall (the head in a ceiling) is lowered a bit
     if (map_collision_test(ctx->map, origin, false, NULL)) origin.y += 2.5f;
 
-    int bullet = -1;
+    int bullet = -1; // the shot the mercy antic marks as its own: the event's index
     WeaponId id = weapon->id;
     bool plain = id != WEAPON_EAGLE && id != WEAPON_SPAS && id != WEAPON_FLAMER && id != WEAPON_NONE &&
                  id != WEAPON_KNIFE && id != WEAPON_CHAINSAW && id != WEAPON_LAW;
-    if (plain || mercy) bullet = bullet_spawn(ctx, w, origin, vel, id, index, stats->damage, events);
+    if (plain || mercy) bullet = soldier_shoot(w, index, id, origin, vel, stats->damage, events);
 
     // The Eagles' and the shotgun's spread is keyed on the count after their first
     // bullet, as the original's is.
     uint32_t spread_key = shot_key(index, s->shot_count + 1);
     if (id == WEAPON_EAGLE) {
-        bullet = bullet_spawn(ctx, w, origin, spread(spread_key, 0, vel, stats->spread), id, index, stats->damage, events);
+        bullet = soldier_shoot(w, index, id, origin, spread(spread_key, 0, vel, stats->spread), stats->damage, events);
         Vec2 n = vec2_normalize(vel);
         Vec2 beside = vec2(origin.x - signf(vel.x) * fabsf(n.y) * 3.0f, origin.y + signf(vel.y) * fabsf(n.x) * 3.0f);
-        bullet_spawn(ctx, w, beside, spread(spread_key, 1, vel, stats->spread), id, index, stats->damage, events);
+        soldier_shoot(w, index, id, beside, spread(spread_key, 1, vel, stats->spread), stats->damage, events);
     }
     if (stats->style == BULLET_SHOTGUN) {
         for (int i = 0; i < 6; i++) {
-            int b = bullet_spawn(ctx, w, origin, spread(spread_key, i, vel, stats->spread), id, index, stats->damage, events);
+            int b = soldier_shoot(w, index, id, origin, spread(spread_key, i, vel, stats->spread), stats->damage, events);
             if (i == 0) bullet = b;
         }
         s->vel = vec2_sub(s->vel, vec2_mul(vel, vec2(0.0412f, 0.041f)));
@@ -174,15 +186,15 @@ static void fire(const Context *ctx, World *w, uint8_t index, Events *events)
         s->vel = vec2_sub(s->vel, push);
     }
     // a flame starts a step further out than it is aimed from (CreateBullet's offset)
-    if (id == WEAPON_FLAMER) bullet = bullet_spawn(ctx, w, vec2_add(origin, vec2_scale(vel, 3.0f)), vel, id, index, stats->damage, events);
-    if (id == WEAPON_CHAINSAW) bullet = bullet_spawn(ctx, w, vec2_add(origin, vec2_scale(vel, 2.0f)), vel, id, index, stats->damage, events);
+    if (id == WEAPON_FLAMER) bullet = soldier_shoot(w, index, id, vec2_add(origin, vec2_scale(vel, 3.0f)), vel, stats->damage, events);
+    if (id == WEAPON_CHAINSAW) bullet = soldier_shoot(w, index, id, vec2_add(origin, vec2_scale(vel, 2.0f)), vel, stats->damage, events);
     if (id == WEAPON_LAW) {
         if (!((s->on_ground || s->on_ground_permanent || s->on_ground_for_law) && law_stance(s))) return;
-        bullet = bullet_spawn(ctx, w, origin, vel, id, index, stats->damage, events);
+        bullet = soldier_shoot(w, index, id, origin, vel, stats->damage, events);
     }
 
     // the mercy antic shoots the shooter's own head: the bullet leaves it alone
-    if (mercy && bullet >= 0) w->bullets[bullet].hit_body = (int8_t)index;
+    if (mercy && bullet >= 0) events->items[bullet].shot.self = true;
 
     if (weapon->ammo > 0) weapon->ammo--;
     if (id == WEAPON_SPAS) s->can_auto_reload_spas = false;
@@ -238,7 +250,7 @@ static void throw_grenade(const Context *ctx, World *w, uint8_t index, Events *e
         Vec2 head = vec2(s->pos.x, s->pos.y - 12.0f);
         RayFilter filter = {.bullet = true, .team = s->team};
         if (!map_collision_test(ctx->map, origin, false, NULL) && !map_ray_cast(ctx->map, head, origin, 50.0f, filter, NULL)) {
-            bullet_spawn(ctx, w, origin, vel, s->grenade_type, index, frag->damage, events);
+            soldier_shoot(w, index, s->grenade_type, origin, vel, frag->damage, events);
             s->grenades--;
             if (frag->bink < 0) s->hit_spray = calculate_bink(s->hit_spray, -frag->bink);
             event_emit(events, (Event){.type = EVENT_FIRE, .fire = {.player = index, .weapon = s->grenade_type, .pos = origin, .vel = vel}});
@@ -267,7 +279,7 @@ static void throw_knife(const Context *ctx, World *w, uint8_t index, Events *eve
     float strength = clampf((float)s->body.frame, 8.0f, 16.0f) / 16.0f;
     Vec2 vel = vec2_scale(vec2_normalize(vec2_sub(s->aim, pose.p[14])), knife->speed * 1.5f * strength);
     vel = vec2_add(vel, vec2_scale(s->vel, knife->inherit));
-    bullet_spawn(ctx, w, pose.p[15], vel, WEAPON_THROWN_KNIFE, index, knife->damage, events);
+    soldier_shoot(w, index, WEAPON_THROWN_KNIFE, pose.p[15], vel, knife->damage, events);
 
     s->weapon = weapon_state(ctx, WEAPON_NONE);
     anim_apply(ctx->anims, &s->body, ANIM_STAND, 1);
@@ -413,8 +425,8 @@ void combat_control(const Context *ctx, World *w, uint8_t index, Events *events)
     if (body->id == ANIM_PUNCH && body->frame == 11 && weapon->id != WEAPON_LAW && weapon->id != WEAPON_M79) {
         Pose pose = soldier_pose(anims, s, s->pos);
         float dir = (float)s->direction;
-        bullet_spawn(ctx, w, vec2(pose.p[15].x + 2.0f * dir, pose.p[15].y + 3.0f), vec2(dir * 0.1f, 0.0f), weapon->id, index,
-                     info->stats.damage, events);
+        soldier_shoot(w, index, weapon->id, vec2(pose.p[15].x + 2.0f * dir, pose.p[15].y + 3.0f), vec2(dir * 0.1f, 0.0f),
+                      info->stats.damage, events);
         body->frame++;
     }
 
@@ -422,8 +434,8 @@ void combat_control(const Context *ctx, World *w, uint8_t index, Events *events)
     if (body->id == ANIM_MELEE && body->frame == 12) {
         Pose pose = soldier_pose(anims, s, s->pos);
         float dir = (float)s->direction;
-        bullet_spawn(ctx, w, vec2(pose.p[15].x + 2.0f * dir, pose.p[15].y + 3.0f), vec2(dir * 0.1f, 0.0f), WEAPON_NONE, index,
-                     ctx->weapons.info[WEAPON_NONE].stats.damage, events);
+        soldier_shoot(w, index, WEAPON_NONE, vec2(pose.p[15].x + 2.0f * dir, pose.p[15].y + 3.0f), vec2(dir * 0.1f, 0.0f),
+                      ctx->weapons.info[WEAPON_NONE].stats.damage, events);
     }
     if (body->id == ANIM_MELEE && body->frame > 20) anim_apply(anims, body, ANIM_STAND, 1);
 

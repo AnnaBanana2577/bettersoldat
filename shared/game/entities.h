@@ -340,6 +340,12 @@ typedef struct Ragdoll {
 // sounds and messages, the server's wounds.
 
 typedef struct EventFire { uint8_t player; WeaponId weapon; Vec2 pos, vel; } EventFire;
+// A bullet asked for: by a soldier's weapon, a grenade, a punch, the map (lava, an
+// exploding poly) or the stationary gun. The bullet pass makes it. `shot` is the
+// owner's count of its bullets, taken when the shot is asked for, so the same numbers
+// come out on every machine; `self` marks the mercy antic's, which leaves its shooter
+// alone.
+typedef struct EventShot { uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; uint32_t shot; bool self; } EventShot;
 typedef struct EventBulletSpawn { uint16_t id; uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; } EventBulletSpawn;
 typedef struct EventBulletEnd { uint16_t id; uint8_t owner; uint32_t shot; WeaponId weapon; Vec2 pos; bool impact; } EventBulletEnd;
 typedef struct EventWallHit { uint16_t id; uint8_t owner; WeaponId weapon; Vec2 pos, vel; } EventWallHit;
@@ -382,6 +388,7 @@ typedef struct EventMatchEnd { Team winner; } EventMatchEnd;
 
 typedef enum EventType {
     EVENT_FIRE,
+    EVENT_SHOT,
     EVENT_BULLET_SPAWN,
     EVENT_BULLET_END,
     EVENT_WALL_HIT,
@@ -411,6 +418,7 @@ typedef struct Event {
     EventType type;
     union {
         EventFire fire;
+        EventShot shot;
         EventBulletSpawn bullet_spawn;
         EventBulletEnd bullet_end;
         EventWallHit wall_hit;
@@ -437,9 +445,24 @@ typedef struct Event {
     };
 } Event;
 
+// The passes of a tick, in the order they run (world_step). Systems talk only through
+// events: a pass consumes the events emitted since it last ran, which are the rest of
+// the last tick's after it ran and this tick's before it began. So what a later pass
+// asks of an earlier one happens on the next tick, as it does in the original, where
+// a thing's bullet is made in the things' update and first flies the frame after.
+typedef enum Pass {
+    PASS_SOLDIERS,
+    PASS_CORPSES,
+    PASS_BULLETS,
+    PASS_WOUNDS,
+    PASS_THINGS,
+    PASS_COUNT,
+} Pass;
+
 typedef struct Events {
     Event items[MAX_EVENTS];
     int count;
+    int passed[PASS_COUNT]; // how many events each pass had seen when it began
 } Events;
 
 // ---------------------------------------------------------------------------------

@@ -49,13 +49,13 @@ void world_init(World *w, uint64_t seed)
     w->rules = match_rules(&(Match){.settings = match_default_settings()});
 }
 
-void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], Events *events)
+void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], const Events *last, Events *events)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (w->soldiers[i].active) soldier_step(ctx, w, (uint8_t)i, cmds[i], events, true);
     }
     ragdolls_update(ctx, w, events);
-    bullets_update(ctx, w, events);
+    bullets_update(ctx, w, last, events);
     things_update(ctx, w, events);
     w->tick++;
 }
@@ -152,9 +152,10 @@ static void apply_hits(Game *g)
 
 void game_tick(Game *g, const Command cmds[MAX_PLAYERS])
 {
+    g->last = g->events;
     events_clear(&g->events);
     g->world.rules = match_rules(&g->match);
-    world_step(&g->ctx, &g->world, cmds, &g->events);
+    world_step(&g->ctx, &g->world, cmds, &g->last, &g->events);
     if (g->world.authority) apply_hits(g);
     match_run(&g->ctx, &g->world, &g->match, &g->events);
 }

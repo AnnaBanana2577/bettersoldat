@@ -106,6 +106,7 @@ typedef struct Game {
     World world;
     Match match;
     Events events; // what the last tick left behind
+    Events last;   // and the tick before it, for the passes that had run before it was emitted
 } Game;
 
 // --- Context -----------------------------------------------------------------------
@@ -119,10 +120,12 @@ void context_destroy(Context *ctx);
 
 void world_init(World *w, uint64_t seed);
 
-// One tick of everything in the world, in the order the server and the clients run
-// it (the original's UpdateFrame): every active soldier on its command, then the
-// corpses, the bullets, the things; then the tick advances.
-void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], Events *events);
+// One tick of everything in the world, as passes in the order the server and the
+// clients run them (the original's UpdateFrame): every active soldier on its command,
+// then the corpses, the bullets, the things; then the tick advances. The passes talk
+// only through events (see Pass): `last` is the tick before's, for what was asked of a
+// pass after it had run.
+void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], const Events *last, Events *events);
 
 // --- Match -------------------------------------------------------------------------
 

@@ -11,38 +11,48 @@
 
 #define BULLET_DAMPING 0.99f
 
-int bullet_spawn(const Context *ctx, World *w, Vec2 pos, Vec2 vel, WeaponId weapon, uint8_t owner, float damage, Events *events)
+// The bullet a shot asked for, into the first free slot; its index, or -1 if none was
+// made. The owner's count of its bullets follows the shot's number, so word of a shot
+// from elsewhere keeps the count in step.
+static int bullet_make(const Context *ctx, World *w, const EventShot *shot, Events *events)
 {
     for (int i = 0; i < MAX_BULLETS; i++) {
         Bullet *b = &w->bullets[i];
         if (b->active) continue;
 
-        const WeaponInfo *info = &ctx->weapons.info[weapon];
-        Soldier *s = &w->soldiers[owner];
-        s->shot_count++;
+        const WeaponInfo *info = &ctx->weapons.info[shot->weapon];
+        Soldier *s = &w->soldiers[shot->player];
+        if (shot->shot > s->shot_count) s->shot_count = shot->shot;
         *b = (Bullet){
             .active = true,
             .style = info->stats.style,
-            .weapon = weapon,
-            .owner = owner,
+            .weapon = shot->weapon,
+            .owner = shot->player,
             .lag = s->view_lag,
             .spawn_cmd = s->cmd_seq,
-            .shot_id = s->shot_count,
-            .pos = pos,
-            .old_pos = pos,
-            .vel = vel,
-            .initial = pos,
+            .shot_id = shot->shot,
+            .pos = shot->pos,
+            .old_pos = shot->pos,
+            .vel = shot->vel,
+            .initial = shot->pos,
             .timeout = info->timeout,
-            .hit_multiply = damage,
-            .hit_body = -1,
+            .hit_multiply = shot->damage,
+            .hit_body = shot->self ? (int8_t)shot->player : -1,
         };
         event_emit(events, (Event){
             .type = EVENT_BULLET_SPAWN,
-            .bullet_spawn = {.id = (uint16_t)i, .player = owner, .weapon = weapon, .pos = pos, .vel = vel, .damage = damage},
+            .bullet_spawn = {.id = (uint16_t)i, .player = shot->player, .weapon = shot->weapon, .pos = shot->pos, .vel = shot->vel, .damage = shot->damage},
         });
         return i;
     }
     return -1;
+}
+
+int bullet_spawn(const Context *ctx, World *w, Vec2 pos, Vec2 vel, WeaponId weapon, uint8_t owner, float damage, Events *events)
+{
+    Soldier *s = &w->soldiers[owner];
+    EventShot shot = {.player = owner, .weapon = weapon, .pos = pos, .vel = vel, .damage = damage, .shot = s->shot_count + 1};
+    return bullet_make(ctx, w, &shot, events);
 }
 
 void bullet_end(Bullet *b, uint16_t index, Events *events, const Vec2 *impact)
@@ -114,8 +124,14 @@ static void bullet_integrate(const World *w, Bullet *b)
     b->forces = (Vec2){0};
 }
 
-void bullets_update(const Context *ctx, World *w, Events *events)
+void bullets_update(const Context *ctx, World *w, const Events *last, Events *events)
 {
+    // the shots asked for, in the order they were asked, before anything flies
+    EventCursor pending = events_pending(last, events, PASS_BULLETS);
+    for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
+        if (e->type == EVENT_SHOT) bullet_make(ctx, w, &e->shot, events);
+    }
+
     for (int i = 0; i < MAX_BULLETS; i++) {
         if (w->bullets[i].active) bullet_update(ctx, w, &w->bullets[i], (uint16_t)i, events);
     }

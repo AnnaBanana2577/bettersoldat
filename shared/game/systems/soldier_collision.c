@@ -63,10 +63,10 @@ static void handle_special_poly(const Context *ctx, World *w, uint8_t index, Pol
         if (t == POLY_LAVA && rand_int(&w->rng, 3) == 0) {
             Vec2 spark = vec2_sub(pos, vec2(0.0f, 3.0f));
             poly_effect(events, index, POLY_LAVA, spark, true);
-            // the map's own bullets are made where the world decides, and told from there
+            // the map's own bullets are asked for where the world decides, and told from there
             if (w->authority && rand_int(&w->rng, 3) == 0) {
-                bullet_spawn(ctx, w, spark, vec2_scale(s->vel, -1.0f), WEAPON_FLAMER, index,
-                             ctx->weapons.info[WEAPON_FLAMER].stats.damage, events);
+                soldier_shoot(w, index, WEAPON_FLAMER, spark, vec2_scale(s->vel, -1.0f), ctx->weapons.info[WEAPON_FLAMER].stats.damage,
+                              events);
             }
         }
         break;
@@ -83,7 +83,7 @@ static void handle_special_poly(const Context *ctx, World *w, uint8_t index, Pol
             Vec2 origin = vec2_sub(pos, vec2(0.0f, 3.0f));
             poly_effect(events, index, t, origin, false);
             if (w->authority) {
-                bullet_spawn(ctx, w, origin, (Vec2){0}, WEAPON_M79, index, ctx->weapons.info[WEAPON_M79].stats.damage, events);
+                soldier_shoot(w, index, WEAPON_M79, origin, (Vec2){0}, ctx->weapons.info[WEAPON_M79].stats.damage, events);
             }
             self_hit(w, index, 4000.0f, events);
         }
