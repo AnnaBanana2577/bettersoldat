@@ -385,10 +385,11 @@ static bool game_open(App *app, bool local)
     if (!local) return true;
 
     Soldier *me = &g->world.soldiers[app->me];
-    Vec2 at = spawn_point(g->ctx.map, TEAM_ALPHA, &g->world.rng);
+    Team team = team_game(app) ? TEAM_ALPHA : TEAM_NONE;
+    Vec2 at = spawn_point(g->ctx.map, team, &g->world.rng);
     WeaponId primary = (WeaponId)clampi(app->primary->integer, WEAPON_EAGLE, WEAPON_MINIGUN);
     WeaponId secondary = (WeaponId)(WEAPON_COLT + clampi(app->secondary->integer, 0, WEAPON_LAW - WEAPON_COLT));
-    soldier_spawn(&g->ctx, me, at, TEAM_ALPHA, primary, secondary);
+    soldier_spawn(&g->ctx, me, at, team, primary, secondary);
     return true;
 }
 

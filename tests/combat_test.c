@@ -19,6 +19,18 @@ static void rifle_kills(void)
     scene_free(g);
 }
 
+// A soldier with no team, a deathmatch player, is hit as any other: no team is not a team.
+static void no_team_is_hit(void)
+{
+    Game *g = scene("Arena", 120, WEAPON_AK74, WEAPON_AK74);
+    g->world.soldiers[0].team = TEAM_NONE;
+    g->world.soldiers[1].team = TEAM_NONE;
+    settle(g);
+    Tally t = run(g, 240, press_fire);
+    CHECK(t.hits > 0 && t.damage > 0 && g->world.soldiers[1].dead, "a soldier with no team is hit and killed like any other (%d hits)", t.hits);
+    scene_free(g);
+}
+
 static void shotgun_and_eagles(void)
 {
     Game *g = scene("Arena", 120, WEAPON_SPAS, WEAPON_AK74);
@@ -96,6 +108,7 @@ static void determinism(void)
 void combat_tests(void)
 {
     rifle_kills();
+    no_team_is_hit();
     shotgun_and_eagles();
     grenade();
     knife();

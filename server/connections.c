@@ -98,14 +98,15 @@ static void deny(Connections *c, ENetPeer *peer, const char *reason)
     say(c->console, "denied a join: %s\n", reason);
 }
 
-// The team a newcomer joins: the emptier of alpha and bravo in a team game, alpha
-// otherwise. A map with a flag's spawn point is a team game, until the server's
+// The team a newcomer joins: the emptier of alpha and bravo in a team game, none
+// otherwise, as the original's team 0: everyone on alpha would be friends, and
+// friendly fire off, nobody's shots would count. A map with a flag's spawn point is a team game, until the server's
 // settings say.
 static Team team_for(const Game *g)
 {
     uint64_t rng = 1;
     Vec2 at;
-    if (!thing_spawn_point(g->ctx.map, SPAWN_ALPHA_FLAG, &rng, &at)) return TEAM_ALPHA;
+    if (!thing_spawn_point(g->ctx.map, SPAWN_ALPHA_FLAG, &rng, &at)) return TEAM_NONE;
     int alpha = 0, bravo = 0;
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const Soldier *s = &g->world.soldiers[i];

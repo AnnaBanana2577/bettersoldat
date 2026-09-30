@@ -88,6 +88,8 @@ static void client_pump(StreamClient *c)
     }
 }
 
+static bool aim_at_bot; // the client aims at the bot's chest instead of right
+
 // One tick of the client: its soldier on `buttons`, aiming right; the others on their
 // word. Then its state to the server.
 static void client_tick(StreamClient *c, Buttons buttons)
@@ -100,7 +102,9 @@ static void client_tick(StreamClient *c, Buttons buttons)
         if (s->remote) cmds[i] = stream_command(s, client_stream_quiet(&c->stream, i));
     }
     Soldier *me = &w->soldiers[c->slot];
-    cmds[c->slot] = (Command){.seq = w->tick + 1, .buttons = buttons, .aim = vec2(me->pos.x + 100.0f, me->pos.y)};
+    const Soldier *bot = &w->soldiers[BOT];
+    Vec2 aim = aim_at_bot ? vec2(bot->pos.x, bot->pos.y - 8.0f) : vec2(me->pos.x + 100.0f, me->pos.y);
+    cmds[c->slot] = (Command){.seq = w->tick + 1, .buttons = buttons, .aim = aim};
     game_tick(c->game, cmds);
     for (int i = 0; i < c->game->events.count; i++) {
         const Event *e = &c->game->events.items[i];
@@ -117,6 +121,7 @@ static void client_tick(StreamClient *c, Buttons buttons)
 }
 
 static int server_bullets_of_client; // bullets the server made for slot 0, all told
+static int server_hits_by_client;    // hits the server ruled for slot 0's bullets
 
 // One tick of the server: the players on their word, the bot on `bot_buttons`, aiming
 // at the client's soldier's chest wherever it is.
@@ -130,6 +135,7 @@ static void server_tick(Connections *conns, Game *g, Buttons bot_buttons)
     for (int i = 0; i < g->events.count; i++) {
         const Event *e = &g->events.items[i];
         if (e->type == EVENT_BULLET_SPAWN && e->bullet_spawn.player == 0) server_bullets_of_client++;
+        if (e->type == EVENT_HIT && e->hit.shooter == 0) server_hits_by_client++;
     }
     connections_snapshots(conns, g);
     net_flush(conns->link);
@@ -226,6 +232,14 @@ void stream_tests(void)
           "the match's clock is the server's, a tick behind at most (%d there, %d here)", gs->match.time_left, c.game->match.time_left);
     CHECK(strcmp(c.stream.names[0], "Mover") == 0, "my name came with my soldier (%s)", c.stream.names[0]);
 
+    // Everyone to the open ground the scenes shoot on (an alpha spawn), the bot a hundred
+    // units left of me, whatever spawn the server gave a player with no team; my soldier
+    // on both ends, as my word about where I am is the one that holds.
+    uint64_t spot_rng = 7;
+    Vec2 spot = spawn_point(gs->ctx.map, TEAM_ALPHA, &spot_rng);
+    place(mine, spot);
+    place(theirs, spot);
+    place(&gs->world.soldiers[BOT], vec2(spot.x - 100.0f, spot.y));
     // the spawn protection wears off, then shots: mine to the server, the bot's to me, as
     // events; a few quiet ticks after each so the last packet lands before the count
     play(&conns, gs, &c, 45, 0, 0);
@@ -279,6 +293,20 @@ void stream_tests(void)
           "the server's wounds reach me as events, and my health with the served half (%d wounds, %.0f -> %.0f)", c.damages,
           health_before, mine->health);
     CHECK(c.stream.dropped == 0 && conns.streams[0].dropped == 0, "still nothing dropped either way");
+
+    // and mine wound the bot: my shots, heard as events, are the server's bullets, which
+    // meet its soldiers as any others do
+    play(&conns, gs, &c, DEFAULT_RESPAWN_TIME + 60, 0, 0); // the volley killed me: my new life, and its protection over
+    CHECK(!gs->world.soldiers[0].dead && !c.game->world.soldiers[0].dead && c.game->world.soldiers[0].life == gs->world.soldiers[0].life,
+          "I respawn on the server and take the new life here (life %u/%u)", c.game->world.soldiers[0].life, gs->world.soldiers[0].life);
+    aim_at_bot = true;
+    float bot_health_before = gs->world.soldiers[BOT].health;
+    int bot_deaths_before = gs->world.soldiers[BOT].deaths;
+    play(&conns, gs, &c, 120, BUTTON_FIRE, 0);
+    aim_at_bot = false;
+    CHECK(server_hits_by_client > 0 && (gs->world.soldiers[BOT].health < bot_health_before || gs->world.soldiers[BOT].deaths > bot_deaths_before),
+          "my shots wound the bot on the server (%d hits, health %.0f -> %.0f, deaths %d -> %d)", server_hits_by_client, bot_health_before,
+          gs->world.soldiers[BOT].health, bot_deaths_before, gs->world.soldiers[BOT].deaths);
 
     // an old state is dropped
     uint32_t dropped = conns.streams[0].dropped;
