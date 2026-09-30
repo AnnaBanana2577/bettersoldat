@@ -91,9 +91,17 @@ __attribute__((format(printf, 2, 3)))
 #endif
 void console_print(Console *con, const char *fmt, ...);
 
+// The same, in a colour the HUD shows the line in; console_print's lines have none.
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 3, 4)))
+#endif
+void console_print_color(Console *con, Rgba color, const char *fmt, ...);
+
 // The scrollback: line 0 is the newest finished line, 1 the one before... NULL past the
 // oldest kept.
 const char *console_log_line(const Console *con, int back);
+// The colour a scrollback line was printed in; false if it had none.
+bool console_log_color(const Console *con, int back, Rgba *color);
 
 // --- running text --------------------------------------------------------------------
 

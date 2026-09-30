@@ -169,8 +169,22 @@ static void saving_in_place(void)
     console_destroy(con);
 }
 
+// A line printed in a colour keeps it, for the HUD; the rest have none.
+static void colours(void)
+{
+    Console *con = console_create(NULL, NULL);
+    console_print(con, "plain\n");
+    console_print_color(con, (Rgba){1, 2, 3, 255}, "said\nand said again\n");
+    Rgba c = {0};
+    CHECK(console_log_color(con, 0, &c) && c.r == 1 && c.g == 2 && c.b == 3, "a coloured line keeps its colour");
+    CHECK(console_log_color(con, 1, &c) && c.b == 3, "every line of the print does");
+    CHECK(!console_log_color(con, 2, &c), "and a plain line has none");
+    console_destroy(con);
+}
+
 void console_tests(void)
 {
+    colours();
     cvars_and_command_line();
     parser();
     binds_and_saving();

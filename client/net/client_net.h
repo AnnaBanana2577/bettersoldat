@@ -8,6 +8,8 @@
 #include "network/stream.h"
 #include "network/transport.h"
 
+#define CLIENT_NET_INBOX 8 // lines of chat kept between frames; past that the oldest is lost
+
 typedef enum ClientNetState { CLIENT_NET_OFF, CLIENT_NET_CONNECTING, CLIENT_NET_JOINING, CLIENT_NET_JOINED } ClientNetState;
 
 typedef struct ClientNet {
@@ -22,6 +24,8 @@ typedef struct ClientNet {
     uint16_t round;         // the round being played, as of the last Map
     char map[NET_MAP_SIZE]; // on which map
     bool mapped;            // a Map not yet taken (client_net_take_map)
+    MsgChat inbox[CLIENT_NET_INBOX]; // chat heard and not yet taken (client_net_take_chat), oldest first
+    int inbox_count;
 } ClientNet;
 
 // Once per program; false if ENet or the ring wouldn't start.
@@ -39,6 +43,9 @@ void client_net_poll(ClientNet *n, Console *con, Game *g);
 // A Map came (a join, a new round): once, true, with `n->map` and `n->round` set, for
 // the world to be made anew for it. The streams start over from that round.
 bool client_net_take_map(ClientNet *n);
+// A line of chat heard, oldest first: its sender's slot (MAX_PLAYERS for the server),
+// whether to the team, and the text. False when there is none.
+bool client_net_take_chat(ClientNet *n, MsgChat *out);
 // After the client's tick: its decisions among the tick's events and its state to the
 // server.
 void client_net_tick(ClientNet *n, const Game *g);

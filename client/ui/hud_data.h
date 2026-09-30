@@ -16,6 +16,13 @@
 #define HUD_BIG_MESSAGES 4
 #define HUD_TEAMS 5            // none, alpha, bravo, charlie, delta
 
+// The original's colours for what the console and the chat say.
+#define HUD_COLOR_ENTER ((Rgba){0xC3, 0xC3, 0xC3, 0xF1})    // ENTER_MESSAGE_COLOR: the console's own lines
+#define HUD_COLOR_GAME ((Rgba){0x71, 0xF9, 0x81, 0xEE})     // GAME_MESSAGE_COLOR: the server's word
+#define HUD_COLOR_CHAT ((Rgba){0xEF, 0xFE, 0xEA, 0xEE})     // CHAT_MESSAGE_COLOR
+#define HUD_COLOR_TEAMCHAT ((Rgba){0xFE, 0xDA, 0x7C, 0xEE}) // TEAMCHAT_MESSAGE_COLOR
+#define HUD_COLOR_DEATH ((Rgba){0xFF, 0x6B, 0x6B, 0xFF})    // DEATH_MESSAGE_COLOR: the kill console's
+
 typedef enum HudGameMode {
     HUD_MODE_DEATHMATCH,
     HUD_MODE_POINTMATCH,

@@ -91,8 +91,11 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         MsgChat m = {0};
         msg_chat(&b, &m);
         if (!netbuf_done(&b)) return;
-        if (m.slot == MAX_PLAYERS) console_print(con, "server: %s\n", m.text);
-        else console_print(con, "%s%d: %s\n", m.team ? "(team) " : "", m.slot, m.text);
+        if (n->inbox_count == CLIENT_NET_INBOX) { // full: the oldest is lost
+            memmove(n->inbox, n->inbox + 1, sizeof n->inbox - sizeof n->inbox[0]);
+            n->inbox_count--;
+        }
+        n->inbox[n->inbox_count++] = m;
         break;
     }
     case MSG_SNAPSHOT:
@@ -128,6 +131,15 @@ bool client_net_take_map(ClientNet *n)
 {
     if (!n->mapped) return false;
     n->mapped = false;
+    return true;
+}
+
+bool client_net_take_chat(ClientNet *n, MsgChat *out)
+{
+    if (n->inbox_count == 0) return false;
+    *out = n->inbox[0];
+    memmove(n->inbox, n->inbox + 1, sizeof n->inbox - sizeof n->inbox[0]);
+    n->inbox_count--;
     return true;
 }
 

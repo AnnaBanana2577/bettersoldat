@@ -202,7 +202,7 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     peer->data = NULL;
 }
 
-static void chat(Connections *c, ENetPeer *peer, const NetEvent *e)
+static void chat(Connections *c, const Game *g, ENetPeer *peer, const NetEvent *e)
 {
     int slot = slot_of(c, peer);
     if (slot < 0 || !c->items[slot].joined) return;
@@ -217,7 +217,14 @@ static void chat(Connections *c, ENetPeer *peer, const NetEvent *e)
     say(c->console, "%s%s: %s\n", m.team ? "(team) " : "", c->items[slot].name, m.text);
     uint8_t buf[NET_MTU];
     size_t n = build(buf, sizeof buf, MSG_CHAT, route_chat, &m);
-    if (n) connections_broadcast(c, MSG_CHAT, buf, n);
+    if (!n) return;
+    if (!m.team) {
+        connections_broadcast(c, MSG_CHAT, buf, n);
+        return;
+    }
+    Team team = g->world.soldiers[slot].team; // to the team, the sender among them
+    for (int i = 0; i < MAX_PLAYERS; i++)
+        if (c->items[i].joined && g->world.soldiers[i].team == team) net_send(c->items[i].peer, MSG_CHAT, buf, n);
 }
 
 void connections_broadcast(Connections *c, MsgKind kind, const uint8_t *data, size_t size)
@@ -237,7 +244,7 @@ void connections_poll(Connections *c, Game *g)
             int slot = slot_of(c, e.peer);
             if (e.msg == MSG_HELLO) hello(c, g, e.peer, &e);
             else if (slot < 0) deny(c, e.peer, "no Hello first"); // the rest is for players
-            else if (e.msg == MSG_CHAT) chat(c, e.peer, &e);
+            else if (e.msg == MSG_CHAT) chat(c, g, e.peer, &e);
             else if (e.msg == MSG_CLIENT_STATE) server_stream_receive(&c->streams[slot], g, slot, e.data, e.size);
             break;
         }

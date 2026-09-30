@@ -29,6 +29,7 @@ struct Console {
     // The scrollback, a ring: line `log_total % CONSOLE_LOG_LINES` is the one being
     // written, the ones before it are finished.
     char log[CONSOLE_LOG_LINES][CONSOLE_LOG_WIDTH];
+    Rgba log_color[CONSOLE_LOG_LINES]; // the colour each line was printed in, alpha 0 for none
     uint32_t log_total;
     int log_column;
 
@@ -101,18 +102,13 @@ static void log_newline(Console *con)
     con->log_total++;
     con->log_column = 0;
     log_current(con)[0] = '\0';
+    con->log_color[con->log_total % CONSOLE_LOG_LINES] = (Rgba){0};
 }
 
-void console_print(Console *con, const char *fmt, ...)
+// Text into the scrollback, every line it touches in `color` (none for alpha 0).
+static void log_text(Console *con, const char *text, Rgba color)
 {
-    char text[CONSOLE_TEXT_SIZE];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(text, sizeof text, fmt, args);
-    va_end(args);
-
     if (con->print) con->print(text, con->print_user);
-
     for (const char *p = text; *p; p++) {
         if (*p == '\n') {
             log_newline(con);
@@ -122,13 +118,41 @@ void console_print(Console *con, const char *fmt, ...)
         char *line = log_current(con);
         line[con->log_column++] = *p;
         line[con->log_column] = '\0';
+        con->log_color[con->log_total % CONSOLE_LOG_LINES] = color;
     }
+}
+
+void console_print(Console *con, const char *fmt, ...)
+{
+    char text[CONSOLE_TEXT_SIZE];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(text, sizeof text, fmt, args);
+    va_end(args);
+    log_text(con, text, (Rgba){0});
+}
+
+void console_print_color(Console *con, Rgba color, const char *fmt, ...)
+{
+    char text[CONSOLE_TEXT_SIZE];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(text, sizeof text, fmt, args);
+    va_end(args);
+    log_text(con, text, color);
 }
 
 const char *console_log_line(const Console *con, int back)
 {
     if (back < 0 || (uint32_t)back >= con->log_total || back >= CONSOLE_LOG_LINES - 1) return NULL;
     return con->log[(con->log_total - 1 - (uint32_t)back) % CONSOLE_LOG_LINES];
+}
+
+bool console_log_color(const Console *con, int back, Rgba *color)
+{
+    if (!console_log_line(con, back)) return false;
+    *color = con->log_color[(con->log_total - 1 - (uint32_t)back) % CONSOLE_LOG_LINES];
+    return color->a != 0;
 }
 
 // --- cvars ---------------------------------------------------------------------------

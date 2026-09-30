@@ -86,6 +86,8 @@ static void pump(Connections *server, Game *g, TestClient **clients, int count, 
 static bool first_welcomed(TestClient **c) { return c[0]->welcomed; }
 static bool second_answered(TestClient **c) { return c[1]->denied || c[1]->welcomed; }
 static bool first_heard_chat(TestClient **c) { return c[0]->chats > 0; }
+static bool third_welcomed(TestClient **c) { return c[2]->welcomed; }
+static bool third_heard_chat(TestClient **c) { return c[2]->chats > 0 && c[0]->chats > 2; }
 
 void join_tests(void)
 {
@@ -122,6 +124,25 @@ void join_tests(void)
     CHECK(a.mapped && a.map.round == 1 && strcmp(a.map.map, "Arena") == 0, "and the Map came with the join: round %u on %s",
           a.map.round, a.map.map);
 
+    // team chat goes to the team alone: a third client joins, is put on another team
+    // by the server, and hears the public line but not the team's
+    TestClient d;
+    TestClient *three[3] = {&a, &b, &d};
+    CHECK(client_open(&d, NET_VERSION), "a third client connects");
+    pump(&conns, g, three, 3, third_welcomed);
+    CHECK(d.welcomed && d.welcome.slot == 1, "and is welcomed into slot 1");
+    g->world.soldiers[1].team = TEAM_BRAVO;
+    int a_before = a.chats, d_before = d.chats;
+    MsgChat team_line = {.slot = 0, .team = true, .text = "to the team"};
+    client_send(&a, MSG_CHAT, route_chat, &team_line);
+    MsgChat public_line = {.slot = 0, .team = false, .text = "to all"};
+    client_send(&a, MSG_CHAT, route_chat, &public_line);
+    pump(&conns, g, three, 3, third_heard_chat);
+    CHECK(a.chats == a_before + 2 && d.chats == d_before + 1 && strcmp(d.chat.text, "to all") == 0,
+          "a team line reaches the team alone, a public one everyone (a heard %d, d heard %d: %s)", a.chats - a_before,
+          d.chats - d_before, d.chat.text);
+
+    net_close(&d.link);
     net_close(&a.link);
     for (int round = 0; round < ROUNDS && conns.items[0].peer; round++) {
         connections_poll(&conns, g);

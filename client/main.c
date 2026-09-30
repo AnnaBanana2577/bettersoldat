@@ -69,7 +69,7 @@ static const char *VIEW_BINDS =
     "bind escape escmenu; bind tab weaponsmenu; bind m teammenu; bind f1 fragsmenu; bind f2 statsmenu;"
     "bind f3 \"toggle ui_minimap\"; bind f4 \"toggle r_swapeffect\"; bind f5 \"toggle ui_info\";"
     "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
-    "bind alt +radio";
+    "bind alt +radio; bind t chat; bind y teamchat";
 
 typedef struct App {
     Console *console; // large; on the heap
@@ -96,6 +96,7 @@ typedef struct App {
     Input input;
     ClientNet net; // the line to a server, once `connect` opens one
     uint32_t seq; // my commands, numbered
+    bool chat_just_opened; // the key that opened the prompt is not its first letter
     double accumulator;
     bool quit;
 
@@ -148,8 +149,33 @@ static void cmd_screenshot(Console *con, int argc, char **argv, void *user)
     snprintf(app->screenshot, sizeof app->screenshot, "%s", argv[1]);
 }
 
-// say <text...> / say_team <text...>: chat. Nobody else hears yet: it goes to the
-// console and over my head, as it will once a server relays it.
+// A line of chat heard, from `slot` (MAX_PLAYERS for the server itself): to the console
+// in its colour, and over the speaker's head for a while.
+static void chat_heard(App *app, int slot, bool team, const char *text)
+{
+    if (slot == MAX_PLAYERS) {
+        console_print_color(app->console, HUD_COLOR_GAME, "%s\n", text);
+        return;
+    }
+    const char *name = slot == app->me ? app->player_name->value : app->net.stream.names[slot];
+    if (!name[0]) name = app->hud_data.players[slot].name;
+    console_print_color(app->console, team ? HUD_COLOR_TEAMCHAT : HUD_COLOR_CHAT, "%s%s: %s\n", team ? "(team) " : "", name, text);
+    HudPlayer *p = &app->hud_data.players[slot];
+    snprintf(p->chat, sizeof p->chat, "%s", text);
+    p->chat_team = team;
+    p->chat_delay = CHAT_TICKS;
+}
+
+// Something I say: to the server, which says it back to everyone, me among them; alone,
+// straight to my own console and head.
+static void say(App *app, bool team, const char *text)
+{
+    if (!text[0]) return;
+    if (client_net_say(&app->net, text, team)) return;
+    chat_heard(app, app->me, team, text);
+}
+
+// say <text...> / say_team <text...>: chat, as a command (the taunt binds use it).
 static void cmd_say(Console *con, int argc, char **argv, void *user)
 {
     App *app = user;
@@ -157,19 +183,92 @@ static void cmd_say(Console *con, int argc, char **argv, void *user)
         console_print(con, "usage: %s <text>\n", argv[0]);
         return;
     }
-    HudPlayer *me = &app->hud_data.players[app->me];
-    bool team = strcmp(argv[0], "say_team") == 0;
+    char text[HUD_TEXT];
     size_t n = 0;
-    me->chat[0] = '\0';
-    for (int i = 1; i < argc && n < sizeof me->chat - 1; i++) {
-        int w = snprintf(me->chat + n, sizeof me->chat - n, i > 1 ? " %s" : "%s", argv[i]);
+    text[0] = '\0';
+    for (int i = 1; i < argc && n < sizeof text - 1; i++) {
+        int w = snprintf(text + n, sizeof text - n, i > 1 ? " %s" : "%s", argv[i]);
         if (w < 0) break;
         n += (size_t)w; // past the end once it is full, and the loop ends
     }
-    me->chat_team = team;
-    me->chat_delay = CHAT_TICKS;
-    console_print(con, "%s%s: %s\n", team ? "(team) " : "", app->player_name->value, me->chat);
-    client_net_say(&app->net, me->chat, team); // and to the server, when there is one
+    say(app, strcmp(argv[0], "say_team") == 0, text);
+}
+
+// chat / teamchat: the prompt opens, and the keys are its until Enter sends the line or
+// Escape drops it (chat_event). The original's T and Y.
+static void chat_open(App *app, bool team)
+{
+    HudData *d = &app->hud_data;
+    d->chat_type = team ? HUD_CHAT_TEAM : HUD_CHAT_PUBLIC;
+    d->chat_text[0] = '\0';
+    d->chat_cursor = 0;
+    d->chat_changed_at = app->time;
+    app->chat_just_opened = true;
+    SDL_StartTextInput();
+}
+
+static void chat_close(App *app)
+{
+    app->hud_data.chat_type = HUD_CHAT_NONE;
+    SDL_StopTextInput();
+}
+
+static void cmd_chat(Console *con, int argc, char **argv, void *user)
+{
+    (void)con, (void)argc;
+    App *app = user;
+    if (app->hud_data.chat_type != HUD_CHAT_NONE) return;
+    chat_open(app, strcmp(argv[0], "teamchat") == 0);
+}
+
+// Typing: the text and the keys that edit it, while the prompt is open. Keys going up
+// still reach the binds, so what was held before the prompt opened is let go of.
+static bool chat_event(App *app, const SDL_Event *e)
+{
+    HudData *d = &app->hud_data;
+    if (d->chat_type == HUD_CHAT_NONE) return false;
+    char *text = d->chat_text;
+    size_t len = strlen(text);
+    int at = clampi(d->chat_cursor, 0, (int)len);
+    if (e->type == SDL_TEXTINPUT) {
+        if (app->chat_just_opened) return true; // the key that opened it
+        size_t add = strlen(e->text.text);
+        if (len + add >= sizeof d->chat_text) return true;
+        memmove(text + at + add, text + at, len - (size_t)at + 1);
+        memcpy(text + at, e->text.text, add);
+        d->chat_cursor = at + (int)add;
+        d->chat_changed_at = app->time;
+        return true;
+    }
+    if (e->type != SDL_KEYDOWN) return false;
+    switch (e->key.keysym.scancode) {
+    case SDL_SCANCODE_RETURN:
+    case SDL_SCANCODE_KP_ENTER: {
+        char line[HUD_TEXT];
+        snprintf(line, sizeof line, "%s", text);
+        bool team = d->chat_type == HUD_CHAT_TEAM;
+        chat_close(app);
+        say(app, team, line);
+        break;
+    }
+    case SDL_SCANCODE_ESCAPE: chat_close(app); break;
+    case SDL_SCANCODE_BACKSPACE:
+        if (at > 0) {
+            memmove(text + at - 1, text + at, len - (size_t)at + 1);
+            d->chat_cursor = at - 1;
+        }
+        break;
+    case SDL_SCANCODE_DELETE:
+        if ((size_t)at < len) memmove(text + at, text + at + 1, len - (size_t)at);
+        break;
+    case SDL_SCANCODE_LEFT: d->chat_cursor = at > 0 ? at - 1 : 0; break;
+    case SDL_SCANCODE_RIGHT: d->chat_cursor = (size_t)at < len ? at + 1 : (int)len; break;
+    case SDL_SCANCODE_HOME: d->chat_cursor = 0; break;
+    case SDL_SCANCODE_END: d->chat_cursor = (int)len; break;
+    default: break;
+    }
+    d->chat_changed_at = app->time;
+    return true;
 }
 
 // connect <address[:port]> / disconnect: the line to a server. The join and what comes
@@ -303,6 +402,8 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "statsmenu", cmd_menu, app, "the weapon stats");
     console_add_command(con, "say", cmd_say, app, "say something to everyone");
     console_add_command(con, "say_team", cmd_say, app, "say something to the team");
+    console_add_command(con, "chat", cmd_chat, app, "type a line to everyone");
+    console_add_command(con, "teamchat", cmd_chat, app, "type a line to the team");
     console_add_command(con, "+radio", cmd_radio, app, "hold the radio menu open");
     console_add_command(con, "-radio", cmd_radio, app, NULL);
     console_add_command(con, "connect", cmd_connect, app, "join a server: connect <address[:port]>");
@@ -570,10 +671,12 @@ static void poll_events(App *app)
             }
             break;
         default:
+            if (chat_event(app, &e)) break;
             if (!menu_event(app, &e)) input_event(&app->input, app->console, &e);
             break;
         }
     }
+    app->chat_just_opened = false;
 }
 
 // What the HUD shows that the frame does not carry. Today a local match of one: the
@@ -637,7 +740,7 @@ static void hud_data_build(App *app)
         if (!line) continue;
         HudLine *l = &d->console[d->console_count++];
         snprintf(l->text, sizeof l->text, "%s", line);
-        l->color = (Rgba){0xC3, 0xC3, 0xC3, 0xF1};
+        if (!console_log_color(app->console, back, &l->color)) l->color = HUD_COLOR_ENTER;
     }
     if (app->hud_demo->integer) hud_data_demo(d, app->hud_demo->integer);
 }
@@ -823,6 +926,8 @@ int main(int argc, char *argv[])
             }
             app.me = app.net.slot;
         }
+        MsgChat heard;
+        while (client_net_take_chat(&app.net, &heard)) chat_heard(&app, heard.slot, heard.team, heard.text);
         apply_cvars(&app);
         app.camera.viewport = window_rect(&app);
         input_sample(&app.input, screen_to_world(&app.camera, cursor(&app)));

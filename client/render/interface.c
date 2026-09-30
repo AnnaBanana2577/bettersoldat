@@ -67,11 +67,11 @@ static const struct {
 };
 
 // The original's message colours (Constants.pas), $AARRGGBB there.
-static const Rgba COLOR_ENTER = {0xC3, 0xC3, 0xC3, 0xF1};
-static const Rgba COLOR_GAME = {0x71, 0xF9, 0x81, 0xEE};
+#define COLOR_ENTER HUD_COLOR_ENTER
+#define COLOR_GAME HUD_COLOR_GAME
 static const Rgba COLOR_ABOVECHAT = {0xFD, 0xFD, 0xF9, 0xFF};
-static const Rgba COLOR_CHAT = {0xEF, 0xFE, 0xEA, 0xEE};
-static const Rgba COLOR_TEAMCHAT = {0xFE, 0xDA, 0x7C, 0xEE};
+#define COLOR_CHAT HUD_COLOR_CHAT
+#define COLOR_TEAMCHAT HUD_COLOR_TEAMCHAT
 static const Rgba COLOR_CHARLIEJ = {0xDF, 0xDF, 0x53, 0xFF};
 static const Rgba COLOR_DELTAJ = {0x53, 0xDF, 0x53, 0xFF}; // DELTAJ_MESSAGE_COLOR
 static const Rgba COLOR_OUTOFSCREEN = {0xFF, 0xFF, 0xFF, 0xFF};      // white
