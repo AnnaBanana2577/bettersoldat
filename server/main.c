@@ -11,10 +11,6 @@
 //
 //   bettersoldat-server [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 
-#ifndef _WIN32
-#define _POSIX_C_SOURCE 200809L // clock_gettime, nanosleep
-#endif
-
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>

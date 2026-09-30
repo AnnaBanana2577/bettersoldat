@@ -19,6 +19,9 @@ set_warnings("all")
 
 if is_plat("windows") then
     add_defines("_CRT_SECURE_NO_WARNINGS")
+else
+    -- -std=c11 hides what glibc has beyond ISO C (dirent's d_type, clock_gettime, nanosleep)
+    add_defines("_DEFAULT_SOURCE")
 end
 
 -- The libraries, built static so a package is the executables and nothing to find at
