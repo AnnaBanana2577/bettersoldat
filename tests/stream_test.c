@@ -433,6 +433,7 @@ void stream_tests(void)
     CHECK(conns.round == 2 && strcmp(conns.map, "ctf_Ash") == 0, "the server begins round %u on %s", conns.round, conns.map);
     CHECK(c.round == 2 && strcmp(c.map, "ctf_Ash") == 0, "and the client is told, and makes its world anew (%u on %s)", c.round, c.map);
     mine = &c.game->world.soldiers[0];
+    CHECK(match_has_teams(&gs->match) && match_has_teams(&c.game->match), "a map with flags plays CTF, on the server and by its snapshots here");
     theirs = &gs->world.soldiers[0];
     CHECK(theirs->active && !theirs->dead && theirs->remote && conns.items[0].joined, "everyone joined is placed in the new round");
     CHECK(mine->active && mine->life == theirs->life && fabsf(mine->pos.x - theirs->pos.x) < 1.0f,

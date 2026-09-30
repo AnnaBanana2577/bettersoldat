@@ -105,6 +105,7 @@ const NetField THING_FIELDS[] = {
     NETFIELD_ENUM(Thing, weapon, WEAPON_COUNT - 1),
     NETFIELD(Thing, ammo, NET_I, COUNTER),
     NETFIELD(Thing, flip, NET_BOOL, 0),
+    NETFIELD(Thing, in_base, NET_BOOL, 0), // a flag at home: the team box shows the ones away
     NETFIELD_ENUM(Thing, holder, MAX_PLAYERS),
     NETFIELD_ENUM(Thing, owner, MAX_PLAYERS),
     NETFIELD(Thing, timeout, NET_I, 32), // a map's kit lies for hours
@@ -126,6 +127,7 @@ const NetField THING_FIELDS[] = {
 const int THING_COUNT = sizeof THING_FIELDS / sizeof THING_FIELDS[0];
 
 const NetField MATCH_FIELDS[] = {
+    NETFIELD_ENUM(Match, settings.mode, MATCH_MODE_COUNT - 1),
     NETFIELD_ENUM(Match, state, MATCH_PAUSED),
     NETFIELD(Match, scores[0], NET_I, COUNTER),
     NETFIELD(Match, scores[1], NET_I, COUNTER),

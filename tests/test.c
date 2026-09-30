@@ -28,7 +28,7 @@ Game *scene(const char *map, float gap, WeaponId a_weapon, WeaponId b_weapon)
         printf("could not load map '%s' from assets/: the tests run from the project directory\n", map);
         exit(2);
     }
-    game_init(g, 1, match_default_settings());
+    game_init(g, 1, match_settings_for_map(g->ctx.map));
     g->world.authority = true;
 
     uint64_t rng = 7;

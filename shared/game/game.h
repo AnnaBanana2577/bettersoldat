@@ -79,7 +79,13 @@ typedef enum MatchState { MATCH_PLAYING, MATCH_ENDED, MATCH_PAUSED } MatchState;
 #define DEFAULT_SCORE_LIMIT 10
 #define ROUND_END_TICKS (5 * TICK_RATE + 20) // the scores stand this long before the next round
 
+// What is played: a deathmatch, everyone against everyone with no team; or capture the
+// flag, alpha against bravo. A map with a flag's spawn point plays CTF. The other
+// modes of the original are still to come.
+typedef enum MatchMode { MATCH_DEATHMATCH, MATCH_CTF, MATCH_MODE_COUNT } MatchMode;
+
 typedef struct MatchSettings {
+    MatchMode mode;
     int32_t time_limit; // ticks
     int32_t score_limit;
     int32_t respawn_time;
@@ -132,6 +138,10 @@ void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], c
 // --- Match -------------------------------------------------------------------------
 
 MatchSettings match_default_settings(void);
+// The defaults, in the mode the map plays.
+MatchSettings match_settings_for_map(const Map *map);
+// Whether the mode has teams.
+bool match_has_teams(const Match *m);
 void match_init(Match *m, MatchSettings settings);
 
 // The match's tick, after the world's: what the server keeps of every soldier (the

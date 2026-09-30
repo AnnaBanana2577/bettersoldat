@@ -43,6 +43,7 @@ bool round_start(Game *g, Connections *c, const char *assets, const char *map)
         g->world.history = history;
         return false;
     }
+    settings.mode = match_settings_for_map(g->ctx.map).mode; // the limits stay, the mode is the map's
     game_init(g, (uint64_t)g->world.tick + 1, settings);
     g->world.authority = true;
     g->world.history = history;

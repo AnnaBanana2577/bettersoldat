@@ -148,7 +148,7 @@ static bool game_open(Server *sv)
 {
     sv->game = calloc(1, sizeof(Game));
     if (!sv->game || !context_load(&sv->game->ctx, sv->assets->value, sv->map->value)) return false;
-    game_init(sv->game, (uint64_t)time(NULL), match_default_settings());
+    game_init(sv->game, (uint64_t)time(NULL), match_settings_for_map(sv->game->ctx.map));
     sv->game->world.authority = true;
     return true;
 }

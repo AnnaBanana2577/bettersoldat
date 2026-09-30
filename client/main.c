@@ -427,8 +427,9 @@ static void console_close(App *app)
     app->console = NULL;
 }
 
-// A team game: the map says, by its name, until a server does.
-static bool team_game(const App *app) { return strncmp(app->map->value, "ctf_", 4) == 0; }
+// A team game: the match's mode says, which the map decides alone and the server's
+// snapshots carry online.
+static bool team_game(const App *app) { return match_has_teams(&app->game->match); }
 
 // A colour cvar's colour; its default's if what it holds isn't one.
 static Rgba cvar_color(const Cvar *cv)
@@ -482,7 +483,7 @@ static bool game_open(App *app, bool local)
     if (!app->game || !context_load(&app->game->ctx, app->assets->value, app->map->value)) return false;
 
     Game *g = app->game;
-    game_init(g, 1, match_default_settings());
+    game_init(g, 1, match_settings_for_map(g->ctx.map));
     g->world.authority = local;
     for (int i = 0; i < MAX_PLAYERS; i++) g->world.soldiers[i].look = look_from_cvars(app);
     if (!local) return true;
@@ -706,6 +707,17 @@ static void hud_data_build(App *app)
 
     d->mode = team_game(app) ? HUD_MODE_CTF : HUD_MODE_DEATHMATCH;
     d->team_game = d->mode == HUD_MODE_CTF;
+    // the flags, for the team box: known once both are placed, at home unless away or held
+    d->flags_known = false;
+    for (int t = 0; t < HUD_TEAMS; t++) d->flag_in_base[t] = true;
+    int flags = 0;
+    for (int i = 0; i < MAX_THINGS; i++) {
+        const Thing *t = &g->world.things[i];
+        if (t->style != THING_ALPHA_FLAG && t->style != THING_BRAVO_FLAG) continue;
+        d->flag_in_base[t->style == THING_ALPHA_FLAG ? TEAM_ALPHA : TEAM_BRAVO] = t->in_base && t->holder == 0;
+        flags++;
+    }
+    d->flags_known = flags == 2;
     snprintf(d->hostname, sizeof(d->hostname), "bettersoldat");
     d->kill_limit = g->match.settings.score_limit;
     d->time_left_min = g->match.time_left / TICK_RATE / 60;

@@ -127,6 +127,17 @@ void match_run(const Context *ctx, World *w, Match *m, Events *events)
     if (m->time_left <= 0 || m->scores[TEAM_ALPHA] >= limit || m->scores[TEAM_BRAVO] >= limit) match_end(m, events);
 }
 
+MatchSettings match_settings_for_map(const Map *map)
+{
+    MatchSettings s = match_default_settings();
+    uint64_t rng = 1;
+    Vec2 at;
+    s.mode = thing_spawn_point(map, SPAWN_ALPHA_FLAG, &rng, &at) ? MATCH_CTF : MATCH_DEATHMATCH;
+    return s;
+}
+
+bool match_has_teams(const Match *m) { return m->settings.mode == MATCH_CTF; }
+
 bool match_over(const Match *m)
 {
     return m->state == MATCH_ENDED && m->counter <= 0;

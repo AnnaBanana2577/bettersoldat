@@ -196,4 +196,7 @@ commit that changes the netcode says what it measured, on what line.
    being for a game as in the original, and the loadout the Hello and then the client
    state, as the menu changes it; the server takes them as said, and a client keeps its
    own over the server's word of them. The team's shirt goes on
-   where the gostek is drawn. Still to do: votes.
+   where the gostek is drawn. The match's mode (deathmatch, or CTF on a map with a flag's
+   spawn) is decided by the map once, on the server and alone alike, and rides the
+   snapshot in the match, so the client's HUD, team box, spawn and shirts follow it
+   rather than the map's name. Still to do: votes.
