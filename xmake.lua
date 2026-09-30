@@ -71,14 +71,15 @@ target("server")
     add_includedirs("server")
     set_rundir("$(projectdir)")
 
--- The tests: headless checks of what shared/ holds, and of the server's join over the
--- loopback (server/connections.c is built into them). Not built by default; run them with
+-- The tests: headless checks of what shared/ holds, and of the server's join, streams
+-- and rounds over the loopback (the server's systems are built into them). Not built by
+-- default; run them with
 --   xmake test
 target("tests")
     set_kind("binary")
     set_default(false)
     add_deps("shared")
-    add_files("tests/*.c", "server/connections.c")
+    add_files("tests/*.c", "server/connections.c", "server/rounds.c")
     add_includedirs("tests", "server")
     set_rundir("$(projectdir)")
     add_tests("default")

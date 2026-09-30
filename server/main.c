@@ -21,6 +21,7 @@
 #include "connections.h"
 #include "console/console.h"
 #include "game/game.h"
+#include "rounds.h"
 
 // After the game's headers: GDI has a Polygon of its own.
 #ifdef _WIN32
@@ -37,12 +38,14 @@ typedef struct Server {
     Console *console; // large; on the heap
     Cvar *assets;
     Cvar *map;
+    Cvar *maps; // the rotation
     Cvar *port;
     Game *game; // large; on the heap
     NetLink link;
     Connections connections;
     double accumulator;
     bool quit;
+    bool next_round; // asked for (nextmap), or the match over: at the end of the tick
 } Server;
 
 static volatile sig_atomic_t interrupted; // Ctrl-C, or a kill
@@ -100,6 +103,27 @@ static void cmd_quit(Console *con, int argc, char **argv, void *user)
     ((Server *)user)->quit = true;
 }
 
+// nextmap: the round ends now and the next begins.
+static void cmd_nextmap(Console *con, int argc, char **argv, void *user)
+{
+    (void)con, (void)argc, (void)argv;
+    ((Server *)user)->next_round = true;
+}
+
+// The next round, on the map after this one in sv_maps (or this one again).
+static bool next_round(Server *sv)
+{
+    char map[NET_MAP_SIZE];
+    rounds_next_map(sv->maps->value, sv->map->value, map, sizeof map);
+    if (!round_start(sv->game, &sv->connections, sv->assets->value, map)) {
+        fprintf(stderr, "could not load map '%s' from '%s'\n", map, sv->assets->value);
+        return false;
+    }
+    cvar_set(sv->console, "map", map);
+    sv->next_round = false;
+    return true;
+}
+
 // The console and what the server keeps in it, then config.cfg and the command line
 // over it. Nothing is saved on the way out: nothing here changes a setting yet.
 static bool console_open(Server *sv, int argc, char *argv[])
@@ -109,8 +133,10 @@ static bool console_open(Server *sv, int argc, char *argv[])
 
     sv->assets = cvar_register(con, "assets", "./assets", 0, "the base assets directory: maps/, anims/, objects/...");
     sv->map = cvar_register(con, "map", "Arena", 0, "the map to load");
+    sv->maps = cvar_register(con, "sv_maps", "", 0, "the maps in rotation, space-separated; empty plays the map again");
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
+    console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
 
     if (file_exists(CONFIG)) console_execute_file(con, CONFIG);
     console_execute_args(con, argc, argv);
@@ -179,6 +205,7 @@ int main(int argc, char *argv[])
             game_tick(sv.game, cmds);
             connections_snapshots(&sv.connections, sv.game);
             sv.accumulator -= TICK_SECONDS;
+            if ((sv.next_round || match_over(&sv.game->match)) && !next_round(&sv)) sv.quit = true;
         }
         net_flush(&sv.link);
         sleep_ms(SLEEP_MS);

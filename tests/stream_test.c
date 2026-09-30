@@ -3,10 +3,12 @@
 // and the deltas stay small. Real sockets; a bad line is simulated outside these tests.
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "connections.h"
+#include "rounds.h"
 #include "test.h"
 
 #define PORT 40024
@@ -20,10 +22,21 @@ typedef struct StreamClient {
     ClientStream stream;
     int slot;
     bool welcomed;
+    uint16_t round;
+    char map[NET_MAP_SIZE];
     int snapshots;
     size_t state_bytes, snapshot_bytes; // the last of each
     int bot_shots, damages;             // events heard: the bot's shots made here, wounds to me
 } StreamClient;
+
+// The client's world for a map: the same map as the server's, nobody in it, no authority.
+static Game *client_world(const char *map)
+{
+    Game *g = scene(map, 60.0f, WEAPON_AK74, WEAPON_AK74);
+    for (int i = 0; i < MAX_PLAYERS; i++) g->world.soldiers[i].active = false;
+    g->world.authority = false;
+    return g;
+}
 
 static void route_hello(NetBuf *b, void *m) { msg_hello(b, m); }
 
@@ -52,8 +65,20 @@ static void client_pump(StreamClient *c)
             if (!netbuf_done(&b)) continue;
             c->slot = m.slot;
             c->welcomed = true;
-            client_stream_reset(&c->stream);
-        } else if (e.kind == NET_EVENT_MESSAGE && e.msg == MSG_SNAPSHOT && c->welcomed) {
+        } else if (e.kind == NET_EVENT_MESSAGE && e.msg == MSG_MAP) {
+            // a round: the world made anew for its map, the streams from its start
+            NetBuf b = netbuf_reader(e.data, e.size);
+            MsgKind kind;
+            MsgMap m = {0};
+            msg_kind(&b, &kind);
+            msg_map(&b, &m);
+            if (!netbuf_done(&b)) continue;
+            c->round = m.round;
+            snprintf(c->map, sizeof c->map, "%s", m.map);
+            if (c->game) scene_free(c->game);
+            c->game = client_world(m.map);
+            client_stream_reset(&c->stream, m.round);
+        } else if (e.kind == NET_EVENT_MESSAGE && e.msg == MSG_SNAPSHOT && c->welcomed && c->round) {
             if (client_stream_hear(&c->stream, c->game, c->slot, e.data, e.size)) {
                 c->snapshots++;
                 c->snapshot_bytes = e.size;
@@ -110,13 +135,15 @@ static void server_tick(Connections *conns, Game *g, Buttons bot_buttons)
 }
 
 // Both ends for `rounds` ticks, the client pressing `buttons`, the bot `bot_buttons`.
+// A match over on the server begins the next round, on ctf_Ash.
 static void play(Connections *conns, Game *g, StreamClient *c, int rounds, Buttons buttons, Buttons bot_buttons)
 {
     for (int round = 0; round < rounds; round++) {
         connections_poll(conns, g);
         server_tick(conns, g, bot_buttons);
+        if (match_over(&g->match)) round_start(g, conns, "assets", "ctf_Ash");
         client_pump(c);
-        if (c->welcomed) client_tick(c, buttons);
+        if (c->welcomed && c->round) client_tick(c, buttons);
         enet_host_service(conns->link->host, NULL, 10); // the wait; what arrives is dispatched next round
     }
 }
@@ -142,17 +169,15 @@ void stream_tests(void)
     Connections conns;
     connections_init(&conns, &server, NULL, "Arena");
 
-    // the client: the same map, nobody in it, no authority
+    // the client: no world until the Map says which
     StreamClient c = {.slot = -1};
-    c.game = scene("Arena", 60.0f, WEAPON_AK74, WEAPON_AK74);
-    for (int i = 0; i < MAX_PLAYERS; i++) c.game->world.soldiers[i].active = false;
-    c.game->world.authority = false;
     CHECK(client_stream_init(&c.stream), "the client's ring is made");
     CHECK(net_connect(&c.link, "127.0.0.1", PORT), "the client connects");
 
     // the join, and the first snapshot
     for (int round = 0; round < ROUNDS && c.snapshots == 0; round++) play(&conns, gs, &c, 1, 0, 0);
     CHECK(c.welcomed && c.slot == 0, "the client is welcomed into slot 0");
+    CHECK(c.round == 1 && strcmp(c.map, "Arena") == 0 && c.game, "and told the round: %u on %s", c.round, c.map);
     Soldier *mine = &c.game->world.soldiers[0], *theirs = &gs->world.soldiers[0];
     CHECK(c.snapshots > 0 && mine->active && !mine->remote && mine->life == theirs->life && fabsf(mine->pos.x - theirs->pos.x) < 1.0f,
           "the first snapshot places my soldier where the server spawned it, on the life it gave (%d snapshots)", c.snapshots);
@@ -238,6 +263,26 @@ void stream_tests(void)
     net_flush(&c.link);
     play(&conns, gs, &c, 5, 0, 0);
     CHECK(conns.streams[0].dropped == dropped + 1, "a state older than the newest is dropped (%u dropped)", conns.streams[0].dropped);
+
+    // the round ends, and the next begins on another map
+    gs->match.time_left = 1;
+    play(&conns, gs, &c, 2, 0, 0);
+    CHECK(gs->match.state == MATCH_ENDED, "the clock runs out and the round ends");
+    gs->match.counter = 1; // the scores stand a tick rather than five seconds
+    play(&conns, gs, &c, 30, 0, 0);
+    CHECK(conns.round == 2 && strcmp(conns.map, "ctf_Ash") == 0, "the server begins round %u on %s", conns.round, conns.map);
+    CHECK(c.round == 2 && strcmp(c.map, "ctf_Ash") == 0, "and the client is told, and makes its world anew (%u on %s)", c.round, c.map);
+    mine = &c.game->world.soldiers[0];
+    theirs = &gs->world.soldiers[0];
+    CHECK(theirs->active && !theirs->dead && theirs->remote && conns.items[0].joined, "everyone joined is placed in the new round");
+    CHECK(mine->active && mine->life == theirs->life && fabsf(mine->pos.x - theirs->pos.x) < 1.0f,
+          "and hears where, from the snapshots of the new round (life %u, %.1f vs %.1f)", mine->life, mine->pos.x, theirs->pos.x);
+    int flags_here = 0;
+    for (int i = 0; i < MAX_THINGS; i++) flags_here += thing_is_flag(c.game->world.things[i].style);
+    CHECK(flags_here == 2 && gs->match.state == MATCH_PLAYING, "with the new map's flags, and the match playing again (%d flags)",
+          flags_here);
+    CHECK(c.stream.dropped == 0, "and nothing of the new round was dropped (%u; %u stale ones of the old were)", c.stream.dropped,
+          c.stream.stale);
 
     net_close(&c.link);
     for (int round = 0; round < 50 && conns.items[0].peer; round++) {

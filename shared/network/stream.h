@@ -34,6 +34,7 @@
 // --- the messages ------------------------------------------------------------------
 
 typedef struct MsgClientState {
+    uint16_t round;     // the round it is of (MsgMap); another round's is dropped
     uint32_t seq;       // this state's number, the client's count from 1
     uint32_t base;      // the state it is a delta against, 0 for whole
     uint32_t ack;       // the newest snapshot (its tick) the client has, 0 for none
@@ -54,6 +55,7 @@ typedef enum SnapWord {
 } SnapWord;
 
 typedef struct MsgSnapshot {
+    uint16_t round;            // the round it is of (MsgMap); another round's is dropped
     uint32_t tick;             // the snapshot's number
     uint32_t base;             // the snapshot it is a delta against, 0 for whole
     uint32_t client_ack;       // the newest client state (its seq) the server has from this client
@@ -89,6 +91,7 @@ Command stream_command(const Soldier *s, bool quiet);
 // --- the server's end, one per player ----------------------------------------------
 
 typedef struct ServerStream {
+    uint16_t round;            // the round this stream is of; set by server_stream_init
     Soldier ring[STREAM_RING]; // the client states received, by seq, for the deltas
     uint32_t ring_seq[STREAM_RING];
     uint32_t newest;      // the newest client state received (its seq), 0 for none
@@ -103,7 +106,8 @@ typedef struct ServerStream {
     uint32_t dropped;    // client states that couldn't be read, or failed a check
 } ServerStream;
 
-void server_stream_init(ServerStream *s);
+// Fresh for `round`: nothing received, nothing sent, so the first snapshot goes whole.
+void server_stream_init(ServerStream *s, uint16_t round);
 
 // A client state for the soldier in `slot`: read against its base, checked, and taken
 // as written, its events into the game's mailbox. False if dropped: old, unreadable,
@@ -139,12 +143,15 @@ typedef struct ClientStream {
     WireQueue out;       // my decisions, for the server
     uint32_t event_ack;  // the newest of my events the server has applied
     uint32_t event_last; // the newest of the server's events applied here
+    uint16_t round;      // the round I am in (MsgMap); snapshots of another are dropped
     uint32_t dropped;    // snapshots that couldn't be read
+    uint32_t stale;      // snapshots of another round
 } ClientStream;
 
 bool client_stream_init(ClientStream *c); // allocates the ring; false if it couldn't
 void client_stream_free(ClientStream *c);
-void client_stream_reset(ClientStream *c); // a new join: nothing heard, nothing sent
+// A round begins (a join, a new map): nothing heard, nothing sent, this round's from now.
+void client_stream_reset(ClientStream *c, uint16_t round);
 
 // A snapshot heard, applied to the world, its events into the game's mailbox; `me` is
 // the client's slot. The world's tick is kept with the server's. False if dropped.

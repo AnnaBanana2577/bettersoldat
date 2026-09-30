@@ -11,6 +11,7 @@
 
 void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base)
 {
+    net_u16(b, &m->round);
     net_u32(b, &m->seq);
     net_u32(b, &m->base);
     net_u32(b, &m->ack);
@@ -23,6 +24,7 @@ static const SnapBase NO_BASE = {0};
 void msg_snapshot(NetBuf *b, MsgSnapshot *m, const SnapBase *base)
 {
     if (!base) base = &NO_BASE;
+    net_u16(b, &m->round);
     net_u32(b, &m->tick);
     net_u32(b, &m->base);
     net_u32(b, &m->client_ack);
@@ -59,7 +61,11 @@ Command stream_command(const Soldier *s, bool quiet)
 
 // --- the server's end --------------------------------------------------------------
 
-void server_stream_init(ServerStream *s) { memset(s, 0, sizeof *s); }
+void server_stream_init(ServerStream *s, uint16_t round)
+{
+    memset(s, 0, sizeof *s);
+    s->round = round;
+}
 
 bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *data, size_t size)
 {
@@ -67,11 +73,12 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     MsgKind kind;
     MsgClientState m;
     msg_kind(&b, &kind);
+    net_u16(&b, &m.round);
     net_u32(&b, &m.seq);
     net_u32(&b, &m.base);
     net_u32(&b, &m.ack);
     net_u32(&b, &m.event_ack);
-    if (!netbuf_ok(&b) || m.seq <= s->newest) {
+    if (!netbuf_ok(&b) || m.round != s->round || m.seq <= s->newest) {
         s->dropped++;
         return false;
     }
@@ -134,7 +141,7 @@ size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, const Wi
                               const char (*names)[NET_NAME_SIZE], uint8_t *buf, size_t size)
 {
     const World *w = &g->world;
-    MsgSnapshot m = {.tick = w->tick, .client_ack = s->newest, .client_event_ack = s->event_last, .match = g->match};
+    MsgSnapshot m = {.round = s->round, .tick = w->tick, .client_ack = s->newest, .client_event_ack = s->event_last, .match = g->match};
 
     // the base: the snapshot the client has, if young enough and still in the history
     SnapBase base = {0};
@@ -208,13 +215,14 @@ void client_stream_free(ClientStream *c)
     c->snap_things = NULL;
 }
 
-void client_stream_reset(ClientStream *c)
+void client_stream_reset(ClientStream *c, uint16_t round)
 {
     Soldier(*snaps)[MAX_PLAYERS] = c->snaps;
     Thing(*things)[MAX_THINGS] = c->snap_things;
     memset(c, 0, sizeof *c);
     c->snaps = snaps;
     c->snap_things = things;
+    c->round = round;
     if (snaps) memset(snaps, 0, STREAM_RING * sizeof *snaps);
     if (things) memset(things, 0, STREAM_RING * sizeof *things);
     wire_queue_init(&c->out);
@@ -248,10 +256,15 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
     MsgKind kind;
     MsgSnapshot m;
     msg_kind(&b, &kind);
+    net_u16(&b, &m.round);
     net_u32(&b, &m.tick);
     net_u32(&b, &m.base);
     net_u32(&b, &m.client_ack);
     net_u32(&b, &m.client_event_ack);
+    if (netbuf_ok(&b) && m.round != c->round) { // another round's: the Map that begins it hasn't come, or it is over
+        c->stale++;
+        return false;
+    }
     if (!netbuf_ok(&b) || m.tick <= c->newest) {
         c->dropped++;
         return false;
@@ -363,7 +376,7 @@ size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, siz
 
     NetBuf b = netbuf_writer(buf, size);
     MsgKind kind = MSG_CLIENT_STATE;
-    MsgClientState m = {.seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .owned = *me};
+    MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .owned = *me};
     msg_kind(&b, &kind);
     msg_client_state(&b, &m, base);
     wire_write(&b, &c->out, c->event_ack, -1);

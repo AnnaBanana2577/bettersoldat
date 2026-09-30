@@ -14,8 +14,9 @@
 typedef struct TestClient {
     NetLink link;
     uint16_t version;
-    bool connected, welcomed, denied, closed;
+    bool connected, welcomed, denied, closed, mapped;
     MsgWelcome welcome;
+    MsgMap map;
     MsgDenied denial;
     MsgChat chat;
     int chats;
@@ -56,6 +57,9 @@ static void client_pump(TestClient *c)
             if (kind == MSG_WELCOME) {
                 msg_welcome(&b, &c->welcome);
                 c->welcomed = netbuf_done(&b);
+            } else if (kind == MSG_MAP) {
+                msg_map(&b, &c->map);
+                c->mapped = netbuf_done(&b);
             } else if (kind == MSG_DENIED) {
                 msg_denied(&b, &c->denial);
                 c->denied = netbuf_done(&b);
@@ -99,9 +103,8 @@ void join_tests(void)
     CHECK(client_open(&a, NET_VERSION), "a client connects to the loopback");
     pump(&conns, g, clients, 1, first_welcomed);
     CHECK(a.connected, "the line comes up");
-    CHECK(a.welcomed && a.welcome.slot == 0 && strcmp(a.welcome.map, "Arena") == 0,
-          "and Hello is answered with Welcome, slot 0, on Arena (welcomed %d, slot %d, map %s)", a.welcomed, a.welcome.slot,
-          a.welcome.map);
+    CHECK(a.welcomed && a.welcome.slot == 0, "and Hello is answered with Welcome, slot 0 (welcomed %d, slot %d)", a.welcomed,
+          a.welcome.slot);
     CHECK(g->world.soldiers[0].active && !g->world.soldiers[0].dead && strcmp(conns.items[0].name, "Tester") == 0,
           "with a soldier alive in that slot, named");
     CHECK(connections_count(&conns) == 1, "one player on the server");
@@ -116,6 +119,8 @@ void join_tests(void)
     pump(&conns, g, clients, 2, first_heard_chat);
     CHECK(a.chats == 1 && a.chat.slot == 0 && strcmp(a.chat.text, "hello there") == 0,
           "a line of chat comes back from the server, stamped with the sender's real slot (%d)", a.chat.slot);
+    CHECK(a.mapped && a.map.round == 1 && strcmp(a.map.map, "Arena") == 0, "and the Map came with the join: round %u on %s",
+          a.map.round, a.map.map);
 
     net_close(&a.link);
     for (int round = 0; round < ROUNDS && conns.items[0].peer; round++) {

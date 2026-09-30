@@ -9,6 +9,7 @@ const bool MSG_RELIABLE[MSG_COUNT] = {
     [MSG_WELCOME] = true,
     [MSG_DENIED] = true,
     [MSG_CHAT] = true,
+    [MSG_MAP] = true,
     [MSG_CLIENT_STATE] = false,
     [MSG_SNAPSHOT] = false,
 };
@@ -33,6 +34,11 @@ void msg_welcome(NetBuf *b, MsgWelcome *m)
     net_range(b, &slot, MAX_PLAYERS - 1);
     m->slot = (uint8_t)slot;
     net_u32(b, &m->tick);
+}
+
+void msg_map(NetBuf *b, MsgMap *m)
+{
+    net_u16(b, &m->round);
     net_string(b, m->map, sizeof m->map);
 }
 

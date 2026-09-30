@@ -63,11 +63,19 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         if (!netbuf_done(&b)) return;
         n->slot = m.slot;
         n->tick = m.tick;
-        snprintf(n->map, sizeof n->map, "%s", m.map);
         n->state = CLIENT_NET_JOINED;
-        n->welcomed = true;
-        client_stream_reset(&n->stream);
-        console_print(con, "joined as %d on %s, at the server's tick %u\n", m.slot, m.map, m.tick);
+        console_print(con, "joined as %d, at the server's tick %u\n", m.slot, m.tick);
+        break;
+    }
+    case MSG_MAP: {
+        MsgMap m = {0};
+        msg_map(&b, &m);
+        if (!netbuf_done(&b)) return;
+        n->round = m.round;
+        snprintf(n->map, sizeof n->map, "%s", m.map);
+        n->mapped = true;
+        client_stream_reset(&n->stream, m.round);
+        console_print(con, "round %u on %s\n", m.round, m.map);
         break;
     }
     case MSG_DENIED: {
@@ -85,7 +93,7 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         break;
     }
     case MSG_SNAPSHOT:
-        if (n->state == CLIENT_NET_JOINED && g) client_stream_hear(&n->stream, g, n->slot, e->data, e->size);
+        if (n->state == CLIENT_NET_JOINED && n->round && !n->mapped && g) client_stream_hear(&n->stream, g, n->slot, e->data, e->size);
         break;
     default: break;
     }
@@ -113,10 +121,10 @@ void client_net_poll(ClientNet *n, Console *con, Game *g)
     }
 }
 
-bool client_net_take_welcome(ClientNet *n)
+bool client_net_take_map(ClientNet *n)
 {
-    if (!n->welcomed) return false;
-    n->welcomed = false;
+    if (!n->mapped) return false;
+    n->mapped = false;
     return true;
 }
 

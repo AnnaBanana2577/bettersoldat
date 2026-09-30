@@ -138,6 +138,7 @@ typedef enum MsgKind {
     MSG_WELCOME,      // server -> client: the slot, and the tick
     MSG_DENIED,       // server -> client: why not
     MSG_CHAT,         // either way: a line said, to everyone or the team; commands and votes too
+    MSG_MAP,          // server -> client: the map to play and the round's number: on joining, and each round
     MSG_CLIENT_STATE, // client -> server, every tick: the owned half (stream.h)
     MSG_SNAPSHOT,     // server -> client, every tick: everyone's halves (stream.h)
     MSG_COUNT,
@@ -153,8 +154,15 @@ typedef struct MsgHello {
 typedef struct MsgWelcome {
     uint8_t slot;
     uint32_t tick;
-    char map[64]; // the map to load: the snapshots that follow are of it
 } MsgWelcome;
+
+// The map to play and the round it begins, for a client to make its world anew; the
+// streams of that round follow, stamped with its number, and those of another round
+// are dropped. Joining is hearing of the first.
+typedef struct MsgMap {
+    uint16_t round;
+    char map[64];
+} MsgMap;
 
 typedef struct MsgDenied {
     char reason[NET_TEXT_SIZE];
@@ -172,3 +180,4 @@ void msg_hello(NetBuf *b, MsgHello *m);
 void msg_welcome(NetBuf *b, MsgWelcome *m);
 void msg_denied(NetBuf *b, MsgDenied *m);
 void msg_chat(NetBuf *b, MsgChat *m);
+void msg_map(NetBuf *b, MsgMap *m);

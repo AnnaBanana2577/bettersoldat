@@ -27,12 +27,17 @@ typedef struct Connections {
     ServerStream *streams;         // by slot, on the heap
     WireQueue events;              // the server's decisions and what it relays, for everyone
     Console *console;              // may be NULL
-    char map[NET_MAP_SIZE];        // what the Welcome names
+    uint16_t round;                // the round being played, from 1
+    char map[NET_MAP_SIZE];        // on which map
 } Connections;
 
-// `map` is the map being played, for the Welcome. False if the streams couldn't be made.
+// `map` is the map being played, round 1. False if the streams couldn't be made.
 bool connections_init(Connections *c, NetLink *link, Console *console, const char *map);
 void connections_free(Connections *c);
+
+// A new round on `map`, the world already made anew: everyone joined is placed on their
+// team, their streams begin afresh, and everyone is told (MsgMap).
+void connections_new_round(Connections *c, Game *g, const char *map);
 
 // Everything the line has for the server right now: joins, leaves, states, chat.
 void connections_poll(Connections *c, Game *g);

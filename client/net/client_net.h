@@ -17,8 +17,9 @@ typedef struct ClientNet {
     char name[NET_NAME_SIZE];
     int slot;               // mine on the server, once welcomed; -1 before
     uint32_t tick;          // the server's, as of the welcome
-    char map[NET_MAP_SIZE]; // the server's map, as of the welcome
-    bool welcomed;          // a Welcome not yet taken (client_net_take_welcome)
+    uint16_t round;         // the round being played, as of the last Map
+    char map[NET_MAP_SIZE]; // on which map
+    bool mapped;            // a Map not yet taken (client_net_take_map)
 } ClientNet;
 
 // Once per program; false if ENet or the ring wouldn't start.
@@ -33,8 +34,9 @@ void client_net_disconnect(ClientNet *n, Console *con);
 // Everything the line has for the client right now. Snapshots go into `g`, as the
 // soldier in `n->slot`.
 void client_net_poll(ClientNet *n, Console *con, Game *g);
-// A Welcome came: once, true with the slot and the map, for the game to be made theirs.
-bool client_net_take_welcome(ClientNet *n);
+// A Map came (a join, a new round): once, true, with `n->map` and `n->round` set, for
+// the world to be made anew for it. The streams start over from that round.
+bool client_net_take_map(ClientNet *n);
 // After the client's tick: its decisions among the tick's events and its state to the
 // server.
 void client_net_tick(ClientNet *n, const Game *g);

@@ -182,5 +182,11 @@ commit that changes the netcode says what it measured, on what line.
    than ten units, never while held, as the original does. The match rides whole, small
    as it is, and a client's match is the server's alone: match_run is the authority's.
    A soldier that goes whole brings its player's name, so the roster needs no message.
-   Held-back things and soldiers go farthest first. Chat was built with the join. Still
-   to do: rounds and the next map, votes, and blending new word in.
+   Held-back things and soldiers go farthest first. Chat was built with the join.
+   Rounds (server/rounds.c): the match ends at its limits or on `nextmap`, the scores
+   stand, and the next round begins on the next map of sv_maps, or the same again; the
+   world is made anew with the history ring cleared, everyone joined is placed, and
+   everyone hears the Map, a reliable message with the round's number, which is also
+   how a joining client hears of its first round: joining and a new round are one path.
+   Both streams are stamped with the round, and another round's are dropped, so packets
+   that cross the change do no harm. Still to do: votes, and blending new word in.

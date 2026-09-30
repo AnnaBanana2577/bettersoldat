@@ -23,7 +23,7 @@ static void say(Console *con, const char *fmt, ...)
 
 bool connections_init(Connections *c, NetLink *link, Console *console, const char *map)
 {
-    *c = (Connections){.link = link, .console = console};
+    *c = (Connections){.link = link, .console = console, .round = 1};
     snprintf(c->map, sizeof c->map, "%s", map ? map : "");
     wire_queue_init(&c->events);
     c->streams = calloc(MAX_PLAYERS, sizeof *c->streams);
@@ -71,6 +71,20 @@ static size_t build(uint8_t *buf, size_t size, MsgKind kind, void (*routine)(Net
 static void route_welcome(NetBuf *b, void *m) { msg_welcome(b, m); }
 static void route_denied(NetBuf *b, void *m) { msg_denied(b, m); }
 static void route_chat(NetBuf *b, void *m) { msg_chat(b, m); }
+static void route_map(NetBuf *b, void *m) { msg_map(b, m); }
+
+// The round's map to one peer.
+static void tell_map(Connections *c, ENetPeer *peer)
+{
+    uint8_t buf[NET_MTU];
+    MsgMap m = {.round = c->round};
+    snprintf(m.map, sizeof m.map, "%s", c->map);
+    size_t n = build(buf, sizeof buf, MSG_MAP, route_map, &m);
+    if (n) net_send(peer, MSG_MAP, buf, n);
+}
+
+// A player's soldier placed anew on its team: a join, a new round.
+static void place(Connections *c, Game *g, int slot);
 
 static void deny(Connections *c, ENetPeer *peer, const char *reason)
 {
@@ -130,21 +144,40 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     *conn = (Connection){.peer = peer, .joined = true};
     snprintf(conn->name, sizeof conn->name, "%s", m.name[0] ? m.name : "Player");
     peer->data = conn;
-    server_stream_init(&c->streams[slot]);
+    server_stream_init(&c->streams[slot], c->round);
+    place(c, g, slot);
 
+    uint8_t buf[NET_MTU];
+    MsgWelcome w = {.slot = (uint8_t)slot, .tick = g->world.tick};
+    size_t n = build(buf, sizeof buf, MSG_WELCOME, route_welcome, &w);
+    if (n) net_send(peer, MSG_WELCOME, buf, n);
+    tell_map(c, peer); // joining is hearing of the round
+    say(c->console, "%s joined as %d\n", conn->name, slot);
+}
+
+static void place(Connections *c, Game *g, int slot)
+{
+    (void)c;
     Team team = team_for(g);
     Soldier *s = &g->world.soldiers[slot];
     Vec2 at = spawn_point(g->ctx.map, team, &g->world.rng);
     soldier_spawn(&g->ctx, s, at, team, WEAPON_EAGLE, WEAPON_KNIFE);
     s->life++;
     s->remote = true; // its keys move it; what it fires it tells
+}
 
-    uint8_t buf[NET_MTU];
-    MsgWelcome w = {.slot = (uint8_t)slot, .tick = g->world.tick};
-    snprintf(w.map, sizeof w.map, "%s", c->map);
-    size_t n = build(buf, sizeof buf, MSG_WELCOME, route_welcome, &w);
-    if (n) net_send(peer, MSG_WELCOME, buf, n);
-    say(c->console, "%s joined as %d\n", conn->name, slot);
+void connections_new_round(Connections *c, Game *g, const char *map)
+{
+    c->round++;
+    snprintf(c->map, sizeof c->map, "%s", map);
+    wire_queue_init(&c->events); // the old round's news is nobody's now
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (!c->items[i].joined) continue;
+        server_stream_init(&c->streams[i], c->round);
+        place(c, g, i);
+        tell_map(c, c->items[i].peer);
+    }
+    say(c->console, "round %u on %s\n", c->round, c->map);
 }
 
 static void leave(Connections *c, Game *g, ENetPeer *peer)

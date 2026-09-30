@@ -810,8 +810,8 @@ int main(int argc, char *argv[])
 
         poll_events(&app);
         client_net_poll(&app.net, app.console, app.game);
-        if (client_net_take_welcome(&app.net)) {
-            // the server's map, and its slot for me: the world made anew for its snapshots
+        if (client_net_take_map(&app.net)) {
+            // a round on the server's map: the world made anew for its snapshots, my slot its
             if (!world_reload(&app, app.net.map)) {
                 fprintf(stderr, "could not load the server's map '%s'\n", app.net.map);
                 app.quit = true;
