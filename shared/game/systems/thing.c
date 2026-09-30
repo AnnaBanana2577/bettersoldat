@@ -572,6 +572,17 @@ static void thing_update(const Context *ctx, World *w, int index, Events *events
     }
 }
 
+// A bullet struck the thing: the point takes the bullet's velocity over its own, by the
+// weapon's push, and the thing is moving again.
+static void thing_knock(World *w, const EventThingKnock *e)
+{
+    Thing *t = &w->things[e->thing];
+    if (t->style == THING_NONE || e->part >= t->points) return;
+    Vec2 thing_vel = vec2_sub(t->pos[e->part], t->old_pos[e->part]);
+    t->pos[e->part] = vec2_add(t->pos[e->part], vec2_scale(vec2_sub(e->vel, thing_vel), e->push));
+    t->is_static = false;
+}
+
 // A soldier placed anew: what it held goes back, a flag to its base and a parachute
 // away, and a high spawn gets a parachute.
 static void things_on_respawn(const Context *ctx, World *w, uint8_t soldier)
@@ -607,6 +618,7 @@ void things_update(const Context *ctx, World *w, const Events *last, Events *eve
         case EVENT_KILL: things_let_go(w, e->kill.target); break;
         case EVENT_FLAG_THROW: flag_throw(ctx, w, e->flag_throw.player); break;
         case EVENT_RESPAWN: things_on_respawn(ctx, w, e->respawn.target); break;
+        case EVENT_THING_KNOCK: thing_knock(w, &e->thing_knock); break;
         default: break;
         }
     }

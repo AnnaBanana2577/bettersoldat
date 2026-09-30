@@ -386,6 +386,9 @@ typedef struct EventKnifeLand { uint8_t owner; Vec2 pos; } EventKnifeLand;
 // throws it if it can.
 typedef struct EventFlagThrow { uint8_t player; } EventFlagThrow;
 typedef struct EventThingHit { ThingStyle thing; Vec2 pos, vel; uint8_t part; } EventThingHit;
+// A bullet struck a thing: the things pass knocks point `part` of thing `thing` along
+// the bullet's velocity, by the weapon's push.
+typedef struct EventThingKnock { uint8_t thing, part; Vec2 vel; float push; } EventThingKnock;
 // A hurting, lava, regenerating or exploding poly touched.
 typedef struct EventPolyEffect { uint8_t target; PolyType type; Vec2 pos; bool spark; } EventPolyEffect;
 // A corpse's point struck the map hard enough to be heard: how far it fell that tick,
@@ -419,6 +422,7 @@ typedef enum EventType {
     EVENT_KNIFE_LAND,
     EVENT_FLAG_THROW,
     EVENT_THING_HIT,
+    EVENT_THING_KNOCK,
     EVENT_POLY_EFFECT,
     EVENT_CORPSE_HIT,
     EVENT_MATCH_END,
@@ -452,6 +456,7 @@ typedef struct Event {
         EventKnifeLand knife_land;
         EventFlagThrow flag_throw;
         EventThingHit thing_hit;
+        EventThingKnock thing_knock;
         EventPolyEffect poly_effect;
         EventCorpseHit corpse_hit;
         EventMatchEnd match_end;

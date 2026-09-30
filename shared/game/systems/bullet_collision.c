@@ -532,7 +532,7 @@ static bool body_collide(const Context *ctx, World *w, Bullet *b, uint16_t index
 // --- the things --------------------------------------------------------------------
 
 // Bullets knock flags (and guns and kits, as the match says) about; the bullet keeps
-// flying.
+// flying. The knock itself is asked of the things pass (EVENT_THING_KNOCK).
 static void thing_collide(const Context *ctx, World *w, Bullet *b, float nearest, Events *events)
 {
     if (b->style == BULLET_FRAG_GRENADE) return;
@@ -563,10 +563,9 @@ static void thing_collide(const Context *ctx, World *w, Bullet *b, float nearest
         }
         b->thing_cooldowns[slot] = (ThingCooldown){.thing = (uint8_t)(ti + 1), .until = w->tick + THING_COLLISION_COOLDOWN};
 
-        Vec2 thing_vel = vec2_sub(t->pos[part], t->old_pos[part]);
+        // the knock is the things' to give, at their pass; nothing moves the thing before it
         float push = ctx->weapons.info[b->weapon].stats.push * THING_PUSH_MULTIPLIER;
-        t->pos[part] = vec2_add(t->pos[part], vec2_scale(vec2_sub(b->vel, thing_vel), push));
-        t->is_static = false;
+        event_emit(events, (Event){.type = EVENT_THING_KNOCK, .thing_knock = {.thing = (uint8_t)ti, .part = (uint8_t)part, .vel = b->vel, .push = push}});
         if (b->style == BULLET_PLAIN || b->style == BULLET_SHOTGUN) {
             event_emit(events, (Event){.type = EVENT_THING_HIT, .thing_hit = {.thing = t->style, .pos = point, .vel = b->vel, .part = (uint8_t)part}});
         }
