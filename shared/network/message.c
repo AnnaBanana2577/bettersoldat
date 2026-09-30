@@ -26,6 +26,7 @@ void msg_hello(NetBuf *b, MsgHello *m)
 {
     net_u16(b, &m->version);
     net_string(b, m->name, sizeof m->name);
+    netfields_serialize(b, SOLDIER_CHOICES_FIELDS, SOLDIER_CHOICES_COUNT, &m->choices, NULL);
 }
 
 void msg_welcome(NetBuf *b, MsgWelcome *m)

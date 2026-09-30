@@ -159,10 +159,12 @@ commit that changes the netcode says what it measured, on what line.
    goes whole, and the farthest soldiers are held back until a snapshot fits the
    datagram. Everyone steps a soldier heard of on its last keys, one-shots cleared,
    and lets them go after half a second's silence; a client takes its own soldier's
-   word from the server only on a new life. New word snaps, as the original's does;
-   blending it in is still to do. The checks so far: old states, unreadable ones and
-   positions off the map are dropped. Measured on the loopback: a tick's client state
-   under 60 bytes, a snapshot of two soldiers under 160.
+   word from the server only on a new life. New word snaps the simulation, as the
+   original's does, but not the picture: what a correction moved another player by is
+   kept as an offset the renderer adds, shrinking away over cl_smooth (100 ms); a
+   placing, or a jump past STREAM_SNAP_DISTANCE, shows at once. The checks so far:
+   old states, unreadable ones and positions off the map are dropped. Measured on the
+   loopback: a tick's client state under 60 bytes, a snapshot of two soldiers under 160.
 6. Shots as events, the advance by ping, hits, deaths, respawns. Built (wire.h): a
    table classifies every event type and a test holds it; each travelling type has one
    routine both ways. Each side queues what it sends, numbered; a client keeps only
@@ -189,4 +191,8 @@ commit that changes the netcode says what it measured, on what line.
    everyone hears the Map, a reliable message with the round's number, which is also
    how a joining client hears of its first round: joining and a new round are one path.
    Both streams are stamped with the round, and another round's are dropped, so packets
-   that cross the change do no harm. Still to do: votes, and blending new word in.
+   that cross the change do no harm. A player's choices, its look and the weapons of
+   its next spawn, are the served half's but its own to make: they ride the Hello, for
+   the first placing, and the client state after, and the server takes them as said;
+   a client keeps its own over the server's word of them. The team's shirt goes on
+   where the gostek is drawn. Still to do: votes.

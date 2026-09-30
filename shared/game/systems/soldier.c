@@ -21,11 +21,13 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
 {
     int32_t kills = s->kills, deaths = s->deaths, flags = s->flags;
     uint8_t life = s->life;
+    PlayerLook look = s->look; // the player's, not the life's
     uint64_t rng = s->rng != 0 ? s->rng : seed_from_position(pos);
 
     *s = (Soldier){
         .rng = rng,
         .life = life,
+        .look = look,
         .kills = kills,
         .deaths = deaths,
         .flags = flags,

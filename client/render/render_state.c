@@ -22,12 +22,24 @@ static Vec2 lerp(Vec2 a, Vec2 b, float t)
     return vec2_add(a, vec2_scale(vec2_sub(b, a), t));
 }
 
-static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, const Soldier *to, float alpha)
+// The team's shirt, worn over the player's own in a team game.
+static Rgba team_shirt(Team team)
+{
+    switch (team) {
+    case TEAM_ALPHA: return (Rgba){199, 56, 51, 255};
+    case TEAM_BRAVO: return (Rgba){64, 107, 204, 255};
+    case TEAM_CHARLIE: return (Rgba){230, 199, 64, 255};
+    case TEAM_DELTA: return (Rgba){77, 179, 89, 255};
+    default: return (Rgba){140, 140, 148, 255};
+    }
+}
+
+static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, const Soldier *to, float alpha, bool team_game, Vec2 offset)
 {
     RenderSoldier out = {.active = to->active};
     if (!to->active) return out;
 
-    out.pos = continuous(from, to) ? lerp(from->pos, to->pos, alpha) : to->pos;
+    out.pos = vec2_add(continuous(from, to) ? lerp(from->pos, to->pos, alpha) : to->pos, offset);
     // The dead hold their last pose until the corpses (ragdoll.odin) are ported and
     // take over.
     out.pose = soldier_pose(ctx->anims, to, out.pos);
@@ -49,15 +61,17 @@ static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, cons
     out.fired = to->fired;
     out.spawn_protected = to->cease_fire_counter >= 0;
     out.look = to->look;
+    if (team_game) out.look.shirt = team_shirt(to->team);
     return out;
 }
 
 void build_render_state(RenderState *out, const Context *ctx, const TickSnapshot *from, const TickSnapshot *to,
-                        float alpha, int me)
+                        float alpha, int me, bool team_game, const Vec2 *offsets)
 {
     out->alpha = clampf(alpha, 0.0f, 1.0f);
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        out->soldiers[i] = soldier_state(ctx, &from->soldiers[i], &to->soldiers[i], out->alpha);
+        Vec2 offset = offsets ? offsets[i] : vec2(0, 0);
+        out->soldiers[i] = soldier_state(ctx, &from->soldiers[i], &to->soldiers[i], out->alpha, team_game, offset);
     }
     out->focus = out->soldiers[me].pos;
 }

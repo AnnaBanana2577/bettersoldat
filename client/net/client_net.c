@@ -45,6 +45,7 @@ static void send_hello(ClientNet *n)
     MsgKind kind = MSG_HELLO;
     MsgHello m = {.version = NET_VERSION};
     snprintf(m.name, sizeof m.name, "%s", n->name);
+    m.choices = n->choices;
     msg_kind(&b, &kind);
     msg_hello(&b, &m);
     if (netbuf_ok(&b)) net_send(n->link.peer, MSG_HELLO, buf, netbuf_bytes(&b));

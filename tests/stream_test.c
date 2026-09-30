@@ -348,6 +348,39 @@ void stream_tests(void)
           jump_on_d);
     CHECK(steady < NET_MTU / 3, "and the steady snapshots stay far from the datagram's size (%zu bytes at largest, %zu the join's)",
           steady, c.stream.largest);
+
+    // the second client's look and weapon choices reached the first through the server
+    d.game->world.soldiers[2].look = (PlayerLook){.shirt = {9, 8, 7, 255}, .hair_style = 3, .head_style = 2, .chain_style = 1};
+    d.game->world.soldiers[2].primary_choice = WEAPON_BARRETT;
+    d.game->world.soldiers[2].secondary_choice = WEAPON_LAW;
+    for (int round = 0; round < 6; round++) {
+        connections_poll(&conns, gs);
+        server_tick(&conns, gs, 0);
+        client_pump(&c);
+        client_tick(&c, 0);
+        client_pump(&d);
+        client_tick(&d, 0);
+        enet_host_service(server.host, NULL, 10);
+    }
+    const PlayerLook *seen_look = &c.game->world.soldiers[2].look;
+    CHECK(seen_look->shirt.r == 9 && seen_look->hair_style == 3 && seen_look->head_style == 2 && seen_look->chain_style == 1,
+          "a player's look reaches the others through the server (shirt %u, hair %u, head %u, chain %u)", seen_look->shirt.r,
+          seen_look->hair_style, seen_look->head_style, seen_look->chain_style);
+    CHECK(gs->world.soldiers[2].primary_choice == WEAPON_BARRETT && gs->world.soldiers[2].secondary_choice == WEAPON_LAW,
+          "and its weapon choices reach the server for its next spawn");
+    CHECK(d.game->world.soldiers[2].look.shirt.r == 9 && d.game->world.soldiers[2].primary_choice == WEAPON_BARRETT,
+          "while the client keeps its own over the server's word of them");
+
+    // a correction of another player goes to the picture and is smoothed away
+    c.stream.blend[2] = vec2(20.0f, 0.0f);
+    client_stream_smooth(&c.stream, 0.1f, 0.1f);
+    CHECK(c.stream.blend[2].x > 1.5f && c.stream.blend[2].x < 2.5f, "nine tenths of a correction is gone after cl_smooth (%.2f left of 20)",
+          c.stream.blend[2].x);
+    client_stream_smooth(&c.stream, 1.0f, 0.1f);
+    CHECK(c.stream.blend[2].x == 0.0f, "and all of it a while after");
+    c.stream.blend[2] = vec2(20.0f, 0.0f);
+    client_stream_smooth(&c.stream, 0.016f, 0.0f);
+    CHECK(c.stream.blend[2].x == 0.0f, "with cl_smooth 0 it snaps");
     const Soldier *second_seen = &c.game->world.soldiers[2];
     CHECK(second_seen->active && second_seen->remote && fabsf(second_seen->pos.x - second_there->pos.x) < 30.0f &&
               strcmp(c.stream.names[2], "Mover") == 0,

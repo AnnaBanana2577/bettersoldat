@@ -1,5 +1,6 @@
 // The two streams, both ends.
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@ void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base)
     net_u32(b, &m->ack);
     net_u32(b, &m->event_ack);
     netfields_serialize(b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m->owned, base);
+    netfields_serialize(b, SOLDIER_CHOICES_FIELDS, SOLDIER_CHOICES_COUNT, &m->owned, base);
 }
 
 static const SnapBase NO_BASE = {0};
@@ -92,6 +94,7 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     }
     m.owned = base ? *base : (Soldier){0};
     netfields_serialize(&b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m.owned, base);
+    netfields_serialize(&b, SOLDIER_CHOICES_FIELDS, SOLDIER_CHOICES_COUNT, &m.owned, base);
     if (!netbuf_ok(&b) || soldier_out_of_bounds(&g->ctx, m.owned.pos)) {
         s->dropped++;
         return false;
@@ -113,9 +116,13 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     if (m.ack > s->ack) s->ack = m.ack;
     if (m.event_ack > s->event_ack) s->event_ack = m.event_ack;
 
-    // the owner's word, unless the soldier is dead here and the client hasn't heard
+    // the owner's word, unless the soldier is dead here and the client hasn't heard;
+    // its choices always, a weapon that isn't a primary or a secondary put right
     Soldier *soldier = &g->world.soldiers[slot];
     if (soldier->active && !soldier->dead) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
+    soldier->look = m.owned.look;
+    soldier->primary_choice = weapon_is_primary(m.owned.primary_choice) ? m.owned.primary_choice : WEAPON_EAGLE;
+    soldier->secondary_choice = weapon_is_secondary(m.owned.secondary_choice) ? m.owned.secondary_choice : WEAPON_KNIFE;
     return true;
 }
 
@@ -341,12 +348,25 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
         case SNAP_STATE: {
             const Soldier *heard = &m.soldiers[i];
             bool placed = heard->life != s->life;
-            soldier_copy_served(s, heard);
-            if (i != me) {
+            Vec2 before = s->pos;
+            if (i == me) {
+                // the server's word of me, but my choices are mine
+                PlayerLook look = s->look;
+                WeaponId primary = s->primary_choice, secondary = s->secondary_choice;
+                soldier_copy_served(s, heard);
+                s->look = look;
+                s->primary_choice = primary;
+                s->secondary_choice = secondary;
+                if (placed) soldier_copy_owned(g->ctx.anims, s, heard);
+            } else {
+                soldier_copy_served(s, heard);
                 soldier_copy_owned(g->ctx.anims, s, heard);
                 s->remote = true;
-            } else if (placed) {
-                soldier_copy_owned(g->ctx.anims, s, heard);
+                // the correction goes to the picture, to be shown over a little while;
+                // a placing, or a jump too far to be a correction, shows at once
+                Vec2 jump = vec2_sub(before, s->pos);
+                c->blend[i] = placed ? vec2(0, 0) : vec2_add(c->blend[i], jump);
+                if (vec2_length(c->blend[i]) > STREAM_SNAP_DISTANCE) c->blend[i] = vec2(0, 0);
             }
             c->last_word[i] = m.tick;
             if (m.names[i][0]) snprintf(c->names[i], NET_NAME_SIZE, "%s", m.names[i]);
@@ -378,6 +398,16 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
 void client_stream_collect(ClientStream *c, const Game *g, int me)
 {
     wire_collect(&c->out, &g->events, g->world.tick - 1, me); // the tick just run
+}
+
+void client_stream_smooth(ClientStream *c, float dt, float seconds)
+{
+    // nine tenths gone after `seconds`: the factor per frame is that decay's dt-th part
+    float keep = seconds > 0.0f ? expf(-2.302585f * dt / seconds) : 0.0f;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        c->blend[i] = vec2_scale(c->blend[i], keep);
+        if (vec2_length(c->blend[i]) < 0.05f) c->blend[i] = vec2(0, 0);
+    }
 }
 
 size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, size_t size)

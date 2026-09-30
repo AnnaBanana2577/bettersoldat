@@ -83,7 +83,8 @@ typedef struct App {
     Cvar *player_name;
     Cvar *shirt, *pants, *skin, *hair, *jet;      // the look's colours, "RRGGBB"
     Cvar *hair_style, *head_style, *chain_style;  // and its styles, by number
-    Cvar *primary, *secondary;                    // the loadout at the first spawn
+    Cvar *primary, *secondary;                    // the loadout at the next spawn
+    Cvar *smooth;                                 // milliseconds a correction of another player is smoothed over
     Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
     Cvar *hud_demo;       // the HUD full of sample data, to see every part of it: page 1, 2 or 3
@@ -277,8 +278,10 @@ static bool console_open(App *app, int argc, char *argv[])
                                     "0 army, 1 dreadlocks, 2 punk, 3 Mr. T, 4 normal");
     app->head_style = cvar_register(con, "cl_player_headstyle", "0", CVAR_ARCHIVE, "0 none, 1 helmet, 2 hat");
     app->chain_style = cvar_register(con, "cl_player_chainstyle", "0", CVAR_ARCHIVE, "0 none, 1 dog tags, 2 gold chain");
-    app->primary = cvar_register(con, "cl_player_wep", "1", CVAR_ARCHIVE, "the primary at the first spawn, 1 to 10");
+    app->primary = cvar_register(con, "cl_player_wep", "1", CVAR_ARCHIVE, "the primary at the next spawn, 1 to 10");
     app->secondary = cvar_register(con, "cl_player_secwep", "1", CVAR_ARCHIVE, "0 USSOCOM, 1 knife, 2 chainsaw, 3 LAW");
+    app->smooth = cvar_register(con, "cl_smooth", "100", CVAR_ARCHIVE,
+                                "milliseconds a correction of another player is smoothed over; 0 snaps");
     const char *calls[RADIO_CALLS] = {"Enemy flagger", "Friendly flagger", "Enemy spotted"};
     const char *places[RADIO_CALLS] = {"up!", "middle!", "down!"};
     for (int i = 0; i < RADIO_CALLS; i++) {
@@ -324,18 +327,6 @@ static void console_close(App *app)
 // A team game: the map says, by its name, until a server does.
 static bool team_game(const App *app) { return strncmp(app->map->value, "ctf_", 4) == 0; }
 
-// The team's shirt, worn over the player's own in a team game.
-static Rgba team_shirt(Team team)
-{
-    switch (team) {
-    case TEAM_ALPHA: return (Rgba){199, 56, 51, 255};
-    case TEAM_BRAVO: return (Rgba){64, 107, 204, 255};
-    case TEAM_CHARLIE: return (Rgba){230, 199, 64, 255};
-    case TEAM_DELTA: return (Rgba){77, 179, 89, 255};
-    default: return (Rgba){140, 140, 148, 255};
-    }
-}
-
 // A colour cvar's colour; its default's if what it holds isn't one.
 static Rgba cvar_color(const Cvar *cv)
 {
@@ -344,11 +335,12 @@ static Rgba cvar_color(const Cvar *cv)
     return color;
 }
 
-// My look, from the cl_player_* cvars, for `team`.
-static PlayerLook look_from_cvars(const App *app, Team team)
+// My look, from the cl_player_* cvars. In a team game the team's shirt goes over it where
+// it is drawn (render_state.c), as the team is the server's to give.
+static PlayerLook look_from_cvars(const App *app)
 {
     PlayerLook look = {
-        .shirt = team_game(app) ? team_shirt(team) : cvar_color(app->shirt),
+        .shirt = cvar_color(app->shirt),
         .pants = cvar_color(app->pants),
         .skin = cvar_color(app->skin),
         .hair = cvar_color(app->hair),
@@ -371,7 +363,10 @@ static void apply_cvars(App *app)
     app->render_options.wireframe = app->wireframe->integer != 0;
     app->render_options.debug = app->debug->integer != 0;
     Soldier *me = &app->game->world.soldiers[app->me];
-    me->look = look_from_cvars(app, me->team);
+    me->look = look_from_cvars(app);
+    me->primary_choice = (WeaponId)clampi(app->primary->integer, WEAPON_EAGLE, WEAPON_MINIGUN);
+    me->secondary_choice = (WeaponId)(WEAPON_COLT + clampi(app->secondary->integer, 0, WEAPON_LAW - WEAPON_COLT));
+    app->net.choices = *me; // what the Hello says of me
 }
 
 // The world: with me in it, dressed and armed as the cvars say, when `local`; empty,
@@ -384,7 +379,7 @@ static bool game_open(App *app, bool local)
     Game *g = app->game;
     game_init(g, 1, match_default_settings());
     g->world.authority = local;
-    for (int i = 0; i < MAX_PLAYERS; i++) g->world.soldiers[i].look = look_from_cvars(app, TEAM_ALPHA);
+    for (int i = 0; i < MAX_PLAYERS; i++) g->world.soldiers[i].look = look_from_cvars(app);
     if (!local) return true;
 
     Soldier *me = &g->world.soldiers[app->me];
@@ -503,16 +498,23 @@ static void apply_menu_action(App *app, MenuAction action)
     case MENU_ACTION_OPEN_TEAM_MENU:
         menus_show(&app->menus, MENU_TEAM, true, app->hud_data.mode, 1);
         break;
-    case MENU_ACTION_PICK_PRIMARY:
+    case MENU_ACTION_PICK_PRIMARY: {
+        // the choice is the cvar's, which the soldier follows (apply_cvars) and the config keeps
+        char number[8];
+        snprintf(number, sizeof number, "%d", action.value);
+        cvar_set(app->console, "cl_player_wep", number);
         app->hud_data.selected_weapon = (WeaponId)action.value;
-        me->primary_choice = (WeaponId)action.value;
         if (!me->dead) me->weapon = weapon_state(&app->game->ctx, (WeaponId)action.value);
         break;
-    case MENU_ACTION_PICK_SECONDARY:
+    }
+    case MENU_ACTION_PICK_SECONDARY: {
+        char number[8];
+        snprintf(number, sizeof number, "%d", action.value - WEAPON_COLT);
+        cvar_set(app->console, "cl_player_secwep", number);
         app->hud_data.selected_secondary = (WeaponId)action.value;
-        me->secondary_choice = (WeaponId)action.value;
         if (!me->dead) me->secondary = weapon_state(&app->game->ctx, (WeaponId)action.value);
         break;
+    }
     case MENU_ACTION_PICK_TEAM: // a change of team goes to the server, once there is one
     case MENU_ACTION_KICK:
     case MENU_ACTION_VOTE_MAP:
@@ -830,7 +832,10 @@ int main(int argc, char *argv[])
         since_frame += dt;
         if (since_frame >= MIN_FRAME_SECONDS) {
             float alpha = (float)(app.accumulator / TICK_SECONDS); // how far into the next tick this frame is
-            build_render_state(&app.frame, &app.game->ctx, &app.previous, &app.latest, alpha, app.me);
+            bool online = client_net_joined(&app.net);
+            if (online) client_stream_smooth(&app.net.stream, (float)since_frame, app.smooth->number / 1000.0f);
+            build_render_state(&app.frame, &app.game->ctx, &app.previous, &app.latest, alpha, app.me,
+                               team_game(&app), online ? app.net.stream.blend : NULL);
             camera_follow(&app.camera, app.frame.focus, cursor(&app), since_frame);
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);

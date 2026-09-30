@@ -146,6 +146,10 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     peer->data = conn;
     server_stream_init(&c->streams[slot], c->round);
     c->streams[slot].event_ack = wire_queue_present(&c->events); // what happened before it came is nobody's news
+    Soldier *s = &g->world.soldiers[slot];
+    s->look = m.choices.look;
+    s->primary_choice = m.choices.primary_choice;
+    s->secondary_choice = m.choices.secondary_choice;
     place(c, g, slot);
 
     uint8_t buf[NET_MTU];
@@ -162,7 +166,10 @@ static void place(Connections *c, Game *g, int slot)
     Team team = team_for(g);
     Soldier *s = &g->world.soldiers[slot];
     Vec2 at = spawn_point(g->ctx.map, team, &g->world.rng);
-    soldier_spawn(&g->ctx, s, at, team, WEAPON_EAGLE, WEAPON_KNIFE);
+    // with the weapons it chose, or the original's first loadout for a choice that isn't one
+    WeaponId primary = weapon_is_primary(s->primary_choice) ? s->primary_choice : WEAPON_EAGLE;
+    WeaponId secondary = weapon_is_secondary(s->secondary_choice) ? s->secondary_choice : WEAPON_KNIFE;
+    soldier_spawn(&g->ctx, s, at, team, primary, secondary);
     s->life++;
     s->remote = true; // its keys move it; what it fires it tells
 }
