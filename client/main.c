@@ -244,7 +244,7 @@ static bool window_open(App *app)
         return false;
     }
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    app->window = SDL_CreateWindow("csoldat", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, app->width->integer,
+    app->window = SDL_CreateWindow("bettersoldat", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, app->width->integer,
                                    app->height->integer, SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!app->window) {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
@@ -401,7 +401,7 @@ static void hud_data_build(App *app)
 
     d->mode = strncmp(app->map->value, "ctf_", 4) == 0 ? HUD_MODE_CTF : HUD_MODE_DEATHMATCH;
     d->team_game = d->mode == HUD_MODE_CTF;
-    snprintf(d->hostname, sizeof(d->hostname), "csoldat");
+    snprintf(d->hostname, sizeof(d->hostname), "bettersoldat");
     d->kill_limit = g->match.settings.score_limit;
     d->time_left_min = g->match.time_left / TICK_RATE / 60;
     d->time_left_sec = g->match.time_left / TICK_RATE % 60;
@@ -475,7 +475,7 @@ static void hud_data_demo(HudData *d, int page)
     d->frags_menu = true;
     d->show_info = true;
 
-    const char *console[] = {"Crow joined the game.", "Mabuse joined the game.", "Welcome to csoldat"};
+    const char *console[] = {"Crow joined the game.", "Mabuse joined the game.", "Welcome to bettersoldat"};
     const Rgba console_colors[] = {{0xC3, 0xC3, 0xC3, 0xF1}, {0xC3, 0xC3, 0xC3, 0xF1}, {0x71, 0xF9, 0x81, 0xEE}};
     d->console_count = 3;
     for (int i = 0; i < 3; i++) {

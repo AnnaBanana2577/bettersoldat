@@ -18,12 +18,9 @@ Credits named in the upstream `Credits.md`:
 
 ## What here is not from base
 
-Two files sit in this directory without being part of that content, and neither
-is under CC BY 4.0:
-
-**`config.cfg`** is this project's own settings file, under the MIT licence in
-[../license.md](../license.md). It ships here so that it is unpacked beside the
-executable, which is where the game reads it at startup.
+One file sits in this directory without being part of that content, and it is not
+under CC BY 4.0. (The game's own `config.cfg`, under the MIT licence in
+[../license.md](../license.md), sits beside this directory rather than in it.)
 
 **`play-regular.ttf`** is licensed under the SIL Open Font License, Version 1.1:
 
