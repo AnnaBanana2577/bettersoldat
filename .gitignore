@@ -1,4 +1,3 @@
 build/
 .xmake
 *.exe
-config.cfg

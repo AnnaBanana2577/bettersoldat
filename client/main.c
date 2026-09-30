@@ -11,19 +11,25 @@
 // Each tick: the game's tick on this frame's input, and a snapshot of it. Each frame: a
 // RenderState built between the last two snapshots (render/render_state.h), the camera
 // following me in it, and the world drawn from it. Everything the client is lives in
-// App; nothing else is global. On the way out the binds and archived cvars are saved to
-// config.cfg.
+// App; nothing else is global.
 //
-//   client [+assets <opensoldat base dir>] [+map <name>] [+<cvar> <value>] [+<command> <args>...]
+// The client runs from the directory that holds config.cfg and assets/: the project's
+// own in development (xmake run starts it there) and the game's own once shipped, so
+// both are found by the same relative paths. config.cfg lists every cvar with its
+// default and every bind, and on the way out the binds and the saved cvars are written
+// back into it, in place, with its comments kept (console_save).
+//
+//   client [+assets <dir>] [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 //
 // so `client +map ctf_Ash +r_screenwidth 1920 +r_screenheight 1080`, or `+hud_demo 2`
 // for the HUD full of sample data, or `+screenshot out.png` for a PNG of the 60th frame.
 //
-// The view's default binds are the config's: Escape the menu, Tab the weapons, M the
+// The binds below are the fallback for a missing config.cfg; the file's are the ones
+// that count. The view's: Escape the menu, Tab the weapons, M the
 // teams, F1 the scoreboard, F2 the weapon stats, F3 the minimap (ui_minimap), F5 the
 // FPS line (ui_info), F7 the names (ui_playernames). F9 toggles the wireframe
 // (r_wireframe), F10 the debug overlay (r_debug), F4 vsync (r_swapeffect, off as the
-// original's default); the wheel zooms (zoomin, zoomout).
+// original's default). There is no zoom: everyone sees the same 480 units of height.
 
 #include <SDL.h>
 #include <stdio.h>
@@ -43,7 +49,6 @@
 
 #define ME 0
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
-#define ZOOM_STEP 1.15f
 #define CONFIG "config.cfg"
 #define SCREENSHOT_FRAME 60
 
@@ -57,8 +62,7 @@
 static const char *VIEW_BINDS =
     "bind escape escmenu; bind tab weaponsmenu; bind m teammenu; bind f1 fragsmenu; bind f2 statsmenu;"
     "bind f3 \"toggle ui_minimap\"; bind f4 \"toggle r_swapeffect\"; bind f5 \"toggle ui_info\";"
-    "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
-    "bind mwheelup zoomin; bind mwheeldown zoomout";
+    "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\"";
 
 typedef struct App {
     Console *console; // large; on the heap
@@ -117,16 +121,6 @@ static void cmd_quit(Console *con, int argc, char **argv, void *user)
     ((App *)user)->quit = true;
 }
 
-// zoomin / zoomout: at the cursor.
-static void cmd_zoom(Console *con, int argc, char **argv, void *user)
-{
-    (void)con, (void)argc;
-    App *app = user;
-    float scale = app->camera.viewport.height / GAME_HEIGHT;
-    camera_zoom_at(&app->camera, strcmp(argv[0], "zoomin") == 0 ? ZOOM_STEP : 1.0f / ZOOM_STEP,
-                   vec2_scale(app->input.cursor, scale));
-}
-
 // screenshot <file.png>: the 60th frame from now, then quit.
 static void cmd_screenshot(Console *con, int argc, char **argv, void *user)
 {
@@ -162,13 +156,13 @@ static void cmd_menu(Console *con, int argc, char **argv, void *user)
 }
 
 // The console and what the client keeps in it, then the binds and settings: the
-// defaults, what was saved, and the command line over both.
+// built-in defaults, config.cfg over them, and the command line over both.
 static bool console_open(App *app, int argc, char *argv[])
 {
     Console *con = app->console = console_create(print_stdout, NULL);
     if (!con) return false;
 
-    app->assets = cvar_register(con, "assets", "assets", 0, "the opensoldat base assets directory");
+    app->assets = cvar_register(con, "assets", "./assets", 0, "the base assets directory: maps/, anims/, objects/...");
     app->map = cvar_register(con, "map", "Arena", 0, "the map to load");
     app->width = cvar_register(con, "r_screenwidth", "1280", CVAR_ARCHIVE, "the window's width");
     app->height = cvar_register(con, "r_screenheight", "960", CVAR_ARCHIVE, "the window's height");
@@ -183,8 +177,6 @@ static bool console_open(App *app, int argc, char *argv[])
         cvar_register(con, "ui_console_length", "6", CVAR_ARCHIVE, "how many console lines the HUD shows");
     app->hud_demo = cvar_register(con, "hud_demo", "0", 0, "fill the HUD with sample data: page 1, 2 or 3");
     console_add_command(con, "quit", cmd_quit, app, "leave the game");
-    console_add_command(con, "zoomin", cmd_zoom, app, "zoom in at the cursor");
-    console_add_command(con, "zoomout", cmd_zoom, app, "zoom out at the cursor");
     console_add_command(con, "screenshot", cmd_screenshot, app, "write the 60th frame from now to a PNG, then quit");
     console_add_command(con, "escmenu", cmd_menu, app, "the escape menu");
     console_add_command(con, "weaponsmenu", cmd_menu, app, "the weapons menu");
@@ -597,7 +589,7 @@ int main(int argc, char *argv[])
 
     snapshot_tick(&app);
     snapshot_tick(&app); // both snapshots start as the world before the first tick
-    app.camera = (GameCamera){.pos = app.game->world.soldiers[ME].pos, .zoom = 1.0f, .viewport = window_rect(&app)};
+    app.camera = (GameCamera){.pos = app.game->world.soldiers[ME].pos, .viewport = window_rect(&app)};
     input_start(&app.input, view_size(&app));
 
     Uint64 last = SDL_GetPerformanceCounter();
