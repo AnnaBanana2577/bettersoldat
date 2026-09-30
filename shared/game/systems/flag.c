@@ -82,7 +82,7 @@ void flag_touch(const Context *ctx, World *w, int index, uint8_t soldier, Events
 void flag_throw(const Context *ctx, World *w, uint8_t soldier)
 {
     Soldier *s = &w->soldiers[soldier];
-    if (s->body.id == ANIM_ROLL || s->body.id == ANIM_ROLL_BACK || !(s->controls & BUTTON_FLAG_THROW) || !s->held) return;
+    if (!w->authority) return;
 
     for (int i = 0; i < MAX_THINGS; i++) {
         Thing *t = &w->things[i];

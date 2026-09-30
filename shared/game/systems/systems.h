@@ -291,7 +291,8 @@ void flag_update(const Context *ctx, World *w, int index, Events *events);
 // A soldier near the flag takes it, or returns its own.
 void flag_touch(const Context *ctx, World *w, int index, uint8_t soldier, Events *events);
 
-// The carrier lobs the flag toward the cursor (TSprite.ThrowFlag), in its control step.
+// The carrier lobs the flag toward the cursor (TSprite.ThrowFlag), as it asked
+// (EVENT_FLAG_THROW). Only with authority.
 void flag_throw(const Context *ctx, World *w, uint8_t soldier);
 
 // --- kit.c -------------------------------------------------------------------------
@@ -325,21 +326,23 @@ void dropped_gun_take(const Context *ctx, World *w, int index, uint8_t soldier, 
 // A soldier placed high over the map floats down under one (TSprite.Parachute).
 void parachute_deploy(const Context *ctx, World *w, uint8_t soldier);
 
-// The parachute's tick: hung from its holder's head.
+// The parachute's tick: let go of by a holder on the ground or jetting, or by a landed
+// corpse; else hung from its holder's head.
 void parachute_update(const Context *ctx, World *w, int index);
 
-// The holder's side, in its own step: the parachute slows the fall and is let go of on
-// the ground.
+// The holder's side, in its own step, reading the parachute back: before integrating,
+// a canopy that turned over catches the fall for a tick; after, the lift for the next.
+void parachute_catch(World *w, Soldier *s);
 void parachute_carry(World *w, Soldier *s);
 
 // --- stat_gun.c --------------------------------------------------------------------
 
-// The stationary gun's tick: taken, aimed and fired by whoever mans it.
+// The stationary gun's tick: taken, aimed and fired by whoever mans it, left with a
+// jump or the jets.
 void stat_gun_update(const Context *ctx, World *w, int index, Events *events);
 
-// The gunner's side: a jump or the jets leave the gun; the heat bleeds off.
-void stat_gun_leave(World *w, Soldier *s);
-void stat_gun_cool(const World *w, Soldier *s);
+// Every gunner's heat bleeds off while the trigger is up; before the guns' ticks.
+void stat_guns_cool(World *w);
 
 // --- ragdoll.c ---------------------------------------------------------------------
 

@@ -314,6 +314,7 @@ typedef struct Thing {
     Vec2 forces[4];
     uint8_t collide_count[4]; // touches per point, for the landing sounds
     uint8_t cut;              // constraints let go of, from the last: a parachute's line once landed
+    bool flipped;             // a parachute's canopy turned over this tick: its holder's fall catches
     bool in_base;             // a flag at home
     int32_t interest;         // how long the bots still go for it; a stationary gun's heat
     uint8_t last_spawn;       // the spawn point (1-based) a kit last came up at, not to be picked again
@@ -381,6 +382,9 @@ typedef struct EventWeaponPickup { uint8_t player; uint8_t thing; WeaponId weapo
 typedef struct EventWeaponDrop { uint8_t player; WeaponId weapon; int32_t ammo; bool thrown; Vec2 pos, impact; } EventWeaponDrop;
 // A thrown knife stopped in a wall, a collider or a body, and lies there to be taken.
 typedef struct EventKnifeLand { uint8_t owner; Vec2 pos; } EventKnifeLand;
+// The carrier asked to throw the flag (the key, while not rolling); the things pass
+// throws it if it can.
+typedef struct EventFlagThrow { uint8_t player; } EventFlagThrow;
 typedef struct EventThingHit { ThingStyle thing; Vec2 pos, vel; uint8_t part; } EventThingHit;
 // A hurting, lava, regenerating or exploding poly touched.
 typedef struct EventPolyEffect { uint8_t target; PolyType type; Vec2 pos; bool spark; } EventPolyEffect;
@@ -412,6 +416,7 @@ typedef enum EventType {
     EVENT_WEAPON_PICKUP,
     EVENT_WEAPON_DROP,
     EVENT_KNIFE_LAND,
+    EVENT_FLAG_THROW,
     EVENT_THING_HIT,
     EVENT_POLY_EFFECT,
     EVENT_CORPSE_HIT,
@@ -443,6 +448,7 @@ typedef struct Event {
         EventWeaponPickup weapon_pickup;
         EventWeaponDrop weapon_drop;
         EventKnifeLand knife_land;
+        EventFlagThrow flag_throw;
         EventThingHit thing_hit;
         EventPolyEffect poly_effect;
         EventCorpseHit corpse_hit;

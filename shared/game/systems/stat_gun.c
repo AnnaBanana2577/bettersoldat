@@ -1,7 +1,9 @@
 // The stationary gun (M2): a standing soldier in reach mans it, swings the barrel with
 // the aim and fires it on a fixed beat instead of its own gun, hotter with every shot
 // until it overheats; a jump or the jets leave it. Ported from OpenSoldat Things.pas
-// (TThing.CheckStationaryGunCollision) and Control.pas (the gunner's side).
+// (TThing.CheckStationaryGunCollision) and Control.pas (the gunner's side). All of it
+// runs in the things pass, reading the gunner's keys: the gun a soldier mans and the
+// heat it has run up (Soldier.stat, Soldier.use_time) are the things' fields on it.
 
 #include "game/systems/systems.h"
 
@@ -21,6 +23,11 @@ void stat_gun_update(const Context *ctx, World *w, int index, Events *events)
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
         if (!s->active || s->dead || s->team == TEAM_SPECTATOR || s->stat != index + 1) continue;
+        if (s->controls & (BUTTON_JUMP | BUTTON_JET)) { // a jump or the jets leave the gun
+            s->stat = 0;
+            t->is_static = false;
+            break;
+        }
         if (vec2_length(vec2_sub(base, s->pos)) >= STAT_RADIUS) {
             s->stat = 0;
             t->is_static = false;
@@ -71,16 +78,12 @@ void stat_gun_update(const Context *ctx, World *w, int index, Events *events)
     }
 }
 
-void stat_gun_leave(World *w, Soldier *s)
+void stat_guns_cool(World *w)
 {
-    if (!s->stat || !(s->controls & (BUTTON_JUMP | BUTTON_JET))) return;
-    w->things[s->stat - 1].is_static = false;
-    s->stat = 0;
-}
-
-void stat_gun_cool(const World *w, Soldier *s)
-{
-    if (s->controls & BUTTON_FIRE) return;
-    if (s->use_time > M2_OVERHEAT + 1) s->use_time = 0;
-    if (s->use_time > 0 && w->tick % 8 == 0) s->use_time--;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        Soldier *s = &w->soldiers[i];
+        if (!s->active || s->dead || (s->controls & BUTTON_FIRE)) continue;
+        if (s->use_time > M2_OVERHEAT + 1) s->use_time = 0;
+        if (s->use_time > 0 && w->tick % 8 == 0) s->use_time--;
+    }
 }

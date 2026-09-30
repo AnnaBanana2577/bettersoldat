@@ -58,15 +58,11 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
 void soldier_respawn(const Context *ctx, World *w, uint8_t index, Events *events)
 {
     Soldier *s = &w->soldiers[index];
-    // what it held goes back: a flag to its base, a parachute away
-    if (s->held) {
-        if (w->things[s->held - 1].style == THING_PARACHUTE) thing_kill(&w->things[s->held - 1]);
-        else thing_respawn(ctx, w, s->held - 1);
-    }
+    // What it held goes back (a flag to its base, a parachute away) and a high spawn
+    // gets a parachute: the things pass does both on hearing of the respawn.
     Vec2 pos = spawn_point(ctx->map, s->team, &w->rng);
     soldier_spawn(ctx, s, pos, s->team, s->primary_choice, s->secondary_choice);
     s->life++;
-    parachute_deploy(ctx, w, index);
     event_emit(events, (Event){
         .type = EVENT_RESPAWN,
         .respawn = {
@@ -102,6 +98,7 @@ void soldier_step(const Context *ctx, World *w, uint8_t index, Command cmd, Even
     Soldier *s = &w->soldiers[index];
     if (!s->active || s->dead) return;
 
+    parachute_catch(w, s);
     soldier_integrate(s, w->gravity);
     s->vel = vec2_add(s->vel, s->next_push);
     s->next_push = (Vec2){0};

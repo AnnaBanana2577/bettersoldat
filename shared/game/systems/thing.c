@@ -572,6 +572,19 @@ static void thing_update(const Context *ctx, World *w, int index, Events *events
     }
 }
 
+// A soldier placed anew: what it held goes back, a flag to its base and a parachute
+// away, and a high spawn gets a parachute.
+static void things_on_respawn(const Context *ctx, World *w, uint8_t soldier)
+{
+    for (int i = 0; i < MAX_THINGS; i++) {
+        Thing *t = &w->things[i];
+        if (t->holder != soldier + 1) continue;
+        if (t->style == THING_PARACHUTE) thing_kill(t);
+        else thing_respawn(ctx, w, i);
+    }
+    parachute_deploy(ctx, w, soldier);
+}
+
 void things_update(const Context *ctx, World *w, const Events *last, Events *events)
 {
     EventCursor pending = events_pending(last, events, PASS_THINGS);
@@ -580,9 +593,12 @@ void things_update(const Context *ctx, World *w, const Events *last, Events *eve
         case EVENT_WEAPON_DROP: dropped_gun_drop(ctx, w, &e->weapon_drop); break;
         case EVENT_KNIFE_LAND: thrown_knife_land(ctx, w, &e->knife_land); break;
         case EVENT_KILL: things_let_go(w, e->kill.target); break;
+        case EVENT_FLAG_THROW: flag_throw(ctx, w, e->flag_throw.player); break;
+        case EVENT_RESPAWN: things_on_respawn(ctx, w, e->respawn.target); break;
         default: break;
         }
     }
+    stat_guns_cool(w);
 
     for (int i = 0; i < MAX_THINGS; i++) {
         if (w->things[i].style != THING_NONE) thing_update(ctx, w, i, events);

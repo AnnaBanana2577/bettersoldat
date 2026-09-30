@@ -358,7 +358,10 @@ void combat_control(const Context *ctx, World *w, uint8_t index, Events *events)
         weapon->fire_count++;
     }
 
-    if (w->authority) flag_throw(ctx, w, index);
+    // the flag's throw is asked of the things pass
+    if (!rolling(body) && (s->controls & BUTTON_FLAG_THROW) && s->held) {
+        event_emit(events, (Event){.type = EVENT_FLAG_THROW, .flag_throw = {.player = index}});
+    }
     throw_grenade(ctx, w, index, events);
 
     if (!rolling(body) && !flame_god && (s->controls & BUTTON_CHANGE)) anim_apply(anims, body, ANIM_CHANGE, 1);
@@ -456,16 +459,13 @@ void combat_control(const Context *ctx, World *w, uint8_t index, Events *events)
 
 void combat_after_prone(const Context *ctx, World *w, Soldier *s)
 {
-    stat_gun_cool(w, s);
-
+    (void)w;
     // working the Barrett's bolt between shots
     Anim *body = &s->body;
     if (s->weapon.id == WEAPON_BARRETT && s->weapon.fire_count > 0 &&
         (body->id == ANIM_STAND || body->id == ANIM_CROUCH || body->id == ANIM_PRONE)) {
         anim_apply(ctx->anims, body, ANIM_BARRET, 1);
     }
-
-    stat_gun_leave(w, s);
 }
 
 void combat_reload_animation(const Context *ctx, Soldier *s)

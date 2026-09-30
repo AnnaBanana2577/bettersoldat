@@ -95,10 +95,8 @@ void die(const Context *ctx, World *w, Hit hit, Events *events)
             .weapon_drop = {.player = hit.target, .weapon = s->weapon.id, .ammo = s->weapon.ammo, .pos = pose.p[15], .impact = hit.impact},
         });
     }
-    // The server forgets what the soldier held (the things pass lets the flag go on the
-    // kill); a parachute still holds the body and says so again on its next tick, so
-    // the corpse floats down under it.
-    s->held = 0;
+    // What it held is the things': the things pass lets the flag go on the kill, and a
+    // parachute keeps holding the body, so the corpse floats down under it.
     s->weapon = weapon_state(ctx, WEAPON_NONE);
     s->dead = true;
     s->vel = (Vec2){0};

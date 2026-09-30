@@ -3,6 +3,11 @@
 // down a little, and then left to lie. Ported from OpenSoldat Sprites.pas
 // (TSprite.Parachute, the parachuter in TSprite.Update) and Things.pas (TThing.Update's
 // parachute).
+//
+// The parachute is the things'. It is deployed and let go of in the things pass, which
+// reads its holder (alive: on the ground or jetting; a corpse: landed); the soldier's
+// side, in its own step, only reads the parachute back: its lift, and the tick its
+// canopy turned over, which catches the fall.
 
 #include "game/systems/systems.h"
 
@@ -28,13 +33,33 @@ void parachute_deploy(const Context *ctx, World *w, uint8_t soldier)
     s->held = (uint8_t)(k + 1);
 }
 
+// The line to the holder is cut: the parachute lies where it is a while.
+static void let_go(Thing *t, Soldier *holder)
+{
+    t->holder = 0;
+    t->cut++;
+    t->timeout = PARA_LANDED_TIMEOUT;
+    holder->held = 0;
+}
+
 void parachute_update(const Context *ctx, World *w, int index)
 {
     Thing *t = &w->things[index];
+    t->flipped = false;
     if (!t->holder) return;
 
     Soldier *holder = &w->soldiers[t->holder - 1];
     const Ragdoll *body = &w->ragdolls[t->holder - 1];
+
+    // let go of: by a living holder on the ground or jetting once the spawn protection
+    // has worn down a little, or by a corpse that has landed
+    if (holder->dead) {
+        if (body->active && body->on_ground) let_go(t, holder);
+    } else if (holder->cease_fire_counter < DEFAULT_CEASE_FIRE - 30 && (holder->on_ground || (holder->controls & BUTTON_JET))) {
+        let_go(t, holder);
+    }
+    if (!t->holder) return;
+
     // the lines meet at the head, the living one's or the corpse's
     t->pos[3] = holder->dead && body->active ? body->pos[11] : soldier_pose(ctx->anims, holder, holder->pos).p[11];
     t->forces[0].y = -holder->vel.y;
@@ -45,21 +70,25 @@ void parachute_update(const Context *ctx, World *w, int index)
         Vec2 head = t->pos[3];
         t->pos[3] = t->old_pos[3] = t->pos[2];
         t->pos[2] = t->old_pos[2] = head;
-        holder->forces.y = w->gravity;
+        t->flipped = true;
     }
+}
+
+// Whether the soldier hangs from a parachute, and which.
+static Thing *parachute_of(World *w, const Soldier *s)
+{
+    if (!s->held) return NULL;
+    Thing *t = &w->things[s->held - 1];
+    return t->style == THING_PARACHUTE ? t : NULL;
+}
+
+void parachute_catch(World *w, Soldier *s)
+{
+    Thing *t = parachute_of(w, s);
+    if (t && t->flipped) s->forces.y = w->gravity;
 }
 
 void parachute_carry(World *w, Soldier *s)
 {
-    if (!s->held) return;
-    Thing *t = &w->things[s->held - 1];
-    if (t->style != THING_PARACHUTE) return;
-
-    s->forces.y = PARA_SPEED;
-    if (s->cease_fire_counter < DEFAULT_CEASE_FIRE - 30 && (s->on_ground || (s->controls & BUTTON_JET))) {
-        t->holder = 0;
-        t->cut++; // the line to the soldier
-        t->timeout = PARA_LANDED_TIMEOUT;
-        s->held = 0;
-    }
+    if (parachute_of(w, s)) s->forces.y = PARA_SPEED;
 }

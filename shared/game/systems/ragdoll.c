@@ -166,17 +166,9 @@ static void ragdoll_step(const Context *ctx, World *w, uint8_t index, Events *ev
     s->old_pos = s->pos;
     s->pos = r->pos[RAGDOLL_HEAD];
 
-    // a body under a parachute is held up by it until it lands
-    if (s->held && w->things[s->held - 1].style == THING_PARACHUTE) {
-        Thing *para = &w->things[s->held - 1];
-        r->forces[RAGDOLL_HEAD].y = PARA_CORPSE_LIFT;
-        if (r->on_ground) {
-            para->holder = 0;
-            para->cut++;
-            para->timeout = 3 * 60;
-            s->held = 0;
-        }
-    }
+    // a body under a parachute is held up by it until it lands (the parachute lets go
+    // of a landed body in the things pass)
+    if (s->held && w->things[s->held - 1].style == THING_PARACHUTE) r->forces[RAGDOLL_HEAD].y = PARA_CORPSE_LIFT;
     r->dead_time++;
 
     s->vel.x = clampf(s->vel.x, -MAX_VELOCITY, MAX_VELOCITY);
