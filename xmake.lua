@@ -39,6 +39,7 @@ target("shared")
     set_kind("static")
     add_files("shared/**.c")
     add_includedirs("shared", {public = true})
+    add_packages("enet", {public = true}) -- the transport (shared/network) is ENet's
     if not is_plat("windows") then
         add_syslinks("m", {public = true})
     end
@@ -52,7 +53,7 @@ target("client")
     add_deps("shared")
     add_files("client/**.c")
     add_includedirs("client")
-    add_packages("libsdl2", "stb", "enet")
+    add_packages("libsdl2", "stb")
     if is_plat("windows") then
         -- SDL2main provides main; with none in our objects the linker can't infer the subsystem
         add_ldflags("/SUBSYSTEM:CONSOLE")
@@ -68,17 +69,17 @@ target("server")
     add_deps("shared")
     add_files("server/**.c")
     add_includedirs("server")
-    add_packages("enet")
     set_rundir("$(projectdir)")
 
--- The tests: headless checks of what shared/ holds. Not built by default; run them with
+-- The tests: headless checks of what shared/ holds, and of the server's join over the
+-- loopback (server/connections.c is built into them). Not built by default; run them with
 --   xmake test
 target("tests")
     set_kind("binary")
     set_default(false)
     add_deps("shared")
-    add_files("tests/*.c")
-    add_includedirs("tests")
+    add_files("tests/*.c", "server/connections.c")
+    add_includedirs("tests", "server")
     set_rundir("$(projectdir)")
     add_tests("default")
 

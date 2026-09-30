@@ -22,7 +22,9 @@
 //   client [+assets <dir>] [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 //
 // so `client +map ctf_Ash +r_screenwidth 1920 +r_screenheight 1080`, or `+hud_demo 2`
-// for the HUD full of sample data, or `+screenshot out.png` for a PNG of the 60th frame.
+// for the HUD full of sample data, or `+screenshot out.png` for a PNG of the 60th frame,
+// or `+connect localhost` to join a server (net/client_net.c). The world stays the local
+// sandbox until the server's state comes down the line.
 //
 // The binds below are the fallback for a missing config.cfg; the file's are the ones
 // that count. Alt held is the radio menu (+radio): a call by its number, then a
@@ -44,6 +46,7 @@
 #include "gfx/font.h"
 #include "gfx/gfx.h"
 #include "input/input.h"
+#include "net/client_net.h"
 #include "render/interface.h"
 #include "render/render.h"
 #include "render/scale_data.h"
@@ -90,6 +93,7 @@ typedef struct App {
     Game *game; // large; on the heap
     SDL_Window *window;
     Input input;
+    ClientNet net; // the line to a server, once `connect` opens one
     uint32_t seq; // my commands, numbered
     double accumulator;
     bool quit;
@@ -164,6 +168,33 @@ static void cmd_say(Console *con, int argc, char **argv, void *user)
     me->chat_team = team;
     me->chat_delay = CHAT_TICKS;
     console_print(con, "%s%s: %s\n", team ? "(team) " : "", app->player_name->value, me->chat);
+    client_net_say(&app->net, me->chat, team); // and to the server, when there is one
+}
+
+// connect <address[:port]> / disconnect: the line to a server. The join and what comes
+// down the line are the console's to report (net/client_net.c).
+static void cmd_connect(Console *con, int argc, char **argv, void *user)
+{
+    App *app = user;
+    if (argc != 2) {
+        console_print(con, "usage: connect <address[:port]>\n");
+        return;
+    }
+    char address[128];
+    snprintf(address, sizeof address, "%s", argv[1]);
+    uint16_t port = NET_DEFAULT_PORT;
+    char *colon = strrchr(address, ':');
+    if (colon) {
+        *colon = '\0';
+        port = (uint16_t)atoi(colon + 1);
+    }
+    client_net_connect(&app->net, con, address, port, app->player_name->value);
+}
+
+static void cmd_disconnect(Console *con, int argc, char **argv, void *user)
+{
+    (void)argc, (void)argv;
+    client_net_disconnect(&((App *)user)->net, con);
 }
 
 // +radio / -radio: the radio menu, shown while the key is held. The digits choose
@@ -271,6 +302,8 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "say_team", cmd_say, app, "say something to the team");
     console_add_command(con, "+radio", cmd_radio, app, "hold the radio menu open");
     console_add_command(con, "-radio", cmd_radio, app, NULL);
+    console_add_command(con, "connect", cmd_connect, app, "join a server: connect <address[:port]>");
+    console_add_command(con, "disconnect", cmd_disconnect, app, "leave the server");
     input_init(&app->input, con);
 
     input_default_binds(con);
@@ -707,6 +740,7 @@ int main(int argc, char *argv[])
 {
     App app = {0};
 
+    if (!client_net_init(&app.net)) fprintf(stderr, "ENet wouldn't start: no connecting\n");
     if (!console_open(&app, argc, argv)) return 1;
     if (!game_open(&app)) {
         fprintf(stderr, "could not load map '%s' from '%s'\nusage: client +assets <dir> +map <name>\n",
@@ -747,12 +781,14 @@ int main(int argc, char *argv[])
         app.time += dt;
 
         poll_events(&app);
+        client_net_poll(&app.net, app.console);
         apply_cvars(&app);
         app.camera.viewport = window_rect(&app);
         input_sample(&app.input, screen_to_world(&app.camera, cursor(&app)));
 
         int ticks = ticks_owed(&app, dt);
         for (int i = 0; i < ticks; i++) tick(&app);
+        client_net_flush(&app.net); // what the ticks said goes out now, not a tick late
 
         // the world ticks every pass; a frame is drawn only once the last is old enough
         since_frame += dt;
@@ -780,6 +816,7 @@ int main(int argc, char *argv[])
         SDL_Delay(SLEEP_AFTER_FRAME_MS);
     }
 
+    client_net_shutdown(&app.net);
     fonts_unload();
     interface_unload(&app.hud);
     render_destroy(&app.render);

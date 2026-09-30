@@ -1,21 +1,24 @@
-// The server, headless: the console, the world, and a loop that ticks it at TICK_RATE
-// until it is told to stop. Nobody can connect yet; this is the skeleton the netcode
-// fills in. Today it reads config.cfg and the command line, loads the map, ticks an
-// empty world with authority, and stops on `quit` or Ctrl-C.
+// The server, headless: the console, the world, the line, and a loop that ticks it at
+// TICK_RATE until it is told to stop. It reads config.cfg and the command line, loads
+// the map, listens on sv_port, gives everyone who says Hello a soldier, ticks the world
+// with authority, and stops on `quit` or Ctrl-C. What the players' clients send about
+// their soldiers, and what they hear back, comes with the netcode's next steps.
 //
-//   console  the cvars and the commands (shared/console): config.cfg, then the
-//            command line over it
-//   game     the world (shared/game), ticked here with authority
+//   console      the cvars and the commands (shared/console): config.cfg, then the
+//                command line over it
+//   connections  who is on the line, and the join (connections.c)
+//   game         the world (shared/game), ticked here with authority
 //
 // It runs from the directory that holds config.cfg and assets/, as the client does.
 //
-//   bettersoldat-server [+map <name>] [+<cvar> <value>] [+<command> <args>...]
+//   bettersoldat-server [+map <name>] [+sv_port <port>] [+<cvar> <value>] [+<command> <args>...]
 
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
+#include "connections.h"
 #include "console/console.h"
 #include "game/game.h"
 
@@ -34,7 +37,10 @@ typedef struct Server {
     Console *console; // large; on the heap
     Cvar *assets;
     Cvar *map;
+    Cvar *port;
     Game *game; // large; on the heap
+    NetLink link;
+    Connections connections;
     double accumulator;
     bool quit;
 } Server;
@@ -103,6 +109,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
 
     sv->assets = cvar_register(con, "assets", "./assets", 0, "the base assets directory: maps/, anims/, objects/...");
     sv->map = cvar_register(con, "map", "Arena", 0, "the map to load");
+    sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
 
     if (file_exists(CONFIG)) console_execute_file(con, CONFIG);
@@ -139,12 +146,21 @@ int main(int argc, char *argv[])
         console_destroy(sv.console);
         return 1;
     }
+    if (!net_init() || !net_listen(&sv.link, (uint16_t)sv.port->integer, MAX_PLAYERS)) {
+        fprintf(stderr, "could not listen on port %d\n", sv.port->integer);
+        game_close(&sv);
+        console_destroy(sv.console);
+        return 1;
+    }
+    connections_init(&sv.connections, &sv.link, sv.console);
     signal(SIGINT, on_interrupt);
     signal(SIGTERM, on_interrupt);
-    console_print(sv.console, "bettersoldat-server: %s, %d ticks a second\n", sv.map->value, TICK_RATE);
+    console_print(sv.console, "bettersoldat-server: %s on port %d, %d ticks a second\n", sv.map->value, sv.port->integer,
+                  TICK_RATE);
 
     // Ticks come out of the time that has passed, one whole tick at a time, and the
-    // rest waits for the next pass. Nobody is connected, so every command is empty.
+    // rest waits for the next pass. The line is heard before the ticks and flushed
+    // after them. Nobody's keys reach their soldier yet, so every command is empty.
     Command cmds[MAX_PLAYERS] = {0};
     double last = now();
     while (!sv.quit && !interrupted) {
@@ -152,14 +168,18 @@ int main(int argc, char *argv[])
         sv.accumulator += t - last;
         last = t;
         if (sv.accumulator > MAX_STALL) sv.accumulator = MAX_STALL;
+        connections_poll(&sv.connections, sv.game);
         while (sv.accumulator >= TICK_SECONDS) {
             game_tick(sv.game, cmds);
             sv.accumulator -= TICK_SECONDS;
         }
+        net_flush(&sv.link);
         sleep_ms(SLEEP_MS);
     }
 
     console_print(sv.console, "stopping\n");
+    net_close(&sv.link);
+    net_shutdown();
     game_close(&sv);
     console_destroy(sv.console);
     return 0;

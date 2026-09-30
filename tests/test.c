@@ -162,6 +162,7 @@ int main(void)
     corpse_tests();
     events_tests();
     network_tests();
+    join_tests();
     console_tests();
     color_tests();
     printf("%d checks, %d failed\n", checks, failures);
