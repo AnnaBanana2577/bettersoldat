@@ -173,13 +173,18 @@ static void saving_in_place(void)
 static void colours(void)
 {
     Console *con = console_create(NULL, NULL);
+    Cvar *fov = cvar_register(con, "fov", "90", 0, NULL);
+    console_execute(con, "/fov 110"); // as typed at the game's prompt
+    CHECK(fov->integer == 110, "a cvar typed with a slash and a value, as at the prompt, is set (%d)", fov->integer);
+    console_execute(con, "fov");
+    CHECK(strstr(console_log_line(con, 0), "110") != NULL, "and typed alone shows its value (%s)", console_log_line(con, 0));
     console_print(con, "plain\n");
     console_print_color(con, (Rgba){1, 2, 3, 255}, "said\nand said again\n");
     Rgba c = {0};
     CHECK(console_log_color(con, 0, &c) && c.r == 1 && c.g == 2 && c.b == 3, "a coloured line keeps its colour");
     CHECK(console_log_color(con, 1, &c) && c.b == 3, "every line of the print does");
     CHECK(!console_log_color(con, 2, &c), "and a plain line has none");
-    CHECK(console_log_total(con) == 3, "three lines have been printed, by the count (%u)", console_log_total(con));
+    CHECK(console_log_total(con) == 4, "four lines have been printed, by the count (%u)", console_log_total(con));
     CHECK(console_knows(con, "echo") && !console_knows(con, "nosuchthing"), "the console knows its commands by name");
     console_destroy(con);
 }

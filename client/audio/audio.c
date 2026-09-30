@@ -388,6 +388,9 @@ static void audio_event(Audio *a, const Event *e, const World *w, int me)
     case EVENT_FLAG_GRAB: sound_play(a, "capture.wav", e->flag_grab.pos); break;
     case EVENT_FLAG_RETURN: audio_flat(a, "capture.wav"); break;
     case EVENT_FLAG_SCORE: audio_flat(a, "ctf.wav"); break;
+    case EVENT_FLAG_DROP:
+        if (w->soldiers[e->flag_drop.player].team == w->soldiers[me].team) audio_flat(a, "infilt-point.wav");
+        break;
     case EVENT_KIT_PICKUP: {
         const char *name = KIT_SOUNDS[e->kit_pickup.kit];
         sound_play(a, name ? name : "pickupgun.wav", e->kit_pickup.pos);

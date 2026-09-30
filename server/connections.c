@@ -194,7 +194,7 @@ void connections_place(Connections *c, Game *g, int slot, Team team)
 {
     (void)c;
     Soldier *s = &g->world.soldiers[slot];
-    if (s->active && s->held) things_let_go(&g->world, slot);
+    if (s->active && s->held) things_let_go(&g->world, slot, NULL);
     // with the weapons it chose, or the original's first loadout for a choice that isn't one
     WeaponId primary = weapon_is_primary(s->primary_choice) ? s->primary_choice : WEAPON_EAGLE;
     WeaponId secondary = weapon_is_secondary(s->secondary_choice) ? s->secondary_choice : WEAPON_KNIFE;

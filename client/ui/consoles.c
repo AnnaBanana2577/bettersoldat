@@ -11,18 +11,21 @@
 #define CONSOLE_LINE_HEIGHT (1.5f * 9.0f) // font_consolelineheight * the small font's size
 #define GAME_HEIGHT_UNITS 480.0f
 
-static void hud_console_init(HudConsole *h, int count_max, int scroll_tick_max, int wait)
+static void hud_console_init(HudConsole *h, int count_max, int visible, int scroll_tick_max, int wait)
 {
-    *h = (HudConsole){.count_max = count_max, .scroll_tick_max = scroll_tick_max, .new_message_wait = wait};
-    if (h->count_max > HUD_CONSOLE_LINES) h->count_max = HUD_CONSOLE_LINES;
+    *h = (HudConsole){.count_max = count_max, .visible = visible, .scroll_tick_max = scroll_tick_max, .new_message_wait = wait};
+    if (h->count_max > HUD_CONSOLE_KEPT) h->count_max = HUD_CONSOLE_KEPT;
     if (h->count_max < 1) h->count_max = 1;
+    if (h->visible > h->count_max) h->visible = h->count_max;
+    if (h->visible > HUD_CONSOLE_LINES) h->visible = HUD_CONSOLE_LINES;
 }
 
 void consoles_init(Consoles *c, int main_length)
 {
     *c = (Consoles){0};
-    hud_console_init(&c->main, main_length, MAIN_SCROLL_TICKS, MAIN_MESSAGE_WAIT);
-    hud_console_init(&c->big, (int)floorf(0.85f * GAME_HEIGHT_UNITS / CONSOLE_LINE_HEIGHT), BIG_SCROLL_TICKS, 0);
+    hud_console_init(&c->main, main_length, main_length, MAIN_SCROLL_TICKS, MAIN_MESSAGE_WAIT);
+    // the big console keeps the whole scrollback and shows what fits 85% of the view
+    hud_console_init(&c->big, HUD_CONSOLE_KEPT, (int)floorf(0.85f * GAME_HEIGHT_UNITS / CONSOLE_LINE_HEIGHT), BIG_SCROLL_TICKS, 0);
 }
 
 // ScrollConsole: the oldest line goes.
@@ -79,9 +82,20 @@ char *consoles_big_text(const Consoles *c)
     return all;
 }
 
-void consoles_fill(const Consoles *c, HudData *d, bool typing)
+int consoles_scroll_max(const Consoles *c)
+{
+    int past = c->big.count - c->big.visible;
+    return past > 0 ? past : 0;
+}
+
+void consoles_fill(const Consoles *c, HudData *d, bool typing, int scroll)
 {
     const HudConsole *h = typing ? &c->big : &c->main;
-    d->console_count = h->count;
-    for (int i = 0; i < h->count; i++) d->console[i] = h->lines[i];
+    int n = h->count < h->visible ? h->count : h->visible;
+    int back = typing ? scroll : 0;
+    if (back > h->count - n) back = h->count - n;
+    if (back < 0) back = 0;
+    int start = h->count - n - back;
+    d->console_count = n;
+    for (int i = 0; i < n; i++) d->console[i] = h->lines[start + i];
 }

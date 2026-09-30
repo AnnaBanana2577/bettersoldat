@@ -115,6 +115,7 @@ typedef struct App {
     char chat_last[HUD_TEXT]; // the last line sent, for "//" to bring back
     HudChatType chat_last_type;
     Consoles consoles;        // the HUD's two consoles, fed from the game console's scrollback
+    int console_scroll;       // how far back the big console is paged while a line is typed
     bool vote_reason_typing;  // the prompt takes a kick vote's reason (the kick window's OK)
     int kick_target;          // the player it is about
     char maps[128][64];       // the maps under assets, for the map window
@@ -288,6 +289,7 @@ static void chat_close(App *app)
     app->hud_data.vote_reason_typing = false;
     app->hud_data.chat_text[0] = '\0';
     app->chat_completing = 0;
+    app->console_scroll = 0;
     SDL_StopTextInput();
 }
 
@@ -421,6 +423,10 @@ static bool chat_event(App *app, const SDL_Event *e)
         chat_insert(app, str);
         return true;
     }
+    if (e->type == SDL_MOUSEWHEEL) { // the big console pages with the wheel
+        app->console_scroll = clampi(app->console_scroll + (e->wheel.y > 0 ? 3 : -3), 0, consoles_scroll_max(&app->consoles));
+        return true;
+    }
     if (e->type != SDL_KEYDOWN) return false;
 
     bool ctrl = (e->key.keysym.mod & KMOD_CTRL) != 0;
@@ -483,6 +489,8 @@ static bool chat_event(App *app, const SDL_Event *e)
         }
         break;
     case SDL_SCANCODE_TAB: chat_complete(app); break;
+    case SDL_SCANCODE_PAGEUP: app->console_scroll = clampi(app->console_scroll + 3, 0, consoles_scroll_max(&app->consoles)); break;
+    case SDL_SCANCODE_PAGEDOWN: app->console_scroll = clampi(app->console_scroll - 3, 0, consoles_scroll_max(&app->consoles)); break;
     default: break;
     }
     d->chat_changed_at = app->time;
@@ -714,7 +722,7 @@ static void apply_cvars(App *app)
         app->swapeffect->modified = false;
     }
     app->input.sensitivity = app->sensitivity->number;
-    app->consoles.main.count_max = clampi(app->console_length->integer, 1, HUD_CONSOLE_LINES);
+    app->consoles.main.count_max = app->consoles.main.visible = clampi(app->console_length->integer, 1, HUD_CONSOLE_LINES);
     // the original's curve: 50 is a quarter of the way up, and it is quiet enough there
     float v = clampf(app->volume->number / 100.0f, 0.0f, 1.0f);
     audio_volume(&app->audio, v * v * 0.48f);
@@ -1141,7 +1149,7 @@ static void hud_data_build(App *app)
 
     // the consoles: the main one, or the big one while a line is typed
     consoles_pull(&app->consoles, app->console);
-    consoles_fill(&app->consoles, d, d->chat_type != HUD_CHAT_NONE);
+    consoles_fill(&app->consoles, d, d->chat_type != HUD_CHAT_NONE, app->console_scroll);
     feed_fill(&app->feed, d, &g->ctx.weapons);
     if (app->hud_demo->integer) hud_data_demo(d, app->hud_demo->integer);
 }

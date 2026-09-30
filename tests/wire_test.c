@@ -33,7 +33,7 @@ void wire_tests(void)
         case WIRE_LOCAL: local++; break;
         }
     }
-    CHECK(owner == 3 && server == 9 && local == EVENT_ECHO_TEST + 1 - 12, "every event type is classified (%d owner, %d server, %d local)",
+    CHECK(owner == 3 && server == 10 && local == EVENT_ECHO_TEST + 1 - 13, "every event type is classified (%d owner, %d server, %d local)",
           owner, server, local);
 
     // every travelling type round trips whole
@@ -50,6 +50,7 @@ void wire_tests(void)
         {.type = EVENT_KIT_PICKUP, .kit_pickup = {.player = 2, .thing = 60, .kit = THING_VEST_KIT, .pos = {19, 20}}},
         {.type = EVENT_WEAPON_PICKUP, .weapon_pickup = {.player = 11, .thing = 1, .weapon = WEAPON_BOW, .ammo = 1, .pos = {21, 22}}},
         {.type = EVENT_MATCH_END, .match_end = {.winner = TEAM_ALPHA}},
+        {.type = EVENT_FLAG_DROP, .flag_drop = {.player = 2, .flag = THING_BRAVO_FLAG, .pos = {30, -40}}},
     };
     int n = (int)(sizeof samples / sizeof samples[0]);
     bool all = true;

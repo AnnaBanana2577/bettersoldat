@@ -16,6 +16,8 @@
 #define FEED_NEW_MESSAGE_WAIT 70
 #define FEED_KILL_MESSAGE_TICKS (4 * 60)    // KILLMESSAGEWAIT
 #define FEED_CAPTURE_MESSAGE_TICKS (6 * 60) // CAPTUREMESSAGEWAIT
+#define FEED_SCORE_MESSAGE_TICKS (7 * 60)   // CAPTURECTFMESSAGEWAIT
+#define FEED_MULTIKILL_TICKS 180            // MULTIKILLINTERVAL: kills this close together count up
 
 typedef struct Feed {
     HudKillLine kills[HUD_KILL_LINES]; // newest last
@@ -26,6 +28,7 @@ typedef struct Feed {
     int shot_ticks;                       // the last kill's shot readout, while shown
     float shot_distance, shot_airtime;
     int shot_ricochets;
+    int multi_kills, multi_time; // my kills in quick succession (MULTIKILLINTERVAL), for the big words
 } Feed;
 
 // After a tick: the kill console scrolls when it is time, and the tick's events add

@@ -294,6 +294,9 @@ void stream_tests(void)
     // wounds: the bot fires at me for a while; the server rules and I hear
     float health_before = mine->health;
     play(&conns, gs, &c, 90, 0, BUTTON_FIRE);
+    CHECK(mine->dead && mine->respawn_counter > 0 && abs(mine->respawn_counter - theirs->respawn_counter) <= 2,
+          "the volley killed me, and the respawn count reaches me with the served half (%d here, %d there)", mine->respawn_counter,
+          theirs->respawn_counter);
     CHECK(c.damages > 0 && mine->health < health_before,
           "the server's wounds reach me as events, and my health with the served half (%d wounds, %.0f -> %.0f)", c.damages,
           health_before, mine->health);

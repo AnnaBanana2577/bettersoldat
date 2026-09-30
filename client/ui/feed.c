@@ -125,16 +125,30 @@ static void kill(Feed *f, const Game *g, const char names[MAX_PLAYERS][HUD_NAME]
             f->shot_ricochets = k->ricochets;
         }
     }
+    if (k->killer == me && k->target != me) { // the original's multikill words, over "You killed"
+        static const char *const MULTIKILL[] = {"DOUBLE KILL", "TRIPLE KILL", "MULTI KILL", "MULTI KILL X2", "SERIAL KILL",
+                                               "INSANE KILLS", "GIMME MORE!", "MASTA KILLA!", "MASTA KILLA!", "MASTA KILLA!",
+                                               "STOP IT!!!!", "MERCY!!!!!!!!!!", "CHEATER!!!!!!!!",
+                                               "Phased-plasma rifle in the forty watt range", "Hey, just what you see, pal",
+                                               "just what you see, pal..."};
+        f->multi_time = FEED_MULTIKILL_TICKS;
+        f->multi_kills++;
+        snprintf(text, sizeof text, "You killed %s", names[k->target]);
+        big_message(f, text, (Rgba){0xEA, 0x35, 0x30, 0xFF}, FEED_KILL_MESSAGE_TICKS);
+        if (f->multi_kills > 1 && f->multi_kills < 18) big_message(f, MULTIKILL[f->multi_kills - 2], (Rgba){0xEA, 0x35, 0x30, 0xFF}, FEED_KILL_MESSAGE_TICKS);
+        else if (f->multi_kills > 17) big_message(f, MULTIKILL[7], (Rgba){0xEA, 0x35, 0x30, 0xFF}, FEED_KILL_MESSAGE_TICKS);
+    }
     if (k->killer == me && k->target == me) {
         big_message(f, "You killed yourself", (Rgba){0xC5, 0x30, 0x25, 0xFF}, FEED_KILL_MESSAGE_TICKS);
     } else if (k->target == me) {
         snprintf(text, sizeof text, "Killed by %s", names[k->killer]);
         big_message(f, text, (Rgba){0xC5, 0x30, 0x25, 0xFF}, FEED_KILL_MESSAGE_TICKS);
-    } else if (k->killer == me) {
-        snprintf(text, sizeof text, "You killed %s", names[k->target]);
-        big_message(f, text, (Rgba){0xEA, 0x35, 0x30, 0xFF}, FEED_KILL_MESSAGE_TICKS);
     }
 }
+
+// The original's names for the flags: the alpha team's is red, the bravo team's blue.
+static const char *flag_name(ThingStyle flag) { return flag == THING_ALPHA_FLAG ? "Red" : "Blue"; }
+static Rgba flag_color(ThingStyle flag) { return team_color(flag_team(flag)); }
 
 // The match's end: the team that won, or with no teams the player with the most kills.
 static void match_end(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], Team winner)
@@ -160,6 +174,8 @@ void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYER
 {
     (void)team_game;
     if (f->shot_ticks > 0) f->shot_ticks--;
+    if (f->multi_time > -1) f->multi_time--;
+    else f->multi_kills = 0;
     // the kill console scrolls once, a while after the last kill (UpdateFrame.pas)
     if (++f->scroll_tick == FEED_SCROLL_TICKS) {
         kill_scroll(f);
@@ -179,24 +195,51 @@ void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYER
         case EVENT_DAMAGE:
             if (e->damage.attacker == me && e->damage.target != me) f->stats[e->damage.weapon].hits++;
             break;
-        case EVENT_FLAG_SCORE: {
-            Team flag = flag_team(e->flag_score.flag);
-            snprintf(text, sizeof text, "%s Flag Captured!", team_name(flag));
-            big_text(f, 0, text, (Rgba){0xD3, 0xCA, 0x34, 0xFF}, 0.0625f, 80, 240, FEED_CAPTURE_MESSAGE_TICKS);
-            console_print_color(con, HUD_COLOR_GAME, "%s captured the %s flag\n", names[e->flag_score.player], team_name(flag));
+        case EVENT_FLAG_SCORE: { // the team that scores is the one whose flag it isn't
+            Team scoring = flag_team(e->flag_score.flag) == TEAM_ALPHA ? TEAM_BRAVO : TEAM_ALPHA;
+            snprintf(text, sizeof text, "%s Team Scores!", team_name(scoring));
+            big_message(f, text, team_color(scoring), FEED_SCORE_MESSAGE_TICKS);
+            console_print_color(con, team_color(scoring), "%s scores for %s Team\n", names[e->flag_score.player], team_name(scoring));
             break;
         }
-        case EVENT_FLAG_GRAB:
-            console_print_color(con, HUD_COLOR_GAME, "%s took the %s flag\n", names[e->flag_grab.player],
-                                team_name(flag_team(e->flag_grab.flag)));
+        case EVENT_FLAG_GRAB: { // the enemy's flag taken: mine to me, theirs to the rest
+            ThingStyle flag = e->flag_grab.flag;
+            if (e->flag_grab.player == me) snprintf(text, sizeof text, "You got the %s Flag!", flag_name(flag));
+            else snprintf(text, sizeof text, "%s Flag captured!", flag_name(flag));
+            big_message(f, text, flag_color(flag), FEED_CAPTURE_MESSAGE_TICKS);
+            console_print_color(con, flag_color(flag), "%s captured the %s Flag\n", names[e->flag_grab.player], flag_name(flag));
             break;
-        case EVENT_FLAG_RETURN:
-            if (e->flag_return.player == 255)
-                console_print_color(con, HUD_COLOR_GAME, "The %s flag was returned\n", team_name(flag_team(e->flag_return.flag)));
-            else
-                console_print_color(con, HUD_COLOR_GAME, "%s returned the %s flag\n", names[e->flag_return.player],
-                                    team_name(flag_team(e->flag_return.flag)));
+        }
+        case EVENT_FLAG_RETURN: { // by a player: said; by the clock: nothing, as the original
+            ThingStyle flag = e->flag_return.flag;
+            if (e->flag_return.player == 255) break;
+            snprintf(text, sizeof text, "%s Flag returned!", flag_name(flag));
+            big_message(f, text, flag_color(flag), FEED_CAPTURE_MESSAGE_TICKS);
+            console_print_color(con, flag_color(flag), "%s returned the %s Flag\n", names[e->flag_return.player], flag_name(flag));
             break;
+        }
+        case EVENT_FLAG_DROP: { // a carrier's death: its teammates are told big
+            ThingStyle flag = e->flag_drop.flag;
+            console_print_color(con, flag_color(flag), "%s dropped the %s Flag\n", names[e->flag_drop.player], flag_name(flag));
+            if (g->world.soldiers[e->flag_drop.player].team == g->world.soldiers[me].team) {
+                snprintf(text, sizeof text, "%s Flag dropped!", flag_name(flag));
+                big_message(f, text, (Rgba){0x77, 0xD3, 0x34, 0xFF}, FEED_CAPTURE_MESSAGE_TICKS);
+            }
+            break;
+        }
+        case EVENT_KIT_PICKUP: { // the bonuses, to the one who took them
+            if (e->kit_pickup.player != me) break;
+            const Rgba bonus = {0xEF, 0x31, 0x21, 0xFF}, capture = {0x77, 0xD3, 0x34, 0xFF};
+            switch (e->kit_pickup.kit) {
+            case THING_FLAMER_KIT: big_message(f, "Flame God Mode!", bonus, FEED_CAPTURE_MESSAGE_TICKS); break;
+            case THING_PREDATOR_KIT: big_message(f, "Predator Mode!", bonus, FEED_CAPTURE_MESSAGE_TICKS); break;
+            case THING_BERSERK_KIT: big_message(f, "Berserker Mode!", bonus, FEED_CAPTURE_MESSAGE_TICKS); break;
+            case THING_VEST_KIT: big_message(f, "Bulletproof Vest!", capture, FEED_CAPTURE_MESSAGE_TICKS); break;
+            case THING_CLUSTER_KIT: big_message(f, "Cluster grenades!", capture, FEED_CAPTURE_MESSAGE_TICKS); break;
+            default: break;
+            }
+            break;
+        }
         case EVENT_MATCH_END: match_end(f, con, g, names, e->match_end.winner); break;
         default: break;
         }

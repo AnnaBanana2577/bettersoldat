@@ -18,7 +18,8 @@ WireSide wire_side(EventType type)
     case EVENT_FLAG_SCORE:
     case EVENT_KIT_PICKUP:
     case EVENT_WEAPON_PICKUP:
-    case EVENT_MATCH_END: return WIRE_SERVER;
+    case EVENT_MATCH_END:
+    case EVENT_FLAG_DROP: return WIRE_SERVER;
     case EVENT_FIRE:
     case EVENT_BULLET_SPAWN:
     case EVENT_BULLET_END:
@@ -163,6 +164,13 @@ void wire_event(NetBuf *b, Event *e)
     }
     case EVENT_FLAG_SCORE: {
         EventFlagScore *f = &e->flag_score;
+        slot(b, &f->player);
+        style(b, &f->flag);
+        net_vec2(b, &f->pos);
+        break;
+    }
+    case EVENT_FLAG_DROP: {
+        EventFlagDrop *f = &e->flag_drop;
         slot(b, &f->player);
         style(b, &f->flag);
         net_vec2(b, &f->pos);

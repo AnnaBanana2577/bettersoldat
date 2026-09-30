@@ -308,7 +308,7 @@ void things_update(const Context *ctx, World *w, const Events *last, Events *eve
 bool thing_collides_with_bullets(const World *w, const Thing *t);
 
 // A soldier died: the flag it carried falls, and what it threw is nobody's.
-void things_let_go(World *w, uint8_t index);
+void things_let_go(World *w, uint8_t index, Events *events); // a flag let go of is an event, if `events`
 
 // --- flag.c ------------------------------------------------------------------------
 

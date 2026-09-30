@@ -294,7 +294,7 @@ void things_spawn(const Context *ctx, World *w)
     }
 }
 
-void things_let_go(World *w, uint8_t index)
+void things_let_go(World *w, uint8_t index, Events *events)
 {
     Soldier *s = &w->soldiers[index];
     for (int i = 0; i < MAX_THINGS; i++) {
@@ -302,6 +302,7 @@ void things_let_go(World *w, uint8_t index)
         if (t->holder == index + 1 && thing_is_flag(t->style)) {
             t->holder = 0;
             s->held = 0;
+            if (events) event_emit(events, (Event){.type = EVENT_FLAG_DROP, .flag_drop = {.player = index, .flag = t->style, .pos = t->pos[0]}});
         }
         if (t->owner == index + 1) t->owner = 0;
     }
@@ -615,7 +616,7 @@ void things_update(const Context *ctx, World *w, const Events *last, Events *eve
         switch (e->type) {
         case EVENT_WEAPON_DROP: dropped_gun_drop(ctx, w, &e->weapon_drop); break;
         case EVENT_KNIFE_LAND: thrown_knife_land(ctx, w, &e->knife_land); break;
-        case EVENT_KILL: things_let_go(w, e->kill.target); break;
+        case EVENT_KILL: things_let_go(w, e->kill.target, events); break;
         case EVENT_FLAG_THROW: flag_throw(ctx, w, e->flag_throw.player); break;
         case EVENT_RESPAWN: things_on_respawn(ctx, w, e->respawn.target); break;
         case EVENT_THING_KNOCK: thing_knock(w, &e->thing_knock); break;

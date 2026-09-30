@@ -16,10 +16,13 @@
 #include "console/console.h"
 #include "ui/hud_data.h"
 
+#define HUD_CONSOLE_KEPT 256 // the original's CONSOLE_MAX_MESSAGES
+
 typedef struct HudConsole {
-    HudLine lines[HUD_CONSOLE_LINES]; // oldest first
+    HudLine lines[HUD_CONSOLE_KEPT]; // oldest first
     int count;
-    int count_max;
+    int count_max; // kept: the oldest goes past this
+    int visible;   // shown at once
     int scroll_tick;
     int scroll_tick_max;
     int new_message_wait;
@@ -39,8 +42,12 @@ void consoles_pull(Consoles *c, const Console *con);
 // The clocks, once per tick.
 void consoles_tick(Consoles *c);
 
-// Into the HUD: the big console while `typing`, the main one otherwise.
-void consoles_fill(const Consoles *c, HudData *d, bool typing);
+// Into the HUD: the big console while `typing`, the main one otherwise; `scroll` lines
+// back from the newest, for paging through the big one.
+void consoles_fill(const Consoles *c, HudData *d, bool typing, int scroll);
+
+// How far back the big console can be paged.
+int consoles_scroll_max(const Consoles *c);
 
 // The big console's lines as one text, on the heap (free it); NULL if there is no room.
 char *consoles_big_text(const Consoles *c);

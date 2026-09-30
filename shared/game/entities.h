@@ -417,6 +417,8 @@ typedef struct EventPolyEffect { uint8_t target; PolyType type; Vec2 pos; bool s
 // and how many times the body had already landed. Never leaves the machine that made it.
 typedef struct EventCorpseHit { uint8_t target; Vec2 pos; float fall; uint8_t count; } EventCorpseHit;
 typedef struct EventMatchEnd { Team winner; } EventMatchEnd;
+// A death let go of the flag its player carried, which lies where it fell.
+typedef struct EventFlagDrop { uint8_t player; ThingStyle flag; Vec2 pos; } EventFlagDrop;
 typedef struct EventEchoTest { int n; } EventEchoTest; // the tests', to watch the passes' mail
 
 typedef enum EventType {
@@ -448,6 +450,7 @@ typedef enum EventType {
     EVENT_POLY_EFFECT,
     EVENT_CORPSE_HIT,
     EVENT_MATCH_END,
+    EVENT_FLAG_DROP,
     EVENT_ECHO_TEST,
 } EventType;
 
@@ -483,6 +486,7 @@ typedef struct Event {
         EventPolyEffect poly_effect;
         EventCorpseHit corpse_hit;
         EventMatchEnd match_end;
+        EventFlagDrop flag_drop;
         EventEchoTest echo;
     };
 } Event;
