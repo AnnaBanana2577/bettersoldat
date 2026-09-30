@@ -264,6 +264,48 @@ void stream_tests(void)
     play(&conns, gs, &c, 5, 0, 0);
     CHECK(conns.streams[0].dropped == dropped + 1, "a state older than the newest is dropped (%u dropped)", conns.streams[0].dropped);
 
+    // a second client joins while the first plays: it is placed, and the first sees it
+    StreamClient d = {.slot = -1};
+    CHECK(client_stream_init(&d.stream) && net_connect(&d.link, "127.0.0.1", PORT), "a second client connects");
+    for (int round = 0; round < ROUNDS && d.snapshots < 3; round++) {
+        connections_poll(&conns, gs);
+        server_tick(&conns, gs, 0);
+        client_pump(&c);
+        if (c.welcomed && c.round) client_tick(&c, 0);
+        client_pump(&d);
+        if (d.welcomed && d.round) client_tick(&d, BUTTON_LEFT);
+        enet_host_service(server.host, NULL, 10);
+    }
+    CHECK(d.welcomed && d.slot == 2 && d.round == 1 && d.game, "it is welcomed into slot 2 and told the round (slot %d, %d snapshots)",
+          d.slot, d.snapshots);
+    const Soldier *second_there = &gs->world.soldiers[2];
+    const Soldier *second_here = d.game ? &d.game->world.soldiers[2] : NULL;
+    CHECK(second_there->active && second_here && second_here->active && second_here->life == second_there->life &&
+              fabsf(second_here->pos.x - second_there->pos.x) < 30.0f,
+          "its soldier is placed on both ends (%d/%d active, life %u/%u)", second_there->active, second_here ? second_here->active : 0,
+          second_there->life, second_here ? second_here->life : 0);
+    for (int round = 0; round < 10; round++) {
+        connections_poll(&conns, gs);
+        server_tick(&conns, gs, 0);
+        client_pump(&c);
+        client_tick(&c, 0);
+        client_pump(&d);
+        client_tick(&d, BUTTON_LEFT);
+        enet_host_service(server.host, NULL, 10);
+    }
+    const Soldier *second_seen = &c.game->world.soldiers[2];
+    CHECK(second_seen->active && second_seen->remote && fabsf(second_seen->pos.x - second_there->pos.x) < 30.0f &&
+              strcmp(c.stream.names[2], "Mover") == 0,
+          "and the first client sees it, named, near where the server has it (%d active, %.1f vs %.1f, '%s')", second_seen->active,
+          second_seen->pos.x, second_there->pos.x, c.stream.names[2]);
+    net_close(&d.link);
+    for (int round = 0; round < 50 && conns.items[2].peer; round++) {
+        connections_poll(&conns, gs);
+        enet_host_service(server.host, NULL, 10);
+    }
+    client_stream_free(&d.stream);
+    if (d.game) scene_free(d.game);
+
     // the round ends, and the next begins on another map
     gs->match.time_left = 1;
     play(&conns, gs, &c, 2, 0, 0);
