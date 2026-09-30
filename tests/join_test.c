@@ -19,7 +19,8 @@ typedef struct TestClient {
     MsgMap map;
     MsgDenied denial;
     MsgChat chat;
-    int chats;
+    int chats;         // lines from players
+    int announcements; // and from the server itself
 } TestClient;
 
 static bool client_open(TestClient *c, uint16_t version)
@@ -65,7 +66,8 @@ static void client_pump(TestClient *c)
                 c->denied = netbuf_done(&b);
             } else if (kind == MSG_CHAT) {
                 msg_chat(&b, &c->chat);
-                if (netbuf_done(&b)) c->chats++;
+                if (netbuf_done(&b) && c->chat.slot == MAX_PLAYERS) c->announcements++;
+                else if (netbuf_done(&b)) c->chats++;
             }
         }
     }
@@ -123,6 +125,7 @@ void join_tests(void)
           "a line of chat comes back from the server, stamped with the sender's real slot (%d)", a.chat.slot);
     CHECK(a.mapped && a.map.round == 1 && strcmp(a.map.map, "Arena") == 0, "and the Map came with the join: round %u on %s",
           a.map.round, a.map.map);
+    CHECK(a.announcements == 1, "and the server announced the join as a line of its own (%d)", a.announcements);
 
     // team chat goes to the team alone: a third client joins, is put on another team
     // by the server, and hears the public line but not the team's
@@ -131,6 +134,7 @@ void join_tests(void)
     CHECK(client_open(&d, NET_VERSION), "a third client connects");
     pump(&conns, g, three, 3, third_welcomed);
     CHECK(d.welcomed && d.welcome.slot == 1, "and is welcomed into slot 1");
+    CHECK(a.announcements == 2, "which the first hears of (%d announcements)", a.announcements);
     g->world.soldiers[1].team = TEAM_BRAVO;
     int a_before = a.chats, d_before = d.chats;
     MsgChat team_line = {.slot = 0, .team = true, .text = "to the team"};

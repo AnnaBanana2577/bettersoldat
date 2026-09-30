@@ -86,6 +86,19 @@ static void tell_map(Connections *c, ENetPeer *peer)
 // A player's soldier placed anew on its team: a join, a new round.
 static void place(Connections *c, Game *g, int slot);
 
+// A line from the server itself to everyone: who came, who went.
+static void announce(Connections *c, const char *fmt, ...)
+{
+    MsgChat m = {.slot = MAX_PLAYERS};
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(m.text, sizeof m.text, fmt, args);
+    va_end(args);
+    uint8_t buf[NET_MTU];
+    size_t n = build(buf, sizeof buf, MSG_CHAT, route_chat, &m);
+    if (n) connections_broadcast(c, MSG_CHAT, buf, n);
+}
+
 static void deny(Connections *c, ENetPeer *peer, const char *reason)
 {
     uint8_t buf[NET_MTU];
@@ -159,6 +172,7 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     if (n) net_send(peer, MSG_WELCOME, buf, n);
     tell_map(c, peer); // joining is hearing of the round
     say(c->console, "%s joined as %d\n", conn->name, slot);
+    announce(c, "%s joined the game", conn->name);
 }
 
 static void place(Connections *c, Game *g, int slot)
@@ -198,8 +212,12 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
         say(c->console, "%s left\n", conn->name);
         g->world.soldiers[slot].active = false;
     }
+    char name[NET_NAME_SIZE];
+    snprintf(name, sizeof name, "%s", conn->name);
+    bool joined = conn->joined;
     *conn = (Connection){0};
     peer->data = NULL;
+    if (joined) announce(c, "%s left the game", name);
 }
 
 static void chat(Connections *c, const Game *g, ENetPeer *peer, const NetEvent *e)

@@ -50,6 +50,7 @@
 #include "render/interface.h"
 #include "render/render.h"
 #include "render/scale_data.h"
+#include "ui/feed.h"
 #include "ui/menus.h"
 
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
@@ -110,6 +111,7 @@ typedef struct App {
     ScaleData scales; // mod.ini: how big each image is
     Interface hud;
     HudData hud_data; // what the HUD shows beyond the frame: filled here from what there is
+    Feed feed;        // the kill console and the big messages, from the ticks' events
     GameMenus menus;
     double time;      // seconds since the start
 
@@ -529,6 +531,16 @@ static void window_close(App *app)
 }
 
 // The tick just run becomes the latest snapshot; the one before it the previous.
+// A player's name: mine from the cvar, the others' from the server's roster, or a
+// number until it is heard.
+static void player_name(const App *app, int i, char *name, size_t size)
+{
+    const char *heard = app->net.stream.names[i];
+    if (i == app->me) snprintf(name, size, "%s", app->player_name->value);
+    else if (heard[0]) snprintf(name, size, "%s", heard);
+    else snprintf(name, size, "Player %d", i + 1);
+}
+
 static void snapshot_tick(App *app)
 {
     app->previous = app->latest;
@@ -553,6 +565,9 @@ static void tick(App *app)
     if (online) client_net_tick(&app->net, app->game);
     input_clear(&app->input);
     snapshot_tick(app);
+    char names[MAX_PLAYERS][HUD_NAME];
+    for (int i = 0; i < MAX_PLAYERS; i++) player_name(app, i, names[i], sizeof names[i]);
+    feed_tick(&app->feed, app->console, app->game, names, team_game(app));
     for (int i = 0; i < MAX_PLAYERS; i++) // what was said fades
         if (app->hud_data.players[i].chat_delay > 0) app->hud_data.players[i].chat_delay--;
 }
@@ -703,10 +718,7 @@ static void hud_data_build(App *app)
         HudPlayer *p = &d->players[i];
         p->active = s->active;
         if (!s->active) continue;
-        const char *heard = app->net.stream.names[i]; // the server's roster, once heard
-        if (i == app->me) snprintf(p->name, sizeof(p->name), "%s", app->player_name->value);
-        else if (heard[0]) snprintf(p->name, sizeof(p->name), "%s", heard);
-        else if (!p->name[0]) snprintf(p->name, sizeof(p->name), "Player %d", i + 1);
+        player_name(app, i, p->name, sizeof p->name);
         p->team = s->team;
         p->dead = s->dead;
         p->holding_flag = s->held && thing_is_flag(g->world.things[s->held - 1].style);
@@ -742,6 +754,7 @@ static void hud_data_build(App *app)
         snprintf(l->text, sizeof l->text, "%s", line);
         if (!console_log_color(app->console, back, &l->color)) l->color = HUD_COLOR_ENTER;
     }
+    feed_fill(&app->feed, d);
     if (app->hud_demo->integer) hud_data_demo(d, app->hud_demo->integer);
 }
 
