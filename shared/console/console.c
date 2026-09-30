@@ -148,6 +148,10 @@ const char *console_log_line(const Console *con, int back)
     return con->log[(con->log_total - 1 - (uint32_t)back) % CONSOLE_LOG_LINES];
 }
 
+uint32_t console_log_total(const Console *con) { return con->log_total; }
+
+bool console_knows(const Console *con, const char *name) { return command_find(con, name) || cvar_find(con, name); }
+
 bool console_log_color(const Console *con, int back, Rgba *color)
 {
     if (!console_log_line(con, back)) return false;

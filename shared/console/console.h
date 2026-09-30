@@ -102,6 +102,10 @@ void console_print_color(Console *con, Rgba color, const char *fmt, ...);
 const char *console_log_line(const Console *con, int back);
 // The colour a scrollback line was printed in; false if it had none.
 bool console_log_color(const Console *con, int back, Rgba *color);
+// How many lines have been finished, ever: a reader keeps its own count to take the new ones.
+uint32_t console_log_total(const Console *con);
+// Whether `name` is a command or a cvar here.
+bool console_knows(const Console *con, const char *name);
 
 // --- running text --------------------------------------------------------------------
 

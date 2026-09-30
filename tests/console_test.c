@@ -179,6 +179,8 @@ static void colours(void)
     CHECK(console_log_color(con, 0, &c) && c.r == 1 && c.g == 2 && c.b == 3, "a coloured line keeps its colour");
     CHECK(console_log_color(con, 1, &c) && c.b == 3, "every line of the print does");
     CHECK(!console_log_color(con, 2, &c), "and a plain line has none");
+    CHECK(console_log_total(con) == 3, "three lines have been printed, by the count (%u)", console_log_total(con));
+    CHECK(console_knows(con, "echo") && !console_knows(con, "nosuchthing"), "the console knows its commands by name");
     console_destroy(con);
 }
 

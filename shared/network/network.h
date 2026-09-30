@@ -192,7 +192,8 @@ typedef struct MsgDenied {
 } MsgDenied;
 
 typedef struct MsgChat {
-    uint8_t slot; // who said it; MAX_PLAYERS for the server
+    uint8_t slot; // who said it; MAX_PLAYERS for the server, whose `team` means a line of the game's
+                  // (who came, who went, a vote) rather than the server's own chat ("*SERVER*:")
     bool team;
     char text[NET_TEXT_SIZE];
 } MsgChat;

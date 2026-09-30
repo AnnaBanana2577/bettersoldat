@@ -767,11 +767,11 @@ static void draw_frags_texts(const Frame *f, const HudData *d, float menu_bottom
 }
 
 // The console in the corner, smaller when a line runs past the window.
-static void draw_console(const Frame *f, const HudData *d)
+static void draw_console(const Frame *f, const HudData *d, bool dim)
 {
     text_style(FONT_SMALL);
     float line = FONT_CONSOLELINEHEIGHT * f->pixel * text_style_size(FONT_SMALL);
-    int alpha = d->frags_menu ? 60 : 255;
+    int alpha = dim ? 60 : 255;
     bool tiny = false;
     for (int i = 0; i < d->console_count; i++) {
         const HudLine *l = &d->console[i];
@@ -1426,7 +1426,10 @@ void interface_draw(const Interface *hud, const HudData *d, const GameMenus *men
     }
     if (d->stats_menu) draw_weapon_stats(hud, &f, d);
     if (d->frags_menu) draw_frags_texts(&f, d, frags_bottom);
-    draw_console(&f, d);
+    bool typing = d->chat_type != HUD_CHAT_NONE;
+    bool dim = d->frags_menu || d->stats_menu || menus->menus[MENU_TEAM].active || (typing && menus->menus[MENU_LIMBO].active) ||
+               (!typing && esc && menus->noob_show);
+    draw_console(&f, d, dim);
     if (me->active) draw_respawn_texts(hud, &f, d, me);
     draw_vote(hud, &f, d);
     if (d->radio_menu && !esc) draw_radio_menu(hud, d);

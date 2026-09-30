@@ -103,7 +103,7 @@ static void tell_vote(Connections *c, ENetPeer *peer)
 // A line from the server itself to everyone: who came, who went.
 static void announce(Connections *c, const char *fmt, ...)
 {
-    MsgChat m = {.slot = MAX_PLAYERS};
+    MsgChat m = {.slot = MAX_PLAYERS, .team = true};
     va_list args;
     va_start(args, fmt);
     vsnprintf(m.text, sizeof m.text, fmt, args);
@@ -185,7 +185,7 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     c->vote.answer[slot] = 0;
     if (c->vote.kind != VOTE_NONE) tell_vote(c, peer);
     say(c->console, "%s joined as %d\n", conn->name, slot);
-    announce(c, "%s joined the game", conn->name);
+    announce(c, "%s has joined the game", conn->name);
 }
 
 static void place(Connections *c, Game *g, int slot)
@@ -230,7 +230,7 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     bool joined = conn->joined;
     *conn = (Connection){0};
     peer->data = NULL;
-    if (joined) announce(c, "%s left the game", name);
+    if (joined) announce(c, "%s has left the game", name);
 }
 
 static void vote_command(Connections *c, const Game *g, int slot, const char *text);
@@ -319,7 +319,7 @@ void connections_snapshots(Connections *c, const Game *g)
 // A line from the server to one player: an answer to its command.
 static void tell(Connections *c, int slot, const char *fmt, ...)
 {
-    MsgChat m = {.slot = MAX_PLAYERS};
+    MsgChat m = {.slot = MAX_PLAYERS, .team = true};
     va_list args;
     va_start(args, fmt);
     vsnprintf(m.text, sizeof m.text, fmt, args);
@@ -453,6 +453,16 @@ bool connections_take_vote_map(Connections *c, char *map, size_t size)
     snprintf(map, size, "%s", c->vote_map);
     c->vote_map[0] = '\0';
     return true;
+}
+
+void connections_say(Connections *c, const char *text)
+{
+    MsgChat m = {.slot = MAX_PLAYERS};
+    snprintf(m.text, sizeof m.text, "%s", text);
+    say(c->console, "*SERVER*: %s\n", text);
+    uint8_t buf[NET_MTU];
+    size_t n = build(buf, sizeof buf, MSG_CHAT, route_chat, &m);
+    if (n) connections_broadcast(c, MSG_CHAT, buf, n);
 }
 
 void connections_kick(Connections *c, int slot, const char *reason)

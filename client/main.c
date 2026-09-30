@@ -50,7 +50,10 @@
 #include "render/interface.h"
 #include "render/render.h"
 #include "render/scale_data.h"
+#include <ctype.h>
+
 #include "audio/audio.h"
+#include "ui/consoles.h"
 #include "ui/feed.h"
 #include "ui/menus.h"
 
@@ -71,7 +74,7 @@ static const char *VIEW_BINDS =
     "bind escape escmenu; bind tab weaponsmenu; bind m teammenu; bind f1 fragsmenu; bind f2 statsmenu;"
     "bind f3 \"toggle ui_minimap\"; bind f4 \"toggle r_swapeffect\"; bind f5 \"toggle ui_info\";"
     "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
-    "bind alt +radio; bind t chat; bind y teamchat; bind f12 \"say /yes\"; bind f11 \"say /no\"";
+    "bind alt +radio; bind t chat; bind y teamchat; bind slash cmd; bind f12 \"say /yes\"; bind f11 \"say /no\"";
 
 typedef struct App {
     Console *console; // large; on the heap
@@ -100,6 +103,12 @@ typedef struct App {
     ClientNet net; // the line to a server, once `connect` opens one
     uint32_t seq; // my commands, numbered
     bool chat_just_opened; // the key that opened the prompt is not its first letter
+    int chat_completing;   // Tab: the player last completed to, index + 1; 0 when not completing
+    int chat_complete_from;
+    char chat_complete_base[HUD_TEXT];
+    char chat_last[HUD_TEXT]; // the last line sent, for "//" to bring back
+    HudChatType chat_last_type;
+    Consoles consoles;        // the HUD's two consoles, fed from the game console's scrollback
     bool was_dead;         // my soldier as of the last tick, for the weapons menu at death
     bool limbo_lock;       // the weapons menu closed while dead stays closed (the original's LimboLock)
     double accumulator;
@@ -156,21 +165,42 @@ static void cmd_screenshot(Console *con, int argc, char **argv, void *user)
     snprintf(app->screenshot, sizeof app->screenshot, "%s", argv[1]);
 }
 
-// A line of chat heard, from `slot` (MAX_PLAYERS for the server itself): to the console
-// in its colour, and over the speaker's head for a while.
+// The original's chat constants (Constants.pas).
+#define MORECHATTEXT 60   // a longer line is split in the console and not shown over the head
+#define MAXCHATTEXT 85    // as much as the prompt takes
+#define CHARDELAY 25      // ticks a line stays over the head, by its letters when it is one word,
+#define SPACECHARDELAY 68 // by its words otherwise
+#define MAX_CHATDELAY (7 * 60 + 40)
+
+static void player_name(const App *app, int i, char *name, size_t size);
+
+// A line of chat heard, from `slot` (MAX_PLAYERS for the server itself), placed as the
+// original's ClientHandleChatMessage places it: to the console as "[Name] text" in the
+// chat's colour, "(TEAM) [Name] text" in the team's, a long line in two; and over the
+// speaker's head for a while its words decide. The server's own lines are its chat
+// ("*SERVER*: text") or, marked `team`, a plain line of the game's: who came and went.
 static void chat_heard(App *app, int slot, bool team, const char *text)
 {
+    Console *con = app->console;
     if (slot == MAX_PLAYERS) {
-        console_print_color(app->console, HUD_COLOR_GAME, "%s\n", text);
+        if (team) console_print_color(con, HUD_COLOR_ENTER, "%s\n", text);
+        else console_print_color(con, HUD_COLOR_SERVER, "*SERVER*: %s\n", text);
         return;
     }
-    const char *name = slot == app->me ? app->player_name->value : app->net.stream.names[slot];
-    if (!name[0]) name = app->hud_data.players[slot].name;
-    console_print_color(app->console, team ? HUD_COLOR_TEAMCHAT : HUD_COLOR_CHAT, "%s%s: %s\n", team ? "(team) " : "", name, text);
+    char name[HUD_NAME];
+    player_name(app, slot, name, sizeof name);
+    Rgba color = team ? HUD_COLOR_TEAMCHAT : HUD_COLOR_CHAT;
+    const char *prefix = team ? "(TEAM) " : "";
+    if (strlen(text) < MORECHATTEXT) console_print_color(con, color, "%s[%s] %s\n", prefix, name, text);
+    else console_print_color(con, color, "%s[%s] \n %s\n", prefix, name, text);
+
     HudPlayer *p = &app->hud_data.players[slot];
     snprintf(p->chat, sizeof p->chat, "%s", text);
     p->chat_team = team;
-    p->chat_delay = CHAT_TICKS;
+    int spaces = 0;
+    for (const char *s = text; *s; s++) spaces += *s == ' ';
+    p->chat_delay = spaces == 0 ? (int)strlen(text) * CHARDELAY : spaces * SPACECHARDELAY;
+    if (p->chat_delay > MAX_CHATDELAY) p->chat_delay = MAX_CHATDELAY;
 }
 
 // Something I say: to the server, which says it back to everyone, me among them; alone,
@@ -215,15 +245,19 @@ static void cmd_vote(Console *con, int argc, char **argv, void *user)
     say(app, false, text);
 }
 
-// chat / teamchat: the prompt opens, and the keys are its until Enter sends the line or
-// Escape drops it (chat_event). The original's T and Y.
-static void chat_open(App *app, bool team)
+// The prompt (ControlGame.pas StartChat, ClearChatText). Its text begins with the
+// mode's own character, a space for a line said and a slash for a command, which the
+// drawing shows after "Say:" or "Cmd: " and the sending drops; deleting it closes the
+// prompt. The keys are the prompt's until Enter sends the line or Escape drops it.
+static void chat_open(App *app, HudChatType type)
 {
     HudData *d = &app->hud_data;
-    d->chat_type = team ? HUD_CHAT_TEAM : HUD_CHAT_PUBLIC;
-    d->chat_text[0] = '\0';
-    d->chat_cursor = 0;
+    if (d->chat_type != HUD_CHAT_NONE) return;
+    d->chat_type = type;
+    snprintf(d->chat_text, sizeof d->chat_text, "%s", type == HUD_CHAT_COMMAND ? "/" : " ");
+    d->chat_cursor = (int)strlen(d->chat_text);
     d->chat_changed_at = app->time;
+    app->chat_completing = 0;
     app->chat_just_opened = true;
     SDL_StartTextInput();
 }
@@ -231,61 +265,193 @@ static void chat_open(App *app, bool team)
 static void chat_close(App *app)
 {
     app->hud_data.chat_type = HUD_CHAT_NONE;
+    app->hud_data.chat_text[0] = '\0';
+    app->chat_completing = 0;
     SDL_StopTextInput();
 }
 
+// chat / teamchat / cmd: the original's T, Y and /.
 static void cmd_chat(Console *con, int argc, char **argv, void *user)
 {
     (void)con, (void)argc;
     App *app = user;
-    if (app->hud_data.chat_type != HUD_CHAT_NONE) return;
-    chat_open(app, strcmp(argv[0], "teamchat") == 0);
+    HudChatType type = strcmp(argv[0], "teamchat") == 0 ? HUD_CHAT_TEAM
+                       : strcmp(argv[0], "cmd") == 0    ? HUD_CHAT_COMMAND
+                                                        : HUD_CHAT_PUBLIC;
+    chat_open(app, type);
 }
 
-// Typing: the text and the keys that edit it, while the prompt is open. Keys going up
-// still reach the binds, so what was held before the prompt opened is let go of.
+static bool contains_nocase(const char *haystack, const char *needle)
+{
+    size_t n = strlen(needle);
+    for (const char *h = haystack; *h; h++) {
+        size_t i = 0;
+        while (i < n && h[i] && tolower((unsigned char)h[i]) == tolower((unsigned char)needle[i])) i++;
+        if (i == n) return true;
+    }
+    return false;
+}
+
+// Tab in the prompt (ClientGame.pas TabComplete): the word the line ends with becomes
+// the name of a player that contains it, another player's with each press.
+static void chat_complete(App *app)
+{
+    HudData *d = &app->hud_data;
+    char *text = d->chat_text;
+    int len = (int)strlen(text);
+    if (len <= 1) return; // the mode's character alone
+    if (app->chat_completing == 0) { // the base: the word after the last space
+        const char *sep = strrchr(text, ' ');
+        int from = sep ? (int)(sep - text) + 1 : 1;
+        if (from < 1) from = 1;
+        app->chat_complete_from = from;
+        snprintf(app->chat_complete_base, sizeof app->chat_complete_base, "%s", text + from);
+    }
+    for (int n = 0; n < MAX_PLAYERS; n++) {
+        int i = (app->chat_completing + n) % MAX_PLAYERS; // from the one after the last completed
+        if (i == app->me || !app->game->world.soldiers[i].active) continue;
+        char name[HUD_NAME];
+        player_name(app, i, name, sizeof name);
+        if (app->chat_complete_base[0] && !contains_nocase(name, app->chat_complete_base)) continue;
+        int room = MAXCHATTEXT - app->chat_complete_from;
+        if (room < 0) room = 0;
+        snprintf(text + app->chat_complete_from, sizeof d->chat_text - (size_t)app->chat_complete_from, "%.*s", room, name);
+        d->chat_cursor = (int)strlen(text);
+        app->chat_completing = i + 1;
+        d->chat_changed_at = app->time;
+        return;
+    }
+}
+
+// Enter in the prompt: a command runs here if the console knows it (a cvar, a command),
+// else it goes to the server, which reads votes and the like; a line said goes to
+// everyone or the team, without the mode's character.
+static void chat_send(App *app)
+{
+    HudData *d = &app->hud_data;
+    char line[HUD_TEXT];
+    snprintf(line, sizeof line, "%s", d->chat_text);
+    HudChatType type = d->chat_type;
+    snprintf(app->chat_last, sizeof app->chat_last, "%s", line);
+    app->chat_last_type = type;
+    chat_close(app);
+    if (line[0] == '/') {
+        char word[HUD_TEXT] = "";
+        sscanf(line + 1, "%159s", word);
+        if (word[0] && console_knows(app->console, word)) console_execute(app->console, line + 1);
+        else if (word[0]) say(app, false, line);
+        return;
+    }
+    if (line[1]) say(app, type == HUD_CHAT_TEAM, line + 1);
+}
+
+// Text into the prompt at the cursor, as much as fits.
+static void chat_insert(App *app, const char *str)
+{
+    HudData *d = &app->hud_data;
+    char *text = d->chat_text;
+    size_t len = strlen(text), add = strlen(str);
+    int at = clampi(d->chat_cursor, 0, (int)len);
+    if (len >= MAXCHATTEXT) return;
+    if (len + add >= sizeof d->chat_text) add = sizeof d->chat_text - 1 - len;
+    memmove(text + at + add, text + at, len - (size_t)at + 1);
+    memcpy(text + at, str, add);
+    d->chat_cursor = at + (int)add;
+    app->chat_completing = 0;
+    d->chat_changed_at = app->time;
+}
+
+// Typing: the text and the keys that edit it, the original's (ControlGame.pas). Keys
+// going up still reach the binds, so what was held before the prompt opened is let go
+// of; nothing going down does, as the prompt has them.
 static bool chat_event(App *app, const SDL_Event *e)
 {
     HudData *d = &app->hud_data;
     if (d->chat_type == HUD_CHAT_NONE) return false;
     char *text = d->chat_text;
-    size_t len = strlen(text);
-    int at = clampi(d->chat_cursor, 0, (int)len);
+    int len = (int)strlen(text);
+    int at = clampi(d->chat_cursor, 0, len);
+
     if (e->type == SDL_TEXTINPUT) {
         if (app->chat_just_opened) return true; // the key that opened it
-        size_t add = strlen(e->text.text);
-        if (len + add >= sizeof d->chat_text) return true;
-        memmove(text + at + add, text + at, len - (size_t)at + 1);
-        memcpy(text + at, e->text.text, add);
-        d->chat_cursor = at + (int)add;
-        d->chat_changed_at = app->time;
+        char str[SDL_TEXTINPUTEVENT_TEXT_SIZE];
+        snprintf(str, sizeof str, "%s", e->text.text);
+        for (char *s = str; *s; s++)
+            if (*s == '\n' || *s == '\r') *s = ' ';
+        // "//" brings the last line back to be sent again
+        if (strcmp(text, "/") == 0 && strcmp(str, "/") == 0 && strlen(app->chat_last) > 1) {
+            snprintf(text, sizeof d->chat_text, "%s", app->chat_last);
+            d->chat_type = app->chat_last_type;
+            d->chat_cursor = (int)strlen(text);
+            app->chat_completing = 0;
+            d->chat_changed_at = app->time;
+            return true;
+        }
+        chat_insert(app, str);
         return true;
     }
     if (e->type != SDL_KEYDOWN) return false;
-    switch (e->key.keysym.scancode) {
-    case SDL_SCANCODE_RETURN:
-    case SDL_SCANCODE_KP_ENTER: {
-        char line[HUD_TEXT];
-        snprintf(line, sizeof line, "%s", text);
-        bool team = d->chat_type == HUD_CHAT_TEAM;
-        chat_close(app);
-        say(app, team, line);
-        break;
+
+    bool ctrl = (e->key.keysym.mod & KMOD_CTRL) != 0;
+    SDL_Scancode key = e->key.keysym.scancode;
+    if (ctrl && key == SDL_SCANCODE_V) { // paste
+        char *clip = SDL_GetClipboardText();
+        if (clip) {
+            chat_insert(app, clip);
+            SDL_free(clip);
+        }
+        return true;
     }
-    case SDL_SCANCODE_ESCAPE: chat_close(app); break;
+    if (ctrl && key == SDL_SCANCODE_C) { // the big console to the clipboard
+        char *all = consoles_big_text(&app->consoles);
+        if (all && SDL_SetClipboardText(all) == 0) console_print_color(app->console, HUD_COLOR_GAME, "Copied chat contents to clipboard\n");
+        else console_print_color(app->console, HUD_COLOR_DEBUG, "Failed copying chat to clipboard: %s\n", SDL_GetError());
+        free(all);
+        return true;
+    }
+    switch (key) {
+    case SDL_SCANCODE_RETURN:
+    case SDL_SCANCODE_KP_ENTER: chat_send(app); return true;
+    case SDL_SCANCODE_ESCAPE: chat_close(app); return true;
     case SDL_SCANCODE_BACKSPACE:
-        if (at > 0) {
-            memmove(text + at - 1, text + at, len - (size_t)at + 1);
+        if (at > 1 || len == 1) {
+            memmove(text + at - 1, text + at, (size_t)(len - at) + 1);
             d->chat_cursor = at - 1;
+            app->chat_completing = 0;
+            if (text[0] == '\0') chat_close(app);
         }
         break;
     case SDL_SCANCODE_DELETE:
-        if ((size_t)at < len) memmove(text + at, text + at + 1, len - (size_t)at);
+        if (len > at) {
+            memmove(text + at, text + at + 1, (size_t)(len - at));
+            app->chat_completing = 0;
+        }
         break;
-    case SDL_SCANCODE_LEFT: d->chat_cursor = at > 0 ? at - 1 : 0; break;
-    case SDL_SCANCODE_RIGHT: d->chat_cursor = (size_t)at < len ? at + 1 : (int)len; break;
-    case SDL_SCANCODE_HOME: d->chat_cursor = 0; break;
-    case SDL_SCANCODE_END: d->chat_cursor = (int)len; break;
+    case SDL_SCANCODE_HOME: d->chat_cursor = 1; break;
+    case SDL_SCANCODE_END: d->chat_cursor = len; break;
+    case SDL_SCANCODE_RIGHT:
+        if (ctrl) { // to the start of the next word
+            while (at < len) {
+                at++;
+                if (at == len || (text[at - 1] == ' ' && text[at] != ' ')) break;
+            }
+            d->chat_cursor = at;
+        } else if (len > at) {
+            d->chat_cursor = at + 1;
+        }
+        break;
+    case SDL_SCANCODE_LEFT:
+        if (ctrl) { // to the start of this word, or the one before
+            while (at > 1) {
+                at--;
+                if (text[at - 1] == ' ' && text[at] != ' ') break;
+            }
+            d->chat_cursor = at;
+        } else if (at > 1) {
+            d->chat_cursor = at - 1;
+        }
+        break;
+    case SDL_SCANCODE_TAB: chat_complete(app); break;
     default: break;
     }
     d->chat_changed_at = app->time;
@@ -433,6 +599,7 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "say_team", cmd_say, app, "say something to the team");
     console_add_command(con, "chat", cmd_chat, app, "type a line to everyone");
     console_add_command(con, "teamchat", cmd_chat, app, "type a line to the team");
+    console_add_command(con, "cmd", cmd_chat, app, "type a command: a cvar or command here, or a word for the server");
     console_add_command(con, "votemap", cmd_vote, app, "start a vote to change the map: votemap <map>");
     console_add_command(con, "votekick", cmd_vote, app, "start a vote to kick a player: votekick <name or slot>");
     console_add_command(con, "+radio", cmd_radio, app, "hold the radio menu open");
@@ -493,6 +660,7 @@ static void apply_cvars(App *app)
         app->swapeffect->modified = false;
     }
     app->input.sensitivity = app->sensitivity->number;
+    app->consoles.main.count_max = clampi(app->console_length->integer, 1, HUD_CONSOLE_LINES);
     // the original's curve: 50 is a quarter of the way up, and it is quiet enough there
     float v = clampf(app->volume->number / 100.0f, 0.0f, 1.0f);
     audio_volume(&app->audio, v * v * 0.48f);
@@ -603,6 +771,7 @@ static void tick(App *app)
     char names[MAX_PLAYERS][HUD_NAME];
     for (int i = 0; i < MAX_PLAYERS; i++) player_name(app, i, names[i], sizeof names[i]);
     feed_tick(&app->feed, app->console, app->game, names, team_game(app), app->me);
+    consoles_tick(&app->consoles);
 
     // The weapons menu opens at my death and stays through the spawn, to pick with,
     // until I move or fire, or pick; unless I closed it while dead.
@@ -808,16 +977,9 @@ static void hud_data_build(App *app)
         snprintf(d->radio_second[i], sizeof d->radio_second[i], "%s", app->radio_second[call][i]->value);
     }
 
-    // the console's newest lines, oldest first; they don't fade yet as the original's do
-    int lines = clampi(app->console_length->integer, 0, HUD_CONSOLE_LINES);
-    d->console_count = 0;
-    for (int back = lines - 1; back >= 0; back--) {
-        const char *line = console_log_line(app->console, back);
-        if (!line) continue;
-        HudLine *l = &d->console[d->console_count++];
-        snprintf(l->text, sizeof l->text, "%s", line);
-        if (!console_log_color(app->console, back, &l->color)) l->color = HUD_COLOR_ENTER;
-    }
+    // the consoles: the main one, or the big one while a line is typed
+    consoles_pull(&app->consoles, app->console);
+    consoles_fill(&app->consoles, d, d->chat_type != HUD_CHAT_NONE);
     feed_fill(&app->feed, d);
     if (app->hud_demo->integer) hud_data_demo(d, app->hud_demo->integer);
 }
@@ -957,6 +1119,7 @@ int main(int argc, char *argv[])
 
     if (!client_net_init(&app.net)) fprintf(stderr, "ENet wouldn't start: no connecting\n");
     if (!console_open(&app, argc, argv)) return 1;
+    consoles_init(&app.consoles, app.console_length->integer);
     if (!game_open(&app, true)) {
         fprintf(stderr, "could not load map '%s' from '%s'\nusage: client +assets <dir> +map <name>\n",
                 app.map->value, app.assets->value);

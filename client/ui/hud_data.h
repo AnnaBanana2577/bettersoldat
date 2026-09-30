@@ -11,7 +11,7 @@
 
 #define HUD_TEXT 160
 #define HUD_NAME 32
-#define HUD_CONSOLE_LINES 20   // the original's console length cvars top out here
+#define HUD_CONSOLE_LINES 64   // room for the big console: what fits 85% of the view
 #define HUD_KILL_LINES 15      // ui_killconsole_length
 #define HUD_BIG_MESSAGES 4
 #define HUD_TEAMS 5            // none, alpha, bravo, charlie, delta
@@ -22,6 +22,9 @@
 #define HUD_COLOR_CHAT ((Rgba){0xEF, 0xFE, 0xEA, 0xEE})     // CHAT_MESSAGE_COLOR
 #define HUD_COLOR_TEAMCHAT ((Rgba){0xFE, 0xDA, 0x7C, 0xEE}) // TEAMCHAT_MESSAGE_COLOR
 #define HUD_COLOR_DEATH ((Rgba){0xFF, 0x6B, 0x6B, 0xFF})    // DEATH_MESSAGE_COLOR: the kill console's
+#define HUD_COLOR_SERVER ((Rgba){0xFB, 0xDA, 0x22, 0xF9})   // SERVER_MESSAGE_COLOR: the server's chat
+#define HUD_COLOR_DEFAULT ((Rgba){0xCC, 0xFF, 0xAA, 0xEE})  // DEFAULT_MESSAGE_COLOR: the console's answers
+#define HUD_COLOR_DEBUG ((Rgba){0xFF, 0x89, 0x89, 0xEE})    // DEBUG_MESSAGE_COLOR: what went wrong
 
 typedef enum HudGameMode {
     HUD_MODE_DEATHMATCH,

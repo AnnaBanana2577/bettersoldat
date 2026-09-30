@@ -104,6 +104,25 @@ static void cmd_quit(Console *con, int argc, char **argv, void *user)
     ((Server *)user)->quit = true;
 }
 
+// say <text...>: the server's chat to everyone.
+static void cmd_say(Console *con, int argc, char **argv, void *user)
+{
+    Server *sv = user;
+    if (argc < 2) {
+        console_print(con, "usage: say <text>\n");
+        return;
+    }
+    char text[NET_TEXT_SIZE];
+    size_t n = 0;
+    text[0] = '\0';
+    for (int i = 1; i < argc && n < sizeof text - 1; i++) {
+        int w = snprintf(text + n, sizeof text - n, i > 1 ? " %s" : "%s", argv[i]);
+        if (w < 0) break;
+        n += (size_t)w;
+    }
+    connections_say(&sv->connections, text);
+}
+
 // nextmap: the round ends now and the next begins.
 static void cmd_nextmap(Console *con, int argc, char **argv, void *user)
 {
@@ -140,6 +159,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
+    console_add_command(con, "say", cmd_say, sv, "say something to everyone, as the server");
 
     if (file_exists(CONFIG)) console_execute_file(con, CONFIG);
     console_execute_args(con, argc, argv);

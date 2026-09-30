@@ -76,5 +76,8 @@ int connections_count(const Connections *c);
 // A map vote passed since last asked: true, with the map, once.
 bool connections_take_vote_map(Connections *c, char *map, size_t size);
 
+// The server's own chat to everyone, shown as "*SERVER*: text".
+void connections_say(Connections *c, const char *text);
+
 // A player put off the server: told why, and cut off. The slot frees as the line closes.
 void connections_kick(Connections *c, int slot, const char *reason);
