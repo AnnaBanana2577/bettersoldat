@@ -16,6 +16,13 @@ void history_record(History *h, const World *w)
     h->count = h->count + 1 < HISTORY_TICKS ? h->count + 1 : HISTORY_TICKS;
 }
 
+const Soldier *history_at(const World *w, uint32_t tick)
+{
+    const History *h = w->history;
+    if (!h || tick > h->tick || h->tick - tick >= h->count) return NULL;
+    return h->frames[tick % HISTORY_TICKS];
+}
+
 Soldier *history_targets(World *w, uint8_t lag)
 {
     History *h = w->history;

@@ -52,7 +52,6 @@
 #include "render/scale_data.h"
 #include "ui/menus.h"
 
-#define ME 0
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
 #define CONFIG "config.cfg"
 #define SCREENSHOT_FRAME 60
@@ -91,6 +90,7 @@ typedef struct App {
     char screenshot[512]; // a PNG of the 60th frame, then quit
 
     Game *game; // large; on the heap
+    int me;     // my soldier: 0 in the local sandbox, the slot the server gave me online
     SDL_Window *window;
     Input input;
     ClientNet net; // the line to a server, once `connect` opens one
@@ -156,7 +156,7 @@ static void cmd_say(Console *con, int argc, char **argv, void *user)
         console_print(con, "usage: %s <text>\n", argv[0]);
         return;
     }
-    HudPlayer *me = &app->hud_data.players[ME];
+    HudPlayer *me = &app->hud_data.players[app->me];
     bool team = strcmp(argv[0], "say_team") == 0;
     size_t n = 0;
     me->chat[0] = '\0';
@@ -370,22 +370,24 @@ static void apply_cvars(App *app)
     app->input.sensitivity = app->sensitivity->number;
     app->render_options.wireframe = app->wireframe->integer != 0;
     app->render_options.debug = app->debug->integer != 0;
-    Soldier *me = &app->game->world.soldiers[ME];
+    Soldier *me = &app->game->world.soldiers[app->me];
     me->look = look_from_cvars(app, me->team);
 }
 
-// The world, with me in it, dressed and armed as the cvars say.
-static bool game_open(App *app)
+// The world: with me in it, dressed and armed as the cvars say, when `local`; empty,
+// for a server's snapshots to fill, when not.
+static bool game_open(App *app, bool local)
 {
     app->game = calloc(1, sizeof(Game));
     if (!app->game || !context_load(&app->game->ctx, app->assets->value, app->map->value)) return false;
 
     Game *g = app->game;
     game_init(g, 1, match_default_settings());
-    g->world.authority = true;
+    g->world.authority = local;
     for (int i = 0; i < MAX_PLAYERS; i++) g->world.soldiers[i].look = look_from_cvars(app, TEAM_ALPHA);
+    if (!local) return true;
 
-    Soldier *me = &g->world.soldiers[ME];
+    Soldier *me = &g->world.soldiers[app->me];
     Vec2 at = spawn_point(g->ctx.map, TEAM_ALPHA, &g->world.rng);
     WeaponId primary = (WeaponId)clampi(app->primary->integer, WEAPON_EAGLE, WEAPON_MINIGUN);
     WeaponId secondary = (WeaponId)(WEAPON_COLT + clampi(app->secondary->integer, 0, WEAPON_LAW - WEAPON_COLT));
@@ -435,11 +437,21 @@ static void snapshot_tick(App *app)
 }
 
 // One tick of the game on this frame's input.
+// One tick of the game on this frame's input. Online, everyone else steps on the
+// keys they were last heard with (stream_command), and my state goes to the server.
 static void tick(App *app)
 {
+    World *w = &app->game->world;
+    bool online = client_net_joined(&app->net);
     Command cmds[MAX_PLAYERS] = {0};
-    cmds[ME] = input_command(&app->input, ++app->seq);
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        Soldier *s = &w->soldiers[i];
+        s->remote = online && i != app->me;
+        if (s->remote) cmds[i] = stream_command(s, client_stream_quiet(&app->net.stream, i));
+    }
+    cmds[app->me] = input_command(&app->input, ++app->seq);
     game_tick(app->game, cmds);
+    if (online && w->soldiers[app->me].active) client_net_tick(&app->net, &w->soldiers[app->me]);
     input_clear(&app->input);
     snapshot_tick(app);
     for (int i = 0; i < MAX_PLAYERS; i++) // what was said fades
@@ -485,7 +497,7 @@ static void hud_data_demo(HudData *d, int page);
 // What a menu's choice does: the original's GameMenuAction, on this side of it.
 static void apply_menu_action(App *app, MenuAction action)
 {
-    Soldier *me = &app->game->world.soldiers[ME];
+    Soldier *me = &app->game->world.soldiers[app->me];
     switch (action.kind) {
     case MENU_ACTION_QUIT: app->quit = true; break; // the main menu, when there is one
     case MENU_ACTION_OPEN_TEAM_MENU:
@@ -567,7 +579,7 @@ static void hud_data_build(App *app)
 {
     HudData *d = &app->hud_data;
     const Game *g = app->game;
-    const Soldier *me = &g->world.soldiers[ME];
+    const Soldier *me = &g->world.soldiers[app->me];
 
     d->mode = team_game(app) ? HUD_MODE_CTF : HUD_MODE_DEATHMATCH;
     d->team_game = d->mode == HUD_MODE_CTF;
@@ -583,14 +595,14 @@ static void hud_data_build(App *app)
         HudPlayer *p = &d->players[i];
         p->active = s->active;
         if (!s->active) continue;
-        if (i == ME) snprintf(p->name, sizeof(p->name), "%s", app->player_name->value);
+        if (i == app->me) snprintf(p->name, sizeof(p->name), "%s", app->player_name->value);
         else if (!p->name[0]) snprintf(p->name, sizeof(p->name), "Player %d", i + 1);
         p->team = s->team;
         p->dead = s->dead;
         p->holding_flag = s->held && thing_is_flag(g->world.things[s->held - 1].style);
         p->shirt = s->look.shirt;
     }
-    d->me = ME;
+    d->me = app->me;
     d->camera_follow = -1;
     d->selected_weapon = me->weapon.id;
     d->selected_secondary = me->secondary.id;
@@ -736,13 +748,27 @@ static void interface_open(App *app)
     menus_init(&app->menus, GAME_HEIGHT * r.width / r.height, &app->game->ctx.weapons);
 }
 
+// A server's map: the world and its picture made anew for it, nobody in it until the
+// snapshots say. False if the map can't be loaded, which leaves no world at all.
+static bool world_reload(App *app, const char *map)
+{
+    cvar_set(app->console, "map", map);
+    render_destroy(&app->render);
+    game_close(app);
+    if (!game_open(app, false)) return false;
+    render_init(&app->render, app->assets->value, &app->game->ctx);
+    interface_open(app);
+    app->previous = app->latest = (TickSnapshot){0};
+    return true;
+}
+
 int main(int argc, char *argv[])
 {
     App app = {0};
 
     if (!client_net_init(&app.net)) fprintf(stderr, "ENet wouldn't start: no connecting\n");
     if (!console_open(&app, argc, argv)) return 1;
-    if (!game_open(&app)) {
+    if (!game_open(&app, true)) {
         fprintf(stderr, "could not load map '%s' from '%s'\nusage: client +assets <dir> +map <name>\n",
                 app.map->value, app.assets->value);
         game_close(&app);
@@ -768,7 +794,7 @@ int main(int argc, char *argv[])
 
     snapshot_tick(&app);
     snapshot_tick(&app); // both snapshots start as the world before the first tick
-    app.camera = (GameCamera){.pos = app.game->world.soldiers[ME].pos, .viewport = window_rect(&app)};
+    app.camera = (GameCamera){.pos = app.game->world.soldiers[app.me].pos, .viewport = window_rect(&app)};
     input_start(&app.input, view_size(&app));
 
     Uint64 last = SDL_GetPerformanceCounter();
@@ -781,7 +807,15 @@ int main(int argc, char *argv[])
         app.time += dt;
 
         poll_events(&app);
-        client_net_poll(&app.net, app.console);
+        client_net_poll(&app.net, app.console, app.game);
+        if (client_net_take_welcome(&app.net)) {
+            // the server's map, and its slot for me: the world made anew for its snapshots
+            if (!world_reload(&app, app.net.map)) {
+                fprintf(stderr, "could not load the server's map '%s'\n", app.net.map);
+                app.quit = true;
+            }
+            app.me = app.net.slot;
+        }
         apply_cvars(&app);
         app.camera.viewport = window_rect(&app);
         input_sample(&app.input, screen_to_world(&app.camera, cursor(&app)));
@@ -794,7 +828,7 @@ int main(int argc, char *argv[])
         since_frame += dt;
         if (since_frame >= MIN_FRAME_SECONDS) {
             float alpha = (float)(app.accumulator / TICK_SECONDS); // how far into the next tick this frame is
-            build_render_state(&app.frame, &app.game->ctx, &app.previous, &app.latest, alpha, ME);
+            build_render_state(&app.frame, &app.game->ctx, &app.previous, &app.latest, alpha, app.me);
             camera_follow(&app.camera, app.frame.focus, cursor(&app), since_frame);
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);

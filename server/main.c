@@ -152,16 +152,20 @@ int main(int argc, char *argv[])
         console_destroy(sv.console);
         return 1;
     }
-    connections_init(&sv.connections, &sv.link, sv.console);
+    sv.game->world.history = calloc(1, sizeof(History)); // the snapshots' deltas are against it
+    if (!sv.game->world.history || !connections_init(&sv.connections, &sv.link, sv.console, sv.map->value)) {
+        fprintf(stderr, "out of memory\n");
+        return 1;
+    }
     signal(SIGINT, on_interrupt);
     signal(SIGTERM, on_interrupt);
     console_print(sv.console, "bettersoldat-server: %s on port %d, %d ticks a second\n", sv.map->value, sv.port->integer,
                   TICK_RATE);
 
     // Ticks come out of the time that has passed, one whole tick at a time, and the
-    // rest waits for the next pass. The line is heard before the ticks and flushed
-    // after them. Nobody's keys reach their soldier yet, so every command is empty.
-    Command cmds[MAX_PLAYERS] = {0};
+    // rest waits for the next pass. The line is heard before the ticks; each tick the
+    // players' soldiers step on their last keys, and each tick a snapshot goes to
+    // everyone; the line is flushed after.
     double last = now();
     while (!sv.quit && !interrupted) {
         double t = now();
@@ -170,7 +174,10 @@ int main(int argc, char *argv[])
         if (sv.accumulator > MAX_STALL) sv.accumulator = MAX_STALL;
         connections_poll(&sv.connections, sv.game);
         while (sv.accumulator >= TICK_SECONDS) {
+            Command cmds[MAX_PLAYERS] = {0};
+            connections_commands(&sv.connections, sv.game, cmds);
             game_tick(sv.game, cmds);
+            connections_snapshots(&sv.connections, sv.game);
             sv.accumulator -= TICK_SECONDS;
         }
         net_flush(&sv.link);
@@ -180,6 +187,8 @@ int main(int argc, char *argv[])
     console_print(sv.console, "stopping\n");
     net_close(&sv.link);
     net_shutdown();
+    connections_free(&sv.connections);
+    free(sv.game->world.history);
     game_close(&sv);
     console_destroy(sv.console);
     return 0;

@@ -126,8 +126,8 @@ typedef enum MsgKind {
     MSG_WELCOME,      // server -> client: the slot, and the tick
     MSG_DENIED,       // server -> client: why not
     MSG_CHAT,         // either way: a line said, to everyone or the team; commands and votes too
-    MSG_CLIENT_STATE, // client -> server, every tick (to come)
-    MSG_SNAPSHOT,     // server -> client, every tick (to come)
+    MSG_CLIENT_STATE, // client -> server, every tick: the owned half (stream.h)
+    MSG_SNAPSHOT,     // server -> client, every tick: everyone's halves (stream.h)
     MSG_COUNT,
 } MsgKind;
 
@@ -141,6 +141,7 @@ typedef struct MsgHello {
 typedef struct MsgWelcome {
     uint8_t slot;
     uint32_t tick;
+    char map[64]; // the map to load: the snapshots that follow are of it
 } MsgWelcome;
 
 typedef struct MsgDenied {

@@ -6,12 +6,13 @@
 bool client_net_init(ClientNet *n)
 {
     *n = (ClientNet){.slot = -1};
-    return net_init();
+    return net_init() && client_stream_init(&n->stream);
 }
 
 void client_net_shutdown(ClientNet *n)
 {
     net_close(&n->link);
+    client_stream_free(&n->stream);
     net_shutdown();
 }
 
@@ -50,7 +51,7 @@ static void send_hello(ClientNet *n)
     n->state = CLIENT_NET_JOINING;
 }
 
-static void heard(ClientNet *n, Console *con, const NetEvent *e)
+static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
 {
     NetBuf b = netbuf_reader(e->data, e->size);
     MsgKind kind;
@@ -62,8 +63,11 @@ static void heard(ClientNet *n, Console *con, const NetEvent *e)
         if (!netbuf_done(&b)) return;
         n->slot = m.slot;
         n->tick = m.tick;
+        snprintf(n->map, sizeof n->map, "%s", m.map);
         n->state = CLIENT_NET_JOINED;
-        console_print(con, "joined as %d, at the server's tick %u\n", m.slot, m.tick);
+        n->welcomed = true;
+        client_stream_reset(&n->stream);
+        console_print(con, "joined as %d on %s, at the server's tick %u\n", m.slot, m.map, m.tick);
         break;
     }
     case MSG_DENIED: {
@@ -80,11 +84,14 @@ static void heard(ClientNet *n, Console *con, const NetEvent *e)
         else console_print(con, "%s%d: %s\n", m.team ? "(team) " : "", m.slot, m.text);
         break;
     }
-    default: break; // the streams, once there are streams
+    case MSG_SNAPSHOT:
+        if (n->state == CLIENT_NET_JOINED && g) client_stream_hear(&n->stream, g, n->slot, e->data, e->size);
+        break;
+    default: break;
     }
 }
 
-void client_net_poll(ClientNet *n, Console *con)
+void client_net_poll(ClientNet *n, Console *con, Game *g)
 {
     if (!n->link.host) return;
     NetEvent e;
@@ -100,13 +107,30 @@ void client_net_poll(ClientNet *n, Console *con)
             n->state = CLIENT_NET_OFF;
             n->slot = -1;
             return;
-        case NET_EVENT_MESSAGE: heard(n, con, &e); break;
+        case NET_EVENT_MESSAGE: heard(n, con, g, &e); break;
         default: break;
         }
     }
 }
 
+bool client_net_take_welcome(ClientNet *n)
+{
+    if (!n->welcomed) return false;
+    n->welcomed = false;
+    return true;
+}
+
+void client_net_tick(ClientNet *n, const Soldier *me)
+{
+    if (n->state != CLIENT_NET_JOINED) return;
+    uint8_t buf[NET_MTU];
+    size_t size = client_stream_state(&n->stream, me, buf, sizeof buf);
+    if (size) net_send(n->link.peer, MSG_CLIENT_STATE, buf, size);
+}
+
 void client_net_flush(ClientNet *n) { net_flush(&n->link); }
+
+bool client_net_joined(const ClientNet *n) { return n->state == CLIENT_NET_JOINED; }
 
 bool client_net_say(ClientNet *n, const char *text, bool team)
 {

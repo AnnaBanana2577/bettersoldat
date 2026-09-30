@@ -52,7 +52,8 @@ void world_init(World *w, uint64_t seed)
 void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], const Events *last, Events *events)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (w->soldiers[i].active) soldier_step(ctx, w, (uint8_t)i, cmds[i], events, true);
+        const Soldier *s = &w->soldiers[i];
+        if (s->active) soldier_step(ctx, w, (uint8_t)i, cmds[i], events, !s->remote);
     }
     ragdolls_update(ctx, w, events);
     bullets_update(ctx, w, last, events);
@@ -149,4 +150,5 @@ void game_tick(Game *g, const Command cmds[MAX_PLAYERS])
     g->world.rules = match_rules(&g->match);
     world_step(&g->ctx, &g->world, cmds, &g->last, &g->events);
     match_run(&g->ctx, &g->world, &g->match, &g->events);
+    if (g->world.history) history_record(g->world.history, &g->world); // the server's, for the snapshots' deltas
 }

@@ -152,6 +152,16 @@ commit that changes the netcode says what it measured, on what line.
    refusal tests.
 4. The join: Hello through the first snapshot, the headless server hosting, a headless
    client joining, over the fake link.
-5. Movement: the two streams, extrapolation, blending, the checks. Measured under loss.
+5. Movement: the two streams, extrapolation, blending, the checks. Built (stream.h):
+   the client's state every tick and the snapshot every tick, each a delta against
+   what the other side acknowledged, the server against the history ring for what it
+   sent and the client against what it received; a slot the baseline did not carry
+   goes whole, and the farthest soldiers are held back until a snapshot fits the
+   datagram. Everyone steps a soldier heard of on its last keys, one-shots cleared,
+   and lets them go after half a second's silence; a client takes its own soldier's
+   word from the server only on a new life. New word snaps, as the original's does;
+   blending it in is still to do. The checks so far: old states, unreadable ones and
+   positions off the map are dropped. Measured on the loopback: a tick's client state
+   under 60 bytes, a snapshot of two soldiers under 160.
 6. Shots as events, the advance by ping, hits, deaths, respawns.
 7. Things, flags, kits, the match, rounds, chat.

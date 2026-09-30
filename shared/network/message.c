@@ -33,6 +33,7 @@ void msg_welcome(NetBuf *b, MsgWelcome *m)
     net_range(b, &slot, MAX_PLAYERS - 1);
     m->slot = (uint8_t)slot;
     net_u32(b, &m->tick);
+    net_string(b, m->map, sizeof m->map);
 }
 
 void msg_denied(NetBuf *b, MsgDenied *m) { net_string(b, m->reason, sizeof m->reason); }

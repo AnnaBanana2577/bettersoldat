@@ -2,6 +2,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "game/systems/systems.h"
@@ -20,9 +21,18 @@ static void say(Console *con, const char *fmt, ...)
     console_print(con, "%s", text);
 }
 
-void connections_init(Connections *c, NetLink *link, Console *console)
+bool connections_init(Connections *c, NetLink *link, Console *console, const char *map)
 {
     *c = (Connections){.link = link, .console = console};
+    snprintf(c->map, sizeof c->map, "%s", map ? map : "");
+    c->streams = calloc(MAX_PLAYERS, sizeof *c->streams);
+    return c->streams != NULL;
+}
+
+void connections_free(Connections *c)
+{
+    free(c->streams);
+    c->streams = NULL;
 }
 
 int connections_count(const Connections *c)
@@ -119,15 +129,18 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     *conn = (Connection){.peer = peer, .joined = true};
     snprintf(conn->name, sizeof conn->name, "%s", m.name[0] ? m.name : "Player");
     peer->data = conn;
+    server_stream_init(&c->streams[slot]);
 
     Team team = team_for(g);
     Soldier *s = &g->world.soldiers[slot];
     Vec2 at = spawn_point(g->ctx.map, team, &g->world.rng);
     soldier_spawn(&g->ctx, s, at, team, WEAPON_EAGLE, WEAPON_KNIFE);
     s->life++;
+    s->remote = true; // its keys move it; what it fires it tells
 
     uint8_t buf[NET_MTU];
     MsgWelcome w = {.slot = (uint8_t)slot, .tick = g->world.tick};
+    snprintf(w.map, sizeof w.map, "%s", c->map);
     size_t n = build(buf, sizeof buf, MSG_WELCOME, route_welcome, &w);
     if (n) net_send(peer, MSG_WELCOME, buf, n);
     say(c->console, "%s joined as %d\n", conn->name, slot);
@@ -177,12 +190,33 @@ void connections_poll(Connections *c, Game *g)
         switch (e.kind) {
         case NET_EVENT_CONNECT: break; // nobody until its Hello
         case NET_EVENT_DISCONNECT: leave(c, g, e.peer); break;
-        case NET_EVENT_MESSAGE:
+        case NET_EVENT_MESSAGE: {
+            int slot = slot_of(c, e.peer);
             if (e.msg == MSG_HELLO) hello(c, g, e.peer, &e);
+            else if (slot < 0) deny(c, e.peer, "no Hello first"); // the rest is for players
             else if (e.msg == MSG_CHAT) chat(c, e.peer, &e);
-            else if (slot_of(c, e.peer) < 0) deny(c, e.peer, "no Hello first"); // the rest is for players
+            else if (e.msg == MSG_CLIENT_STATE) server_stream_receive(&c->streams[slot], g, slot, e.data, e.size);
             break;
+        }
         default: break;
         }
+    }
+}
+
+void connections_commands(const Connections *c, const Game *g, Command cmds[MAX_PLAYERS])
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (!c->items[i].joined) continue;
+        cmds[i] = stream_command(&g->world.soldiers[i], server_stream_quiet(&c->streams[i], g->world.tick));
+    }
+}
+
+void connections_snapshots(Connections *c, const Game *g)
+{
+    uint8_t buf[NET_MTU];
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (!c->items[i].joined) continue;
+        size_t n = server_stream_snapshot(&c->streams[i], g, i, buf, sizeof buf);
+        if (n) net_send(c->items[i].peer, MSG_SNAPSHOT, buf, n);
     }
 }

@@ -92,15 +92,16 @@ void join_tests(void)
     NetLink server;
     CHECK(net_listen(&server, PORT, 8), "the server listens on %d", PORT);
     Connections conns;
-    connections_init(&conns, &server, NULL);
+    CHECK(connections_init(&conns, &server, NULL, "Arena"), "the connections are made");
 
     TestClient a, b;
     TestClient *clients[2] = {&a, &b};
     CHECK(client_open(&a, NET_VERSION), "a client connects to the loopback");
     pump(&conns, g, clients, 1, first_welcomed);
     CHECK(a.connected, "the line comes up");
-    CHECK(a.welcomed && a.welcome.slot == 0, "and Hello is answered with Welcome, slot 0 (welcomed %d, slot %d)", a.welcomed,
-          a.welcome.slot);
+    CHECK(a.welcomed && a.welcome.slot == 0 && strcmp(a.welcome.map, "Arena") == 0,
+          "and Hello is answered with Welcome, slot 0, on Arena (welcomed %d, slot %d, map %s)", a.welcomed, a.welcome.slot,
+          a.welcome.map);
     CHECK(g->world.soldiers[0].active && !g->world.soldiers[0].dead && strcmp(conns.items[0].name, "Tester") == 0,
           "with a soldier alive in that slot, named");
     CHECK(connections_count(&conns) == 1, "one player on the server");
@@ -125,6 +126,7 @@ void join_tests(void)
 
     net_close(&b.link);
     net_close(&server);
+    connections_free(&conns);
     scene_free(g);
     net_shutdown();
 }

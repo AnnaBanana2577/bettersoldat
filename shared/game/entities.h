@@ -247,6 +247,10 @@ typedef struct Soldier {
     WeaponId secondary_choice;
     int32_t kills, deaths, flags;
     PlayerLook look;
+
+    // This machine's alone, never on the wire: the soldier is heard of, not played
+    // here, so its keys move it between words but fire nothing.
+    bool remote;
 } Soldier;
 
 // ---------------------------------------------------------------------------------

@@ -68,5 +68,6 @@ void corpse_tests(void);
 void events_tests(void);
 void network_tests(void);
 void join_tests(void);
+void stream_tests(void);
 void console_tests(void);
 void color_tests(void);
