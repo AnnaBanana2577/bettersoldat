@@ -25,6 +25,7 @@ typedef struct Connections {
     NetLink *link;
     Connection items[MAX_PLAYERS]; // by slot, the soldier's index
     ServerStream *streams;         // by slot, on the heap
+    WireQueue events;              // the server's decisions and what it relays, for everyone
     Console *console;              // may be NULL
     char map[NET_MAP_SIZE];        // what the Welcome names
 } Connections;
@@ -39,7 +40,8 @@ void connections_poll(Connections *c, Game *g);
 // The command each player's soldier steps on this tick: its last keys, or none once quiet.
 void connections_commands(const Connections *c, const Game *g, Command cmds[MAX_PLAYERS]);
 
-// A snapshot to every player, after the tick.
+// After the tick: what it left that travels (the server's decisions, and the players'
+// heard this tick, for the others) into the queue, then a snapshot to every player.
 void connections_snapshots(Connections *c, const Game *g);
 
 // A message to every joined player.

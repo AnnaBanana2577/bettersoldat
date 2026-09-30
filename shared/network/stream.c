@@ -13,6 +13,7 @@ void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base)
     net_u32(b, &m->seq);
     net_u32(b, &m->base);
     net_u32(b, &m->ack);
+    net_u32(b, &m->event_ack);
     netfields_serialize(b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m->owned, base);
 }
 
@@ -21,6 +22,7 @@ void msg_snapshot(NetBuf *b, MsgSnapshot *m, const Soldier *base, const uint8_t 
     net_u32(b, &m->tick);
     net_u32(b, &m->base);
     net_u32(b, &m->client_ack);
+    net_u32(b, &m->client_event_ack);
     for (int i = 0; i < MAX_PLAYERS; i++) {
         uint32_t word = m->word[i];
         net_range(b, &word, SNAP_SAME);
@@ -54,6 +56,7 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     net_u32(&b, &m.seq);
     net_u32(&b, &m.base);
     net_u32(&b, &m.ack);
+    net_u32(&b, &m.event_ack);
     if (!netbuf_ok(&b) || m.seq <= s->newest) {
         s->dropped++;
         return false;
@@ -68,16 +71,26 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     }
     m.owned = base ? *base : (Soldier){0};
     netfields_serialize(&b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m.owned, base);
-    if (!netbuf_done(&b) || soldier_out_of_bounds(&g->ctx, m.owned.pos)) {
+    if (!netbuf_ok(&b) || soldier_out_of_bounds(&g->ctx, m.owned.pos)) {
         s->dropped++;
         return false;
     }
+    // its decisions, each once, into the mailbox: the passes do them next tick. Those of
+    // a soldier not alive here are heard and dropped by the passes' own rules.
+    uint32_t event_last = s->event_last;
+    wire_read(&b, g, &event_last, slot);
+    if (!netbuf_done(&b)) {
+        s->dropped++;
+        return false;
+    }
+    s->event_last = event_last;
 
     s->ring[m.seq % STREAM_RING] = m.owned;
     s->ring_seq[m.seq % STREAM_RING] = m.seq;
     s->newest = m.seq;
     s->newest_tick = g->world.tick;
     if (m.ack > s->ack) s->ack = m.ack;
+    if (m.event_ack > s->event_ack) s->event_ack = m.event_ack;
 
     // the owner's word, unless the soldier is dead here and the client hasn't heard
     Soldier *soldier = &g->world.soldiers[slot];
@@ -90,20 +103,23 @@ bool server_stream_quiet(const ServerStream *s, uint32_t tick)
     return s->newest == 0 || tick - s->newest_tick > STREAM_RELEASE_TICKS;
 }
 
-// The snapshot as `m` says, against its base; the bytes or 0 with the buffer overflowed.
-static size_t snapshot_bytes(MsgSnapshot *m, const Soldier *base, const uint8_t *base_word, uint8_t *buf, size_t size)
+// The snapshot as `m` says, against its base, with the events pending for `slot`; the
+// bytes or 0 with the buffer overflowed.
+static size_t snapshot_bytes(MsgSnapshot *m, const Soldier *base, const uint8_t *base_word, const WireQueue *events,
+                             uint32_t event_ack, int slot, uint8_t *buf, size_t size)
 {
     NetBuf b = netbuf_writer(buf, size);
     MsgKind kind = MSG_SNAPSHOT;
     msg_kind(&b, &kind);
     msg_snapshot(&b, m, base, base_word);
+    wire_write(&b, events, event_ack, slot);
     return netbuf_ok(&b) ? netbuf_bytes(&b) : 0;
 }
 
-size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, uint8_t *buf, size_t size)
+size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, const WireQueue *events, uint8_t *buf, size_t size)
 {
     const World *w = &g->world;
-    MsgSnapshot m = {.tick = w->tick, .client_ack = s->newest};
+    MsgSnapshot m = {.tick = w->tick, .client_ack = s->newest, .client_event_ack = s->event_last};
 
     // the base: the snapshot the client has, if young enough and still in the history
     const Soldier *base = NULL;
@@ -124,7 +140,7 @@ size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, uint8_t 
     // hold back the farthest soldiers, never the receiver's own, until it fits
     Vec2 here = w->soldiers[slot].pos;
     size_t n;
-    while ((n = snapshot_bytes(&m, base, base_word, buf, size)) == 0) {
+    while ((n = snapshot_bytes(&m, base, base_word, events, s->event_ack, slot, buf, size)) == 0) {
         int farthest = -1;
         float far = -1.0f;
         for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -162,6 +178,7 @@ void client_stream_reset(ClientStream *c)
     memset(c, 0, sizeof *c);
     c->snaps = snaps;
     if (snaps) memset(snaps, 0, STREAM_RING * sizeof *snaps);
+    wire_queue_init(&c->out);
 }
 
 bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, size_t size)
@@ -173,6 +190,7 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
     net_u32(&b, &m.tick);
     net_u32(&b, &m.base);
     net_u32(&b, &m.client_ack);
+    net_u32(&b, &m.client_event_ack);
     if (!netbuf_ok(&b) || m.tick <= c->newest) {
         c->dropped++;
         return false;
@@ -197,12 +215,27 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
     b = netbuf_reader(data, size);
     msg_kind(&b, &kind);
     msg_snapshot(&b, &m, base, base_word);
-    if (!netbuf_done(&b)) {
+    if (!netbuf_ok(&b)) {
         c->dropped++;
         return false;
     }
 
     World *w = &g->world;
+    // the world's tick keeps to the server's: a snapshot is of its tick, and arrives
+    // about as far after it as my states take to get there, so now is its tick. Off by
+    // a little the ticks drift back; off by more they snap.
+    int32_t off = (int32_t)(w->tick - m.tick);
+    if (off > 2 || off < -2) w->tick = m.tick;
+
+    // the server's decisions, each once, into the mailbox for the next tick's passes
+    uint32_t event_last = c->event_last;
+    wire_read(&b, g, &event_last, -1);
+    if (!netbuf_done(&b)) {
+        c->dropped++;
+        return false;
+    }
+    c->event_last = event_last;
+    if (m.client_event_ack > c->event_ack) c->event_ack = m.client_event_ack;
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
         switch (m.word[i]) {
@@ -234,6 +267,11 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
     return true;
 }
 
+void client_stream_collect(ClientStream *c, const Game *g, int me)
+{
+    wire_collect(&c->out, &g->events, g->world.tick - 1, me); // the tick just run
+}
+
 size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, size_t size)
 {
     uint32_t seq = c->seq + 1;
@@ -246,9 +284,10 @@ size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, siz
 
     NetBuf b = netbuf_writer(buf, size);
     MsgKind kind = MSG_CLIENT_STATE;
-    MsgClientState m = {.seq = seq, .base = base_seq, .ack = c->newest, .owned = *me};
+    MsgClientState m = {.seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .owned = *me};
     msg_kind(&b, &kind);
     msg_client_state(&b, &m, base);
+    wire_write(&b, &c->out, c->event_ack, -1);
     if (!netbuf_ok(&b)) return 0;
 
     c->own[seq % STREAM_RING] = *me;

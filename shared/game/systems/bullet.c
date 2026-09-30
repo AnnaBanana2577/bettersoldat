@@ -126,10 +126,16 @@ static void bullet_integrate(const World *w, Bullet *b)
 
 void bullets_update(const Context *ctx, World *w, const Events *last, Events *events)
 {
-    // the shots asked for, in the order they were asked, before anything flies
+    // the shots asked for, in the order they were asked, before anything flies; one
+    // heard from elsewhere is run forward to where its shooter has it by now
     EventCursor pending = events_pending(last, events, PASS_BULLETS);
     for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
-        if (e->type == EVENT_SHOT) bullet_make(ctx, w, &e->shot, events);
+        if (e->type != EVENT_SHOT) continue;
+        int k = bullet_make(ctx, w, &e->shot, events);
+        for (int a = 0; k >= 0 && a < e->shot.advance && w->bullets[k].active; a++) {
+            bullet_update(ctx, w, &w->bullets[k], (uint16_t)k, events);
+            if (w->bullets[k].active) bullet_integrate(w, &w->bullets[k]);
+        }
     }
 
     for (int i = 0; i < MAX_BULLETS; i++) {

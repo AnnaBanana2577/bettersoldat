@@ -163,6 +163,7 @@ int main(void)
     events_tests();
     network_tests();
     join_tests();
+    wire_tests();
     stream_tests();
     console_tests();
     color_tests();

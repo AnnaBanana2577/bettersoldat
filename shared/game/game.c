@@ -143,10 +143,14 @@ void game_init(Game *g, uint64_t seed, MatchSettings settings)
     events_clear(&g->events);
 }
 
+void game_hear(Game *g, Event e) { event_emit(&g->incoming, e); }
+
 void game_tick(Game *g, const Command cmds[MAX_PLAYERS])
 {
     g->last = g->events;
     events_clear(&g->events);
+    for (int i = 0; i < g->incoming.count; i++) event_emit(&g->events, g->incoming.items[i]);
+    events_clear(&g->incoming);
     g->world.rules = match_rules(&g->match);
     world_step(&g->ctx, &g->world, cmds, &g->last, &g->events);
     match_run(&g->ctx, &g->world, &g->match, &g->events);

@@ -105,8 +105,9 @@ typedef struct Game {
     Context ctx;
     World world;
     Match match;
-    Events events; // what the last tick left behind
-    Events last;   // and the tick before it, for the passes that had run before it was emitted
+    Events events;   // what the last tick left behind
+    Events last;     // and the tick before it, for the passes that had run before it was emitted
+    Events incoming; // what was heard from elsewhere, for the next tick's passes (game_hear)
 } Game;
 
 // --- Context -----------------------------------------------------------------------
@@ -149,5 +150,11 @@ WorldRules match_rules(const Match *m);
 // A fresh world and match over an already loaded context.
 void game_init(Game *g, uint64_t seed, MatchSettings settings);
 
-// The whole-world tick: the match's rules into the world, world_step, match_run.
+// The whole-world tick: what was heard becomes the tick's first events, then the
+// match's rules into the world, world_step, match_run.
 void game_tick(Game *g, const Command cmds[MAX_PLAYERS]);
+
+// A decision made elsewhere (a shot from another machine, a kill the server ruled): it
+// goes among the next tick's events, before the passes, and the owner's pass does it as
+// it would its own. Dropped silently once the mailbox is full.
+void game_hear(Game *g, Event e);

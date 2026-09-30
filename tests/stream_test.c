@@ -21,6 +21,7 @@ typedef struct StreamClient {
     bool welcomed;
     int snapshots;
     size_t state_bytes, snapshot_bytes; // the last of each
+    int bot_shots, damages;             // events heard: the bot's shots made here, wounds to me
 } StreamClient;
 
 static void route_hello(NetBuf *b, void *m) { msg_hello(b, m); }
@@ -74,6 +75,12 @@ static void client_tick(StreamClient *c, Buttons buttons)
     Soldier *me = &w->soldiers[c->slot];
     cmds[c->slot] = (Command){.seq = w->tick + 1, .buttons = buttons, .aim = vec2(me->pos.x + 100.0f, me->pos.y)};
     game_tick(c->game, cmds);
+    for (int i = 0; i < c->game->events.count; i++) {
+        const Event *e = &c->game->events.items[i];
+        if (e->type == EVENT_BULLET_SPAWN && e->bullet_spawn.player == BOT) c->bot_shots++;
+        if (e->type == EVENT_DAMAGE && e->damage.target == c->slot) c->damages++;
+    }
+    client_stream_collect(&c->stream, c->game, c->slot);
     if (me->active) {
         uint8_t buf[NET_MTU];
         size_t n = client_stream_state(&c->stream, me, buf, sizeof buf);
@@ -82,28 +89,43 @@ static void client_tick(StreamClient *c, Buttons buttons)
     net_flush(&c->link);
 }
 
-// One tick of the server: the players on their word, the bot walking left.
-static void server_tick(Connections *conns, Game *g)
+static int server_bullets_of_client; // bullets the server made for slot 0, all told
+
+// One tick of the server: the players on their word, the bot on `bot_buttons`, aiming
+// at the client's soldier's chest wherever it is.
+static void server_tick(Connections *conns, Game *g, Buttons bot_buttons)
 {
     Command cmds[MAX_PLAYERS] = {0};
     connections_commands(conns, g, cmds);
-    const Soldier *bot = &g->world.soldiers[BOT];
-    cmds[BOT] = (Command){.seq = g->world.tick + 1, .buttons = BUTTON_LEFT, .aim = vec2(bot->pos.x - 100.0f, bot->pos.y)};
+    const Soldier *target = &g->world.soldiers[0];
+    cmds[BOT] = (Command){.seq = g->world.tick + 1, .buttons = bot_buttons, .aim = vec2(target->pos.x, target->pos.y - 8.0f)};
     game_tick(g, cmds);
+    for (int i = 0; i < g->events.count; i++) {
+        const Event *e = &g->events.items[i];
+        if (e->type == EVENT_BULLET_SPAWN && e->bullet_spawn.player == 0) server_bullets_of_client++;
+    }
     connections_snapshots(conns, g);
     net_flush(conns->link);
 }
 
-// Both ends for `rounds` ticks, the client pressing `buttons`.
-static void play(Connections *conns, Game *g, StreamClient *c, int rounds, Buttons buttons)
+// Both ends for `rounds` ticks, the client pressing `buttons`, the bot `bot_buttons`.
+static void play(Connections *conns, Game *g, StreamClient *c, int rounds, Buttons buttons, Buttons bot_buttons)
 {
     for (int round = 0; round < rounds; round++) {
         connections_poll(conns, g);
-        server_tick(conns, g);
+        server_tick(conns, g, bot_buttons);
         client_pump(c);
         if (c->welcomed) client_tick(c, buttons);
         enet_host_service(conns->link->host, NULL, 10); // the wait; what arrives is dispatched next round
     }
+}
+
+// Bullets alive in a world, by owner.
+static int bullets_of(const World *w, int owner)
+{
+    int n = 0;
+    for (int i = 0; i < MAX_BULLETS; i++) n += w->bullets[i].active && w->bullets[i].owner == owner;
+    return n;
 }
 
 void stream_tests(void)
@@ -128,7 +150,7 @@ void stream_tests(void)
     CHECK(net_connect(&c.link, "127.0.0.1", PORT), "the client connects");
 
     // the join, and the first snapshot
-    for (int round = 0; round < ROUNDS && c.snapshots == 0; round++) play(&conns, gs, &c, 1, 0);
+    for (int round = 0; round < ROUNDS && c.snapshots == 0; round++) play(&conns, gs, &c, 1, 0, 0);
     CHECK(c.welcomed && c.slot == 0, "the client is welcomed into slot 0");
     Soldier *mine = &c.game->world.soldiers[0], *theirs = &gs->world.soldiers[0];
     CHECK(c.snapshots > 0 && mine->active && !mine->remote && mine->life == theirs->life && fabsf(mine->pos.x - theirs->pos.x) < 1.0f,
@@ -136,9 +158,9 @@ void stream_tests(void)
     CHECK(c.game->world.soldiers[BOT].active && c.game->world.soldiers[BOT].remote,
           "and brings the bot, heard of and not played here");
 
-    // a second of running right
+    // a second of running right, the bot walking left
     float start = mine->pos.x;
-    play(&conns, gs, &c, 60, BUTTON_RIGHT);
+    play(&conns, gs, &c, 60, BUTTON_RIGHT, BUTTON_LEFT);
     CHECK(mine->pos.x > start + 20.0f, "my soldier ran right (%.1f to %.1f)", start, mine->pos.x);
     CHECK(theirs->pos.x > start + 10.0f && fabsf(theirs->pos.x - mine->pos.x) < 30.0f,
           "and the server has it where I put it, a packet behind (%.1f there, %.1f here)", theirs->pos.x, mine->pos.x);
@@ -156,6 +178,31 @@ void stream_tests(void)
     CHECK(c.state_bytes > 0 && c.state_bytes < 60, "a tick's client state is small (%zu bytes)", c.state_bytes);
     CHECK(c.snapshot_bytes > 0 && c.snapshot_bytes < 160, "and so is a snapshot of two soldiers (%zu bytes)", c.snapshot_bytes);
 
+    // the spawn protection wears off, then shots: mine to the server, the bot's to me, as
+    // events; a few quiet ticks after each so the last packet lands before the count
+    play(&conns, gs, &c, 45, 0, 0);
+    uint32_t shots_before = theirs->shot_count;
+    play(&conns, gs, &c, 12, BUTTON_FIRE, 0);
+    play(&conns, gs, &c, 5, 0, 0);
+    CHECK(theirs->shot_count > shots_before && theirs->shot_count == mine->shot_count,
+          "my shots reach the server as events, numbered as mine (%u there, %u here)", theirs->shot_count, mine->shot_count);
+    CHECK(server_bullets_of_client > 0, "and the server makes the bullets (%d)", server_bullets_of_client);
+    (void)bullets_of;
+    int heard_before = c.bot_shots;
+    play(&conns, gs, &c, 12, 0, BUTTON_FIRE);
+    play(&conns, gs, &c, 5, 0, 0);
+    CHECK(c.bot_shots > heard_before && c.game->world.soldiers[BOT].shot_count == gs->world.soldiers[BOT].shot_count,
+          "the bot's shots are heard here and made, its count in step (%d made, %u/%u)", c.bot_shots,
+          c.game->world.soldiers[BOT].shot_count, gs->world.soldiers[BOT].shot_count);
+
+    // wounds: the bot fires at me for a while; the server rules and I hear
+    float health_before = mine->health;
+    play(&conns, gs, &c, 90, 0, BUTTON_FIRE);
+    CHECK(c.damages > 0 && mine->health < health_before,
+          "the server's wounds reach me as events, and my health with the served half (%d wounds, %.0f -> %.0f)", c.damages,
+          health_before, mine->health);
+    CHECK(c.stream.dropped == 0 && conns.streams[0].dropped == 0, "still nothing dropped either way");
+
     // an old state is dropped
     uint32_t dropped = conns.streams[0].dropped;
     uint8_t buf[NET_MTU];
@@ -164,9 +211,10 @@ void stream_tests(void)
     MsgClientState old = {.seq = 1, .owned = *mine};
     msg_kind(&b, &kind);
     msg_client_state(&b, &old, NULL);
+    wire_write(&b, &c.stream.out, c.stream.event_ack, -1);
     net_send(c.link.peer, MSG_CLIENT_STATE, buf, netbuf_bytes(&b));
     net_flush(&c.link);
-    play(&conns, gs, &c, 5, 0);
+    play(&conns, gs, &c, 5, 0, 0);
     CHECK(conns.streams[0].dropped == dropped + 1, "a state older than the newest is dropped (%u dropped)", conns.streams[0].dropped);
 
     net_close(&c.link);

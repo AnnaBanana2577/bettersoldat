@@ -120,9 +120,12 @@ bool client_net_take_welcome(ClientNet *n)
     return true;
 }
 
-void client_net_tick(ClientNet *n, const Soldier *me)
+void client_net_tick(ClientNet *n, const Game *g)
 {
     if (n->state != CLIENT_NET_JOINED) return;
+    client_stream_collect(&n->stream, g, n->slot);
+    const Soldier *me = &g->world.soldiers[n->slot];
+    if (!me->active) return; // nothing to say of a soldier the server hasn't placed yet
     uint8_t buf[NET_MTU];
     size_t size = client_stream_state(&n->stream, me, buf, sizeof buf);
     if (size) net_send(n->link.peer, MSG_CLIENT_STATE, buf, size);

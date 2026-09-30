@@ -35,8 +35,9 @@ void client_net_disconnect(ClientNet *n, Console *con);
 void client_net_poll(ClientNet *n, Console *con, Game *g);
 // A Welcome came: once, true with the slot and the map, for the game to be made theirs.
 bool client_net_take_welcome(ClientNet *n);
-// After the client's tick: its state to the server, and everything queued out.
-void client_net_tick(ClientNet *n, const Soldier *me);
+// After the client's tick: its decisions among the tick's events and its state to the
+// server.
+void client_net_tick(ClientNet *n, const Game *g);
 void client_net_flush(ClientNet *n);
 
 bool client_net_joined(const ClientNet *n);

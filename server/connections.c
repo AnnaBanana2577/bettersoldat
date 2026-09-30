@@ -25,6 +25,7 @@ bool connections_init(Connections *c, NetLink *link, Console *console, const cha
 {
     *c = (Connections){.link = link, .console = console};
     snprintf(c->map, sizeof c->map, "%s", map ? map : "");
+    wire_queue_init(&c->events);
     c->streams = calloc(MAX_PLAYERS, sizeof *c->streams);
     return c->streams != NULL;
 }
@@ -213,10 +214,11 @@ void connections_commands(const Connections *c, const Game *g, Command cmds[MAX_
 
 void connections_snapshots(Connections *c, const Game *g)
 {
+    wire_collect(&c->events, &g->events, g->world.tick - 1, -1); // the tick just run
     uint8_t buf[NET_MTU];
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (!c->items[i].joined) continue;
-        size_t n = server_stream_snapshot(&c->streams[i], g, i, buf, sizeof buf);
+        size_t n = server_stream_snapshot(&c->streams[i], g, i, &c->events, buf, sizeof buf);
         if (n) net_send(c->items[i].peer, MSG_SNAPSHOT, buf, n);
     }
 }

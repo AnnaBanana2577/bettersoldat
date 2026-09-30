@@ -350,7 +350,9 @@ typedef struct EventFire { uint8_t player; WeaponId weapon; Vec2 pos, vel; } Eve
 // owner's count of its bullets, taken when the shot is asked for, so the same numbers
 // come out on every machine; `self` marks the mercy antic's, which leaves its shooter
 // alone.
-typedef struct EventShot { uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; uint32_t shot; bool self; } EventShot;
+// `advance` is the wire's: ticks the bullet is run forward on being made, to sit where
+// its shooter has it now; 0 for a shot asked for here.
+typedef struct EventShot { uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; uint32_t shot; bool self; uint8_t advance; } EventShot;
 typedef struct EventBulletSpawn { uint16_t id; uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; } EventBulletSpawn;
 typedef struct EventBulletEnd { uint16_t id; uint8_t owner; uint32_t shot; WeaponId weapon; Vec2 pos; bool impact; } EventBulletEnd;
 typedef struct EventWallHit { uint16_t id; uint8_t owner; WeaponId weapon; Vec2 pos, vel; } EventWallHit;
@@ -435,6 +437,7 @@ typedef enum EventType {
 
 typedef struct Event {
     EventType type;
+    uint32_t tick; // when it happened; 0 for this tick. The wire sets it on what it heard.
     union {
         EventFire fire;
         EventShot shot;

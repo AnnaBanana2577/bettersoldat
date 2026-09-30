@@ -451,7 +451,7 @@ static void tick(App *app)
     }
     cmds[app->me] = input_command(&app->input, ++app->seq);
     game_tick(app->game, cmds);
-    if (online && w->soldiers[app->me].active) client_net_tick(&app->net, &w->soldiers[app->me]);
+    if (online) client_net_tick(&app->net, app->game);
     input_clear(&app->input);
     snapshot_tick(app);
     for (int i = 0; i < MAX_PLAYERS; i++) // what was said fades

@@ -163,5 +163,16 @@ commit that changes the netcode says what it measured, on what line.
    blending it in is still to do. The checks so far: old states, unreadable ones and
    positions off the map are dropped. Measured on the loopback: a tick's client state
    under 60 bytes, a snapshot of two soldiers under 160.
-6. Shots as events, the advance by ping, hits, deaths, respawns.
+6. Shots as events, the advance by ping, hits, deaths, respawns. Built (wire.h): a
+   table classifies every event type and a test holds it; each travelling type has one
+   routine both ways. Each side queues what it sends, numbered; a client keeps only
+   its own decisions, the server everything that travels and remembers from whom, so an
+   owner is never sent its own back. A packet carries the events past the other side's
+   acknowledgement, capped, each with its seq and the tick it happened; the receiver
+   applies each once into the game's mailbox, and a shot heard is run forward from its
+   tick to now, at most half a second. A client's word about anyone but itself is
+   dropped. The client's tick keeps to the server's from the snapshots. Measured on
+   the loopback: a client's shots made on the server and numbered as its own, a bot's
+   shots made on the client with its count in step, the server's wounds heard by the
+   wounded.
 7. Things, flags, kits, the match, rounds, chat.

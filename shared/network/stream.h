@@ -24,6 +24,7 @@
 
 #include "game/game.h"
 #include "network/network.h"
+#include "network/wire.h"
 
 #define STREAM_RING 32          // states kept for deltas, each side
 #define STREAM_WHOLE_AFTER 24   // a baseline older than this many states or ticks: whole
@@ -33,14 +34,17 @@
 // --- the messages ------------------------------------------------------------------
 
 typedef struct MsgClientState {
-    uint32_t seq;  // this state's number, the client's count from 1
-    uint32_t base; // the state it is a delta against, 0 for whole
-    uint32_t ack;  // the newest snapshot (its tick) the client has, 0 for none
-    Soldier owned; // the owned half rides in a Soldier
+    uint32_t seq;       // this state's number, the client's count from 1
+    uint32_t base;      // the state it is a delta against, 0 for whole
+    uint32_t ack;       // the newest snapshot (its tick) the client has, 0 for none
+    uint32_t event_ack; // the newest of the server's events the client has applied
+    Soldier owned;      // the owned half rides in a Soldier
+    // then the client's own decisions since the server's acknowledgement (wire.h)
 } MsgClientState;
 
-// `base` is the soldier the delta is against, NULL for whole; in reading, the fields
-// it holds that didn't change are taken from it.
+// The header and the half; `base` is the soldier the delta is against, NULL for whole;
+// in reading, the fields it holds that didn't change are taken from it. The events
+// follow, written and read with wire_write and wire_read.
 void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base);
 
 typedef enum SnapWord {
@@ -50,15 +54,18 @@ typedef enum SnapWord {
 } SnapWord;
 
 typedef struct MsgSnapshot {
-    uint32_t tick;       // the snapshot's number
-    uint32_t base;       // the snapshot it is a delta against, 0 for whole
-    uint32_t client_ack; // the newest client state (its seq) the server has from this client
+    uint32_t tick;             // the snapshot's number
+    uint32_t base;             // the snapshot it is a delta against, 0 for whole
+    uint32_t client_ack;       // the newest client state (its seq) the server has from this client
+    uint32_t client_event_ack; // the newest of the client's events the server has applied
     uint8_t word[MAX_PLAYERS];
     Soldier soldiers[MAX_PLAYERS];
+    // then the server's events since the client's acknowledgement (wire.h)
 } MsgSnapshot;
 
-// `base` is the base snapshot's soldiers and `base_word` its words, both NULL for whole;
-// a slot the base did not carry (not SNAP_STATE) goes whole.
+// The header and the soldiers; `base` is the base snapshot's soldiers and `base_word`
+// its words, both NULL for whole; a slot the base did not carry (not SNAP_STATE) goes
+// whole. The events follow, written and read with wire_write and wire_read.
 void msg_snapshot(NetBuf *b, MsgSnapshot *m, const Soldier *base, const uint8_t *base_word);
 
 // The command a soldier heard of steps on: its last keys and aim, one-shot buttons
@@ -75,20 +82,23 @@ typedef struct ServerStream {
     uint32_t ack;         // the newest snapshot the client has
     uint8_t sent_word[STREAM_RING][MAX_PLAYERS]; // what each snapshot sent carried, by tick
     uint32_t sent_tick[STREAM_RING];
-    uint32_t dropped; // client states that couldn't be read, or failed a check
+    uint32_t event_ack;  // the newest of the server's events the client has applied
+    uint32_t event_last; // the newest of the client's events applied here
+    uint32_t dropped;    // client states that couldn't be read, or failed a check
 } ServerStream;
 
 void server_stream_init(ServerStream *s);
 
 // A client state for the soldier in `slot`: read against its base, checked, and taken
-// as written. False if dropped: old, unreadable, or off the map. The world's tick is
-// when it came in.
+// as written, its events into the game's mailbox. False if dropped: old, unreadable,
+// or off the map. The world's tick is when it came in.
 bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *data, size_t size);
 
-// The snapshot for the player in `slot`, into `buf`: the bytes, or 0 if nothing could
-// fit. Soldiers are held back farthest first until it fits. The world's history must
-// be recorded (World.history) for the deltas; without it every snapshot is whole.
-size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, uint8_t *buf, size_t size);
+// The snapshot for the player in `slot`, into `buf`, with the events of `events` it
+// has not acknowledged: the bytes, or 0 if nothing could fit. Soldiers are held back
+// farthest first until it fits. The world's history must be recorded (World.history)
+// for the deltas; without it every snapshot is whole.
+size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, const WireQueue *events, uint8_t *buf, size_t size);
 
 // Nothing heard for STREAM_RELEASE_TICKS.
 bool server_stream_quiet(const ServerStream *s, uint32_t tick);
@@ -105,6 +115,9 @@ typedef struct ClientStream {
     uint32_t server_ack; // the newest state the server has
     uint32_t newest;     // the newest snapshot received (its tick), 0 for none
     uint32_t last_word[MAX_PLAYERS]; // the snapshot tick each soldier was last heard of in
+    WireQueue out;       // my decisions, for the server
+    uint32_t event_ack;  // the newest of my events the server has applied
+    uint32_t event_last; // the newest of the server's events applied here
     uint32_t dropped;    // snapshots that couldn't be read
 } ClientStream;
 
@@ -112,10 +125,15 @@ bool client_stream_init(ClientStream *c); // allocates the ring; false if it cou
 void client_stream_free(ClientStream *c);
 void client_stream_reset(ClientStream *c); // a new join: nothing heard, nothing sent
 
-// A snapshot heard, applied to the world; `me` is the client's slot. False if dropped.
+// A snapshot heard, applied to the world, its events into the game's mailbox; `me` is
+// the client's slot. The world's tick is kept with the server's. False if dropped.
 bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, size_t size);
 
-// The client's state, its soldier `me` as it stands, into `buf`: the bytes, or 0.
+// After the client's tick: its own decisions among the tick's events, for the server.
+void client_stream_collect(ClientStream *c, const Game *g, int me);
+
+// The client's state, its soldier `me` as it stands and its decisions pending, into
+// `buf`: the bytes, or 0.
 size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, size_t size);
 
 // Nothing heard of the soldier in `slot` for STREAM_RELEASE_TICKS of snapshots.
