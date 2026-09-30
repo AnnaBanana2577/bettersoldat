@@ -27,9 +27,11 @@ typedef struct GameCamera {
 // What the camera shows, in world units.
 Vec2 camera_view_size(const GameCamera *c);
 
-// The camera chases a target and leads toward the cursor (in screen pixels), as the
-// original does, per frame at the frame's dt so it feels the same at any frame rate.
-void camera_follow(GameCamera *c, Vec2 target, Vec2 cursor, double dt);
+// The camera chases a target and leads toward the cursor (in screen pixels) by
+// `aim_dist` (the followed soldier's: the sniper view shortens it, and the lead grows),
+// as the original does, per frame at the frame's dt so it feels the same at any frame
+// rate.
+void camera_follow(GameCamera *c, Vec2 target, Vec2 cursor, float aim_dist, double dt);
 
 Vec2 screen_to_world(const GameCamera *c, Vec2 p);
 Vec2 world_to_screen(const GameCamera *c, Vec2 p);

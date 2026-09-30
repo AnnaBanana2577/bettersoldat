@@ -492,6 +492,28 @@ static void body_pose_control(const Context *ctx, Soldier *s)
     }
 }
 
+// The sniper view (Control.pas): with the Barrett ready, from a crouch or prone, aiming
+// near the view's edge draws the camera out toward the aim, a step a tick, further
+// prone than crouching; aiming back near the body lets it return. Anything else, the
+// gun fired or the stance left, snaps it back.
+static void sniper_view(Soldier *s)
+{
+    bool scoping = s->weapon.id == WEAPON_BARRETT && s->weapon.fire_count == 0 && (s->body.id == ANIM_PRONE || s->body.id == ANIM_AIM);
+    if (!scoping) {
+        s->aim_dist = DEFAULT_AIM_DIST;
+        return;
+    }
+    float dx = fabsf(s->aim.x - s->pos.x), dy = fabsf(s->aim.y - s->pos.y);
+    if (dx >= 640.0f / 1.035f || dy >= 480.0f / 1.035f) {
+        if (s->body.id == ANIM_PRONE && s->aim_dist > SNIPER_AIM_DIST) s->aim_dist -= AIM_DIST_STEP;
+        if (s->body.id == ANIM_AIM && s->aim_dist > CROUCH_AIM_DIST) s->aim_dist -= 2 * AIM_DIST_STEP;
+    }
+    if (dx < 640.0f / 1.5f && dy < 480.0f / 1.5f && s->aim_dist < DEFAULT_AIM_DIST) {
+        s->aim_dist += AIM_DIST_STEP;
+        if (s->aim_dist > DEFAULT_AIM_DIST - AIM_DIST_STEP / 2) s->aim_dist = DEFAULT_AIM_DIST;
+    }
+}
+
 void soldier_control(const Context *ctx, World *w, uint8_t index, Events *events, bool armed)
 {
     Soldier *s = &w->soldiers[index];
@@ -510,4 +532,5 @@ void soldier_control(const Context *ctx, World *w, uint8_t index, Events *events
     if (armed) combat_reload_animation(ctx, s);
     roll_control(ctx, s, input);
     body_pose_control(ctx, s);
+    sniper_view(s);
 }

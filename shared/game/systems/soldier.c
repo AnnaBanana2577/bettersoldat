@@ -54,6 +54,7 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
         .collider_distance = 255,
         .spawn_still = true,
         .bonus_time = -1,
+        .aim_dist = DEFAULT_AIM_DIST,
     };
     anim_set(ctx->anims, &s->legs, ANIM_STAND, 1);
     anim_set(ctx->anims, &s->body, ANIM_STAND, 1);

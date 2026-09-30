@@ -36,6 +36,7 @@ typedef struct RenderSoldier {
     int jets;           // fuel left
     int hit_spray;      // the bink from being hit, and the aim's wobble from moving: the crosshair grows
     float move_acc;
+    float aim_dist;     // the sniper view: the camera's lead toward the aim (camera.h)
     WeaponId secondary; // slung across the back
     AnimId body_anim;
     int grenades;

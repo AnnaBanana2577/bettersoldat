@@ -581,6 +581,14 @@ static void audio_soldier(Audio *a, const Context *ctx, int slot, const Soldier 
         if (crossed(&p.legs, &s->legs, ANIM_PRONE_MOVE, 8)) sound_play(a, "prone-move.wav", at);
     }
 
+    // the sniper view (Control.pas): the scope as it begins and as it is back, and its
+    // running while the aim distance moves, every 27 ticks
+    if (p.aim_dist >= DEFAULT_AIM_DIST && s->aim_dist < DEFAULT_AIM_DIST) sound_play(a, "scope.wav", at);
+    else if (p.aim_dist < DEFAULT_AIM_DIST && s->aim_dist >= DEFAULT_AIM_DIST) {
+        sound_play(a, s->weapon.id == WEAPON_BARRETT && s->weapon.fire_count == 0 ? "scope.wav" : "scopeback.wav", at);
+    }
+    if (s->aim_dist != p.aim_dist && tick % 27 == 0) sound_play(a, "scoperun.wav", at);
+
     // landing, by how fast the soldier was falling
     if (s->on_ground && !p.on_ground) {
         float vy = fabsf(p.vel.y);

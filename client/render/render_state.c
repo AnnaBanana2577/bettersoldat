@@ -66,6 +66,7 @@ static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, cons
     out.jets = to->jets;
     out.hit_spray = to->hit_spray;
     out.move_acc = movement_inaccuracy(ctx, to);
+    out.aim_dist = to->aim_dist > 0.0f ? to->aim_dist : DEFAULT_AIM_DIST;
     out.secondary = to->secondary.id;
     out.body_anim = to->body.id;
     out.grenades = to->grenades;

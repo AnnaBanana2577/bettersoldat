@@ -228,6 +228,10 @@ typedef struct Soldier {
     // refreshed every 10 ticks; 255 = not near any. Crouching by cover raises the gun.
     uint8_t collider_distance;
     uint16_t hit_spray; // bink: aim disturbance from being hit, decaying one per tick
+    // The sniper view (Control.pas AimDistCoef): how far the camera leads toward the aim,
+    // DEFAULT_AIM_DIST as a rule and less while the Barrett is scoped, aiming far from
+    // a crouch or prone. Every machine works it out from the rest, so it isn't sent.
+    float aim_dist;
     bool spawn_still;   // not moved since spawning: the weapons menu still applies
     uint8_t stat;      // the stationary gun manned (thing index + 1)
     int16_t use_time;  // how hot the stationary guns it fires run: past the overheat they stop

@@ -53,6 +53,10 @@
 // --- soldier.c ---------------------------------------------------------------------
 
 #define DEFAULT_HEALTH 150.0f
+#define DEFAULT_AIM_DIST 7.0f // the camera's lead toward the aim (DEFAULTAIMDIST)
+#define SNIPER_AIM_DIST 3.5f  // scoped prone (SNIPERAIMDIST)
+#define CROUCH_AIM_DIST 4.5f  // scoped crouching (CROUCHAIMDIST)
+#define AIM_DIST_STEP 0.05f   // per tick, toward either (AIMDISTINCR)
 #define DEFAULT_CEASE_FIRE 90
 #define MAX_VELOCITY 11.0f // the safety clamp on a soldier's speed, each way
 

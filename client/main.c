@@ -1374,7 +1374,8 @@ int main(int argc, char *argv[])
                                team_game(&app), online ? app.net.stream.blend : NULL);
             Vec2 target = app.frame.focus;
             if (app.camera_follow >= 0 && app.frame.soldiers[app.camera_follow].active) target = app.frame.soldiers[app.camera_follow].pos;
-            if (!app.free_camera) camera_follow(&app.camera, target, cursor(&app), since_frame);
+            const RenderSoldier *watched = &app.frame.soldiers[app.camera_follow >= 0 ? app.camera_follow : app.me];
+            if (!app.free_camera) camera_follow(&app.camera, target, cursor(&app), watched->aim_dist, since_frame);
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);
             if (!app.mainmenu.shown) {

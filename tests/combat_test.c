@@ -94,6 +94,31 @@ static void m79(void)
     scene_free(g);
 }
 
+// The sniper view: crouched with the Barrett, aiming far, the camera's lead shortens toward the
+// crouch's distance, a step a tick; a shot snaps it back.
+static void sniper_view(void)
+{
+    Game *g = scene("Arena", 150, WEAPON_BARRETT, WEAPON_AK74);
+    settle(g);
+    Soldier *s = &g->world.soldiers[0];
+    for (int t = 0; t < 120; t++) {
+        Command cmds[MAX_PLAYERS] = {0};
+        cmds[0] = (Command){.seq = g->world.tick + 1, .buttons = BUTTON_CROUCH, .aim = vec2(s->pos.x + 1000.0f, s->pos.y)};
+        cmds[1] = (Command){.seq = g->world.tick + 1};
+        game_tick(g, cmds);
+    }
+    CHECK(s->body.id == ANIM_AIM && s->aim_dist < DEFAULT_AIM_DIST - 0.5f && s->aim_dist >= CROUCH_AIM_DIST - 0.01f,
+          "crouched with the Barrett, aiming far, the sniper view draws the camera out (aim distance %.2f, body %d)", s->aim_dist, s->body.id);
+    for (int t = 0; t < 40; t++) { // past the Barrett's wind-up
+        Command cmds[MAX_PLAYERS] = {0};
+        cmds[0] = (Command){.seq = g->world.tick + 1, .buttons = BUTTON_CROUCH | BUTTON_FIRE, .aim = vec2(s->pos.x + 1000.0f, s->pos.y)};
+        cmds[1] = (Command){.seq = g->world.tick + 1};
+        game_tick(g, cmds);
+    }
+    CHECK(s->aim_dist == DEFAULT_AIM_DIST, "and a shot snaps it back (%.2f)", s->aim_dist);
+    scene_free(g);
+}
+
 static void determinism(void)
 {
     Game *a = scene("Arena", 120, WEAPON_MINIGUN, WEAPON_SPAS), *b = scene("Arena", 120, WEAPON_MINIGUN, WEAPON_SPAS);
@@ -115,5 +140,6 @@ void combat_tests(void)
     knife();
     suicide();
     m79();
+    sniper_view();
     determinism();
 }
