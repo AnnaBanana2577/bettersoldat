@@ -159,7 +159,10 @@ commit that changes the netcode says what it measured, on what line.
    goes whole, and the farthest soldiers are held back until a snapshot fits the
    datagram. Everyone steps a soldier heard of on its last keys, one-shots cleared,
    and lets them go after half a second's silence; a client takes its own soldier's
-   word from the server only on a new life. New word snaps the simulation, as the
+   word from the server only on a new life, and the server takes a client's word only for
+   the life it is of (the state says which): the states a client sends before it hears
+   of a placing would drag the new life back to where the old one stood. New word
+   snaps the simulation, as the
    original's does, but not the picture: what a correction moved another player by is
    kept as an offset the renderer adds, shrinking away over cl_smooth (100 ms); a
    placing, or a jump past STREAM_SNAP_DISTANCE, shows at once. The checks so far:

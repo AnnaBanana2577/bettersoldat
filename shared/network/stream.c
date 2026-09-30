@@ -17,6 +17,7 @@ void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base)
     net_u32(b, &m->base);
     net_u32(b, &m->ack);
     net_u32(b, &m->event_ack);
+    net_u8(b, &m->life);
     netfields_serialize(b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m->owned, base);
     netfields_serialize(b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &m->owned, base);
     net_bool(b, &m->typing);
@@ -83,6 +84,7 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     net_u32(&b, &m.base);
     net_u32(&b, &m.ack);
     net_u32(&b, &m.event_ack);
+    net_u8(&b, &m.life);
     if (!netbuf_ok(&b) || m.round != s->round || m.seq <= s->newest) {
         s->dropped++;
         return false;
@@ -120,10 +122,11 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     if (m.ack > s->ack) s->ack = m.ack;
     if (m.event_ack > s->event_ack) s->event_ack = m.event_ack;
 
-    // the owner's word, unless the soldier is dead here and the client hasn't heard;
+    // the owner's word, unless the soldier is dead here, or placed anew since the state was
+    // sent, and the client hasn't heard: an older life's word would drag it back;
     // its loadout always, a weapon that isn't a primary or a secondary put right
     Soldier *soldier = &g->world.soldiers[slot];
-    if (soldier->active && !soldier->dead) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
+    if (soldier->active && !soldier->dead && m.life == soldier->life) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
     soldier->typing = m.typing;
     soldier->primary_choice = weapon_is_primary(m.owned.primary_choice) ? m.owned.primary_choice : WEAPON_EAGLE;
     soldier->secondary_choice = weapon_is_secondary(m.owned.secondary_choice) ? m.owned.secondary_choice : WEAPON_KNIFE;
@@ -429,7 +432,7 @@ size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, siz
 
     NetBuf b = netbuf_writer(buf, size);
     MsgKind kind = MSG_CLIENT_STATE;
-    MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .owned = *me, .typing = me->typing};
+    MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .life = me->life, .owned = *me, .typing = me->typing};
     msg_kind(&b, &kind);
     msg_client_state(&b, &m, base);
     wire_write(&b, &c->out, c->event_ack, -1, WIRE_PER_PACKET);

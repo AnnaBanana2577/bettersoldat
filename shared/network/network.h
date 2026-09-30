@@ -25,7 +25,7 @@
 
 #include "game/entities.h"
 
-#define NET_VERSION 3
+#define NET_VERSION 4
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
 #define NET_TEXT_SIZE 128 // a line of chat, a reason

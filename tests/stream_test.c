@@ -479,6 +479,19 @@ void stream_tests(void)
     client_send(&c, MSG_CHAT, route_chat, &pick);
     play(&conns, gs, &c, 6, 0, 0);
     CHECK(theirs->active && !theirs->dead && theirs->remote && conns.items[0].joined, "everyone joined is placed in the new round");
+    {
+        // on one of the new map's alpha spawns, in the open: not the old map's, not the middle
+        const Map *map = gs->ctx.map;
+        bool on_spawn = false;
+        for (int i = 0; i < map->spawnpoint_count; i++) {
+            const Spawnpoint *sp = &map->spawnpoints[i];
+            if (sp->active && sp->team == TEAM_ALPHA && vec2_length(vec2_sub(sp->pos, theirs->pos)) < 40.0f) on_spawn = true;
+        }
+        CHECK(on_spawn && !map_collision_test(map, theirs->pos, false, NULL),
+              "on one of ctf_Ash's alpha spawns, in the open (%.0f,%.0f; on a spawn %d)", theirs->pos.x, theirs->pos.y, on_spawn);
+        CHECK(!map_collision_test(c.game->ctx.map, mine->pos, false, NULL),
+              "and so here, on the client's copy of it (%.0f,%.0f)", mine->pos.x, mine->pos.y);
+    }
     CHECK(mine->active && mine->life == theirs->life && fabsf(mine->pos.x - theirs->pos.x) < 1.0f,
           "and hears where, from the snapshots of the new round (life %u, %.1f vs %.1f)", mine->life, mine->pos.x, theirs->pos.x);
     int flags_here = 0;
