@@ -5,6 +5,7 @@
 static Buttons tap_drop(int tick) { return tick < 3 ? BUTTON_DROP : 0; }
 static Buttons hold_drop(int tick) { return tick < 30 ? BUTTON_DROP : 0; }
 static Buttons tap_jump(int tick) { return tick < 3 ? BUTTON_JUMP : 0; }
+static Buttons tap_flag_throw(int tick) { return tick == 0 ? BUTTON_FLAG_THROW : 0; }
 
 static void round_start(void)
 {
@@ -119,12 +120,42 @@ static void stationary_gun(void)
     scene_free(g);
 }
 
+// ThrowFlag: the carrier lets the flag fly along its aim at FLAGTHROW_POWER on top of
+// its own speed, from a step ahead of itself, and may not take it back for a quarter
+// second.
+static void flag_thrown(void)
+{
+    Game *g = scene("ctf_Ash", 200, WEAPON_AK74, WEAPON_AK74);
+    settle(g);
+    int bravo = find_thing(g, THING_BRAVO_FLAG);
+    Soldier *s = &g->world.soldiers[0];
+    Thing *flag = &g->world.things[bravo];
+    place(s, flag->pos[0]);
+    run(g, 2, press_nothing);
+    CHECK(flag->holder == 1, "alpha carries the bravo flag");
+    Vec2 held = flag->pos[0];
+    Vec2 toward = vec2_normalize(vec2_sub(g->world.soldiers[1].pos, s->pos));
+    run(g, 1, tap_flag_throw);
+    // the pole base's flight over the tick: the throw's, less what the ground it lands
+    // by at once takes from it
+    Vec2 flew = vec2_sub(flag->pos[0], flag->old_pos[0]);
+    float along = vec2_dot(flew, toward);
+    CHECK(flag->holder == 0 && s->held == 0, "the throw key lets it go");
+    CHECK(along > 3.0f && vec2_length(flew) < 8.0f, "flying along the aim at the throw's power (%.2f, %.2f)", flew.x, flew.y);
+    CHECK(vec2_length(vec2_sub(flag->pos[0], held)) > 20.0f, "from a step ahead of the thrower");
+    CHECK(s->flag_grab_cooldown == 15, "who may not take it back for a quarter second (%d)", s->flag_grab_cooldown);
+    run(g, 5, press_nothing);
+    CHECK(flag->holder == 0, "and doesn't");
+    scene_free(g);
+}
+
 void thing_tests(void)
 {
     round_start();
     dropped_gun();
     medikit();
     capture();
+    flag_thrown();
     parachute();
     knife_lands();
     stationary_gun();

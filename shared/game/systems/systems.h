@@ -197,12 +197,16 @@ WeaponId weapon_named(const char *name);
 #define BRUTAL_DEATH_HEALTH (-400.0f)
 #define HEADCHOP_DEATH_HEALTH (-90.0f)
 
-// The wounds pass: where the world has authority, every Hit pending lands.
+// The wounds pass: every Hit pending lands. Where the world has authority it lands
+// whole; elsewhere only its shove and its bink, which the original gives wherever the
+// bullet is flown (see hit_shove).
 void wounds_apply(const Context *ctx, World *w, const Events *last, Events *events);
 
 // A Hit lands: the knockback, the wound (the vest and berserker rules, then death), the
 // disturbed aim.
 void damage_apply(const Context *ctx, World *w, Hit hit, Events *events);
+// A Hit's knockback and disturbed aim alone, on the living.
+void hit_shove(const Context *ctx, World *w, Hit hit);
 
 // What a Hit would take off the target's health; 0 where it does not wound (a teammate
 // without friendly fire, the Flame God).

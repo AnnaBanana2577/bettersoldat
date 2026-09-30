@@ -131,6 +131,50 @@ static void determinism(void)
     scene_free(b);
 }
 
+// The knockback is felt where the bullet is flown, authority or not: a client's world
+// shoves the soldier a bullet meets, as the original writes its NextPush wherever the
+// bullet is simulated, while the wound stays the server's.
+static void knockback_without_authority(void)
+{
+    Game *g = scene("Arena", 120, WEAPON_AK74, WEAPON_AK74);
+    settle(g);
+    g->world.authority = false;
+    Soldier *victim = &g->world.soldiers[1];
+    float health = victim->health;
+    float pushed = 0.0f;
+    int hits = 0;
+    for (int i = 0; i < 120; i++) {
+        hits += run(g, 1, press_fire).hits;
+        if (victim->next_push.x > pushed) pushed = victim->next_push.x;
+    }
+    CHECK(hits > 0, "the AK's bullets meet the other soldier (%d hits)", hits);
+    CHECK(pushed > 0.0f, "and shove it along their way on a world without authority (%.3f)", pushed);
+    CHECK(victim->health == health, "without wounding it there: the wound is the server's");
+    scene_free(g);
+}
+
+// The M79 boost: a grenade at one's own feet throws one upward, on a client's world as
+// on the server's, since a blast's shove is felt wherever it is flown.
+static void m79_boost(void)
+{
+    Game *g = scene("Arena", 120, WEAPON_M79, WEAPON_AK74);
+    settle(g);
+    g->world.authority = false;
+    Soldier *s = &g->world.soldiers[0];
+    float stood = s->pos.y, highest = s->pos.y, lift = 0.0f;
+    Command cmds[MAX_PLAYERS] = {0};
+    for (int i = 0; i < 400; i++) { // the trigger held: the M79 reloads first, then fires at the feet
+        cmds[0] = (Command){.seq = g->world.tick + 1, .buttons = BUTTON_FIRE, .aim = vec2(s->pos.x + 6.0f, s->pos.y + 12.0f)};
+        cmds[1] = (Command){.seq = g->world.tick + 1, .aim = s->pos};
+        game_tick(g, cmds);
+        if (-s->next_push.y > lift) lift = -s->next_push.y;
+        if (s->pos.y < highest) highest = s->pos.y;
+    }
+    CHECK(lift > 0.0f, "the blast at the feet shoves the shooter upward (%.3f)", lift);
+    CHECK(highest < stood - 5.0f, "and lifts it off the ground (%.1f up)", stood - highest);
+    scene_free(g);
+}
+
 void combat_tests(void)
 {
     rifle_kills();
@@ -140,6 +184,8 @@ void combat_tests(void)
     knife();
     suicide();
     m79();
+    knockback_without_authority();
+    m79_boost();
     sniper_view();
     determinism();
 }

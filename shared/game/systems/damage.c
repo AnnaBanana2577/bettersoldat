@@ -1,7 +1,8 @@
 // The one place health changes. A Hit lands here: the knockback, the wound by
 // HealthHit's rules (friendly fire, the Flame God, the vest, the berserker), death, and
-// the disturbed aim. Ported from OpenSoldat Sprites.pas and Bullets.pas by way of
-// soldat-odin.
+// the disturbed aim. The wound is the authority's; the knockback and the disturbed aim
+// land on every machine, as the original applies them wherever the bullet is flown.
+// Ported from OpenSoldat Sprites.pas and Bullets.pas by way of soldat-odin.
 
 #include "game/systems/systems.h"
 
@@ -57,24 +58,36 @@ static void wound(const Context *ctx, World *w, Hit hit, Events *events)
     if (s->health < 1.0f) die(ctx, w, hit, events);
 }
 
+// The shove and the bink of a Hit: the bullet's, not the wound's, so they land on the
+// living whoever fired it, and on every machine that flew the bullet. In the original
+// the bullet writes the victim's NextPush as it meets it, wherever it is simulated;
+// here every world flies every bullet and the owner's word about its soldier stands,
+// so the owner must feel the knock itself, or nobody does. The shove goes on the
+// victim's next step, as the original's NextPush[0] does.
+void hit_shove(const Context *ctx, World *w, Hit hit)
+{
+    Soldier *s = &w->soldiers[hit.target];
+    if (!s->active) return;
+    if (!s->dead) s->next_push = vec2_add(s->next_push, hit.push);
+    if (hit.spray) hit_spray(ctx, w, hit.target, hit.shooter);
+}
+
 void damage_apply(const Context *ctx, World *w, Hit hit, Events *events)
 {
     Soldier *s = &w->soldiers[hit.target];
     if (!s->active) return;
 
-    // The knockback is the bullet's, not the wound's: it lands on the living whoever
-    // fired it.
-    if (!s->dead) s->next_push = vec2_add(s->next_push, hit.push);
+    hit_shove(ctx, w, hit);
     wound(ctx, w, hit, events);
-    if (hit.spray) hit_spray(ctx, w, hit.target, hit.shooter);
 }
 
 void wounds_apply(const Context *ctx, World *w, const Events *last, Events *events)
 {
-    if (!w->authority) return;
     EventCursor pending = events_pending(last, events, PASS_WOUNDS);
     for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
-        if (e->type == EVENT_HIT) damage_apply(ctx, w, e->hit, events);
+        if (e->type != EVENT_HIT) continue;
+        if (w->authority) damage_apply(ctx, w, e->hit, events);
+        else hit_shove(ctx, w, e->hit); // the wound is the server's; the knock is felt here
     }
 }
 
