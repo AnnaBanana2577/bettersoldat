@@ -21,6 +21,12 @@
 // order at startup is free: exec the config, run the command line, then open the
 // subsystems that register their cvars.
 //
+// The config file is the player's, and console_save writes back into it rather than
+// over it: a line setting a saved cvar or binding a key is updated in place when its
+// value changed, a bind's line goes when the key was unbound, and what the file didn't
+// have goes after it. Comments and everything else stay as they were, and a file with
+// nothing to change isn't touched.
+//
 // The built-in commands:
 //   set / seta name value    set (seta also marks it to be saved)
 //   reset name               back to its default
@@ -105,7 +111,10 @@ bool console_execute_file(Console *con, const char *path);
 // has arguments sets a cvar, so `+name Pain` works before the cvar is registered.
 void console_execute_args(Console *con, int argc, char **argv);
 
-// Writes the binds and the archived cvars as a config file that exec reads back.
+// Writes the binds and the archived cvars into a config file that exec reads back. An
+// existing file is updated in place (see above); a new one is written from scratch,
+// with `unbindall` first so it holds the whole of the binds. False if it can't be
+// written.
 bool console_save(const Console *con, const char *path);
 
 // --- cvars ---------------------------------------------------------------------------

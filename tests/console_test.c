@@ -1,6 +1,7 @@
 // The console: cvars, commands, the parser, binds, the command line, saving.
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "console/console.h"
@@ -77,6 +78,7 @@ static void binds_and_saving(void)
     console_key(con, "space", true);
     CHECK(strcmp(last(con), "there") == 0, "a bind runs all its commands");
 
+    remove(SAVED);
     CHECK(console_save(con, SAVED), "the binds and archived cvars save");
     console_execute(con, "unbindall; set fov 50");
     CHECK(console_bind_get(con, "space") == NULL, "unbindall unbinds");
@@ -86,9 +88,91 @@ static void binds_and_saving(void)
     console_destroy(con);
 }
 
+// The file's text, or NULL.
+static char *read_saved(void) { return (char *)file_read_all(SAVED, NULL); }
+
+static bool write_saved(const char *text)
+{
+    FILE *f = fopen(SAVED, "wb");
+    if (!f) return false;
+    fputs(text, f);
+    return fclose(f) == 0;
+}
+
+// Saving into a config somebody wrote: what changed is rewritten where it was, the
+// rest is left alone, and a file with nothing to change isn't rewritten.
+static void saving_in_place(void)
+{
+    const char *written = "// my settings\r\n"
+                          "set assets ./stuff // where the files are\n"
+                          "seta fov 100            // the field of view\n"
+                          "  sensitivity 2\n"
+                          "seta fov 100; seta name \"Major Pain\"\n"
+                          "unbindall\n"
+                          "bind mouse1 +attack\n"
+                          "bind space \"echo hi\"   // a greeting\n"
+                          "bind x jump; bind y +attack\n"
+                          "bind v jump // gone with its comment\n";
+    CHECK(write_saved(written), "a config file can be written for the test");
+
+    Console *con = console_create(NULL, NULL);
+    console_add_command(con, "+attack", attack, NULL, NULL);
+    console_add_command(con, "-attack", attack, NULL, NULL);
+    Cvar *fov = cvar_register(con, "fov", "90", CVAR_ARCHIVE, NULL);
+    cvar_register(con, "sensitivity", "1", CVAR_ARCHIVE, NULL);
+    Cvar *assets = cvar_register(con, "assets", "assets", 0, NULL);
+    console_execute_file(con, SAVED);
+    CHECK(fov->integer == 100 && strcmp(assets->value, "./stuff") == 0, "the file sets what it says");
+
+    CHECK(console_save(con, SAVED), "saving into it works");
+    char *text = read_saved();
+    CHECK(text && strcmp(text, written) == 0, "and, with nothing changed, leaves it as it was:\n%s", text ? text : "");
+    free(text);
+
+    cvar_register(con, "volume", "0.5", CVAR_ARCHIVE, NULL); // a saved cvar the file doesn't have
+    console_execute(con, "set fov 120; sensitivity 3; set assets other; bind space \"echo bye\";"
+                         "unbind x; unbind v; bind z +attack; set volume 1");
+    CHECK(console_save(con, SAVED), "saving with changes works");
+    text = read_saved();
+    const char *expected = "// my settings\r\n"
+                           "set assets ./stuff // where the files are\n"
+                           "seta fov \"120\"            // the field of view\n"
+                           "  sensitivity \"3\"\n"
+                           "seta fov \"120\"; seta name \"Major Pain\"\n"
+                           "unbindall\n"
+                           "bind mouse1 +attack\n"
+                           "bind space \"echo bye\"   // a greeting\n"
+                           "bind y +attack\n"
+                           "\n"
+                           "seta volume \"1\"\n"
+                           "bind z \"+attack\"\n";
+    CHECK(text && strcmp(text, expected) == 0,
+          "a changed value is rewritten where it was, with its comment and line ending, on a line of several "
+          "commands too; an unsaved cvar's line is left alone; an unbound key's bind goes; the rest is added "
+          "after:\n%s",
+          text ? text : "");
+    free(text);
+
+    console_execute(con, "unbindall; set fov 1; set volume 0; set name x");
+    CHECK(console_execute_file(con, SAVED), "the file execs");
+    CHECK(fov->integer == 120 && console_bind_get(con, "z") && !console_bind_get(con, "x"), "and holds what was saved");
+
+    remove(SAVED);
+    console_execute(con, "unbindall; bind a +attack");
+    CHECK(console_save(con, SAVED), "with no file there, one is written");
+    text = read_saved();
+    CHECK(text && strstr(text, "unbindall\n") && strstr(text, "bind a \"+attack\"\n") && strstr(text, "seta fov \"120\"\n") &&
+              !strstr(text, "assets"),
+          "with unbindall, the binds and the saved cvars only:\n%s", text ? text : "");
+    free(text);
+    remove(SAVED);
+    console_destroy(con);
+}
+
 void console_tests(void)
 {
     cvars_and_command_line();
     parser();
     binds_and_saving();
+    saving_in_place();
 }

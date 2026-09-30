@@ -400,22 +400,213 @@ void console_execute_args(Console *con, int argc, char **argv)
     }
 }
 
+// --- saving --------------------------------------------------------------------------
+
+// Text being composed, grown as it goes.
+typedef struct Text {
+    char *data;
+    size_t len, cap;
+    bool failed; // out of memory somewhere along the way
+} Text;
+
+static void text_append(Text *t, const char *s, size_t n)
+{
+    if (t->failed) return;
+    if (t->len + n + 1 > t->cap) {
+        size_t cap = t->cap ? t->cap * 2 : 4096;
+        while (cap < t->len + n + 1) cap *= 2;
+        char *data = realloc(t->data, cap);
+        if (!data) {
+            t->failed = true;
+            return;
+        }
+        t->data = data;
+        t->cap = cap;
+    }
+    memcpy(t->data + t->len, s, n);
+    t->len += n;
+    t->data[t->len] = '\0';
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 2, 3)))
+#endif
+static void text_printf(Text *t, const char *fmt, ...)
+{
+    char line[CONSOLE_TEXT_SIZE];
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(line, sizeof line, fmt, args);
+    va_end(args);
+    if (n < 0) return;
+    text_append(t, line, n < (int)sizeof line ? (size_t)n : sizeof line - 1);
+}
+
+static bool text_ends_with(const Text *t, const char *s)
+{
+    size_t n = strlen(s);
+    return t->len >= n && memcmp(t->data + t->len - n, s, n) == 0;
+}
+
+// Where a line's trailing comment begins, the spaces before the // included; the line's
+// end if it has none. A // inside quotes is part of a word.
+static size_t comment_start(const char *line, size_t len)
+{
+    bool quoted = false;
+    for (size_t i = 0; i < len; i++) {
+        if (line[i] == '"') quoted = !quoted;
+        else if (!quoted && i + 1 < len && line[i] == '/' && line[i + 1] == '/') {
+            while (i > 0 && isspace((unsigned char)line[i - 1])) i--;
+            return i;
+        }
+    }
+    return len;
+}
+
+// A cvar is saved if it was marked to be and the console may set it.
+static bool cvar_saved(const Cvar *cv) { return (cv->flags & CVAR_ARCHIVE) && !(cv->flags & CVAR_READONLY); }
+
+// One command of a config file on its way back out: the text from `start` to `end`,
+// its leading spaces and its ';' included, as next_command cut it. A command setting a
+// saved cvar ("set name value", "seta name value" or "name value") or binding a key is
+// the console's: kept as it is when it says what the console holds, rewritten with the
+// current value when it doesn't, and dropped if it binds a key since unbound. Any other
+// command is the file's own and passes through untouched. `seen` marks what the file
+// already holds; `trim` drops the leading spaces, after a dropped command.
+typedef enum Saved { SAVED_KEPT, SAVED_REWRITTEN, SAVED_DROPPED } Saved;
+
+static Saved save_command(const Console *con, const char *start, const char *end, Args *a, bool trim, Text *out,
+                          bool *seen_cvar, bool *seen_bind)
+{
+    size_t indent = 0;
+    while (isspace((unsigned char)start[indent])) indent++;
+    if (trim) start += indent, indent = 0;
+
+    // what it sets, and to what
+    const Cvar *cv = NULL;
+    const Bind *b = NULL;
+    bool unbound = false;
+    const char *verb = NULL; // "set" or "seta" as written; NULL for the bare "name value"
+    char value[CONSOLE_VALUE_SIZE] = "";
+    if (a->argc >= 3 && (name_eq(a->argv[0], "set") || name_eq(a->argv[0], "seta"))) {
+        cv = cvar_find(con, a->argv[1]);
+        verb = a->argv[0];
+        join_args(value, sizeof value, a->argc, a->argv, 2);
+    } else if (a->argc >= 2 && (cv = cvar_find(con, a->argv[0])) != NULL) {
+        copy(value, sizeof value, a->argv[1]);
+    } else if (a->argc >= 3 && name_eq(a->argv[0], "bind")) {
+        b = bind_find(con, a->argv[1]);
+        unbound = !b;
+        join_args(value, sizeof value, a->argc, a->argv, 2);
+    }
+    if (cv && !cvar_saved(cv)) cv = NULL; // the file's to set, not the console's to save
+
+    if (cv) seen_cvar[cv - con->cvars] = true;
+    if (b) seen_bind[b - con->binds] = true;
+    bool changed = unbound || (cv && strcmp(value, cv->value) != 0) || (b && strcmp(value, b->text) != 0);
+    if (!changed) {
+        text_append(out, start, (size_t)(end - start));
+        return SAVED_KEPT;
+    }
+    if (unbound) {
+        if (out->len == 0) text_append(out, start, indent); // the line keeps its indentation
+        return SAVED_DROPPED;
+    }
+    text_append(out, start, indent);
+    if (b) text_printf(out, "bind %s \"%s\"", b->key, b->text);
+    else if (verb) text_printf(out, "%s %s \"%s\"", verb, cv->name, cv->value);
+    else text_printf(out, "%s \"%s\"", cv->name, cv->value);
+    if (end > start && end[-1] == ';') text_append(out, ";", 1);
+    return SAVED_REWRITTEN;
+}
+
+// One line of a config file on its way back out: its commands, each as it was or as
+// the console now has it (save_command), then its comment. A line too long to parse
+// passes through as it is, and a line whose commands all went goes, its comment too.
+static void save_line(const Console *con, const char *line, size_t len, const char *newline, Text *out,
+                      bool *seen_cvar, bool *seen_bind)
+{
+    size_t body = comment_start(line, len); // the commands, before any comment
+    Text rebuilt = {0};
+    bool changed = false;
+    if (body < CONSOLE_TEXT_SIZE) {
+        char text[CONSOLE_TEXT_SIZE];
+        memcpy(text, line, body);
+        text[body] = '\0';
+        bool dropped = false;
+        for (const char *p = text; *p;) {
+            const char *start = p;
+            Args a;
+            p = next_command(start, &a);
+            Saved saved = save_command(con, start, p, &a, dropped, &rebuilt, seen_cvar, seen_bind);
+            if (saved != SAVED_KEPT) changed = true;
+            dropped = saved == SAVED_DROPPED;
+        }
+    }
+    if (rebuilt.failed) out->failed = true;
+
+    if (!changed) {
+        text_append(out, line, len);
+        text_append(out, newline, strlen(newline));
+    } else {
+        size_t i = 0;
+        while (i < rebuilt.len && isspace((unsigned char)rebuilt.data[i])) i++;
+        if (i < rebuilt.len) {
+            text_append(out, rebuilt.data ? rebuilt.data : "", rebuilt.len);
+            text_append(out, line + body, len - body); // the comment
+            text_append(out, newline, strlen(newline));
+        }
+    }
+    free(rebuilt.data);
+}
+
 bool console_save(const Console *con, const char *path)
 {
-    FILE *f = fopen(path, "w");
-    if (!f) return false;
+    size_t old_size = 0;
+    char *old = (char *)file_read_all(path, &old_size);
+    Text out = {0}, add = {0};
+    bool seen_cvar[CONSOLE_MAX_CVARS] = {0}, seen_bind[CONSOLE_MAX_BINDS] = {0};
 
-    fprintf(f, "// written by the game, and rewritten each time it saves\n");
-    fprintf(f, "unbindall\n");
-    for (int i = 0; i < con->bind_count; i++) fprintf(f, "bind \"%s\" \"%s\"\n", con->binds[i].key, con->binds[i].text);
-    for (int i = 0; i < con->cvar_count; i++) {
-        const Cvar *cv = &con->cvars[i];
-        if ((cv->flags & CVAR_ARCHIVE) && !(cv->flags & CVAR_READONLY))
-            fprintf(f, "seta %s \"%s\"\n", cv->name, cv->value);
+    if (old) {
+        // the file's lines, each as it was or as the console now has it
+        for (const char *p = old, *end = old + old_size; p < end;) {
+            const char *nl = memchr(p, '\n', (size_t)(end - p));
+            const char *next = nl ? nl + 1 : end;
+            size_t len = (size_t)((nl ? nl : end) - p);
+            const char *newline = !nl ? "" : len > 0 && p[len - 1] == '\r' ? "\r\n" : "\n";
+            if (newline[0] == '\r') len--;
+            save_line(con, p, len, newline, &out, seen_cvar, seen_bind);
+            p = next;
+        }
+    } else {
+        const char *header = "// saved by the game\nunbindall\n";
+        text_append(&out, header, strlen(header));
     }
 
-    bool ok = !ferror(f);
-    if (fclose(f) != 0) ok = false;
+    // what the file didn't have goes after it
+    for (int i = 0; i < con->cvar_count; i++) {
+        const Cvar *cv = &con->cvars[i];
+        if (cvar_saved(cv) && !seen_cvar[i]) text_printf(&add, "seta %s \"%s\"\n", cv->name, cv->value);
+    }
+    for (int i = 0; i < con->bind_count; i++)
+        if (!seen_bind[i]) text_printf(&add, "bind %s \"%s\"\n", con->binds[i].key, con->binds[i].text);
+    if (add.len) {
+        if (out.len && !text_ends_with(&out, "\n")) text_append(&out, "\n", 1);
+        if (old && !text_ends_with(&out, "\n\n")) text_append(&out, "\n", 1);
+        text_append(&out, add.data, add.len);
+    }
+
+    // written only if it changed, so a file the game has nothing to say to stays as it is
+    bool ok = !out.failed && !add.failed;
+    bool same = old && old_size == out.len && memcmp(old, out.data, out.len) == 0;
+    if (ok && !same) {
+        FILE *f = fopen(path, "wb");
+        ok = f && fwrite(out.data, 1, out.len, f) == out.len;
+        if (f && fclose(f) != 0) ok = false;
+    }
+    free(old);
+    free(out.data);
+    free(add.data);
     return ok;
 }
 
