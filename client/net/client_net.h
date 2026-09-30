@@ -24,6 +24,9 @@ typedef struct ClientNet {
     uint16_t round;         // the round being played, as of the last Map
     char map[NET_MAP_SIZE]; // on which map
     char hostname[NET_NAME_SIZE]; // the server's name, as the Map said
+    char address[64];       // the server's, as connected to
+    uint16_t port;
+    bool had_map;           // a Map came since the join: the next is a change of map
     bool mapped;            // a Map not yet taken (client_net_take_map)
     MsgChat inbox[CLIENT_NET_INBOX]; // chat heard and not yet taken (client_net_take_chat), oldest first
     int inbox_count;

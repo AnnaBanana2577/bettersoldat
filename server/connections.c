@@ -87,6 +87,19 @@ static void tell_map(Connections *c, ENetPeer *peer)
 
 // A player's soldier placed anew on its team: a join, a new round.
 static void place(Connections *c, Game *g, int slot);
+static void announce(Connections *c, ChatKind kind, const char *fmt, ...);
+
+// Who came, as the original's client says it: by the team it came to.
+static void announce_join(Connections *c, const Game *g, int slot)
+{
+    const char *name = c->items[slot].name;
+    switch (g->world.soldiers[slot].team) {
+    case TEAM_ALPHA: announce(c, CHAT_ALPHA, "%s has joined alpha team", name); break;
+    case TEAM_BRAVO: announce(c, CHAT_BRAVO, "%s has joined bravo team", name); break;
+    case TEAM_SPECTATOR: announce(c, CHAT_SPECTATOR, "%s has joined as spectator", name); break;
+    default: announce(c, CHAT_ENTER, "%s has joined the game", name); break;
+    }
+}
 
 // The vote as it stands, to one peer or (NULL) everyone: for the HUD.
 static void tell_vote(Connections *c, ENetPeer *peer)
@@ -102,10 +115,11 @@ static void tell_vote(Connections *c, ENetPeer *peer)
     else connections_broadcast(c, MSG_VOTE, buf, n);
 }
 
-// A line from the server itself to everyone: who came, who went.
-static void announce(Connections *c, const char *fmt, ...)
+// A line from the server itself to everyone, of a kind the client colours: who came,
+// who went, a vote.
+static void announce(Connections *c, ChatKind kind, const char *fmt, ...)
 {
-    MsgChat m = {.slot = MAX_PLAYERS, .team = true};
+    MsgChat m = {.slot = MAX_PLAYERS, .kind = (uint8_t)kind};
     va_list args;
     va_start(args, fmt);
     vsnprintf(m.text, sizeof m.text, fmt, args);
@@ -187,7 +201,7 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     c->vote.answer[slot] = 0;
     if (c->vote.kind != VOTE_NONE) tell_vote(c, peer);
     say(c->console, "%s joined as %d\n", conn->name, slot);
-    announce(c, "%s has joined the game", conn->name);
+    if (!match_has_teams(&g->match)) announce_join(c, g, slot); // with teams, once it has chosen one
 }
 
 void connections_place(Connections *c, Game *g, int slot, Team team)
@@ -240,6 +254,7 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     int slot = slot_of(c, peer);
     if (slot < 0) return;
     Connection *conn = &c->items[slot];
+    Team team = g->world.soldiers[slot].team;
     if (conn->joined) {
         say(c->console, "%s left\n", conn->name);
         g->world.soldiers[slot].active = false;
@@ -247,9 +262,18 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     char name[NET_NAME_SIZE];
     snprintf(name, sizeof name, "%s", conn->name);
     bool joined = conn->joined;
+    KickWhy why = conn->kick_why;
     *conn = (Connection){0};
     peer->data = NULL;
-    if (joined) announce(c, "%s has left the game", name);
+    if (!joined) return;
+    // said as the original's client says a leaving (NetworkClientGame.pas): a kick by its
+    // reason, else by the team left
+    if (why == KICK_VOTED) announce(c, CHAT_CLIENT, "%s has been voted to leave the game", name);
+    else if (why == KICK_CONSOLE) announce(c, CHAT_CLIENT, "%s has been kicked from console", name);
+    else if (team == TEAM_ALPHA) announce(c, CHAT_ALPHA, "%s has left alpha team", name);
+    else if (team == TEAM_BRAVO) announce(c, CHAT_BRAVO, "%s has left bravo team", name);
+    else if (team == TEAM_SPECTATOR) announce(c, CHAT_SPECTATOR, "%s has left spectators", name);
+    else announce(c, CHAT_ENTER, "%s has left the game", name);
 }
 
 static void vote_command(Connections *c, Game *g, int slot, const char *text);
@@ -341,14 +365,14 @@ void connections_snapshots(Connections *c, const Game *g)
 // A line from the server to one player: an answer to its command.
 static void tell(Connections *c, int slot, const char *fmt, ...)
 {
-    MsgChat m = {.slot = MAX_PLAYERS, .team = true};
+    MsgChat m = {.slot = MAX_PLAYERS, .kind = CHAT_ENTER};
     va_list args;
     va_start(args, fmt);
     vsnprintf(m.text, sizeof m.text, fmt, args);
     va_end(args);
     uint8_t buf[NET_MTU];
     size_t n = build(buf, sizeof buf, MSG_CHAT, route_chat, &m);
-    if (n && c->items[slot].peer) net_send(c->items[slot].peer, MSG_CHAT, buf, n);
+    if (n) net_send(c->items[slot].peer, MSG_CHAT, buf, n);
 }
 
 static bool map_exists(const Connections *c, const char *map)
@@ -377,9 +401,11 @@ static int player_named(const Connections *c, const char *name)
     return found;
 }
 
-static void vote_end(Connections *c, const char *outcome)
+// Over: the original says nothing of a kick that failed, and of a map vote that did,
+// that no map was voted; a pass shows as the kick or the next map.
+static void vote_end(Connections *c, bool passed)
 {
-    announce(c, "The vote %s", outcome);
+    if (c->vote.kind == VOTE_MAP && !passed) announce(c, CHAT_VOTE, "No map has been voted");
     c->vote = (Vote){.kind = VOTE_NONE, .starter = -1};
     tell_vote(c, NULL);
 }
@@ -400,20 +426,23 @@ static void vote_check(Connections *c)
         Vote v = c->vote;
         if (v.kind == VOTE_MAP) {
             snprintf(c->vote_map, sizeof c->vote_map, "%s", v.target);
-            vote_end(c, "passed: the next map");
+            vote_end(c, true);
         } else {
-            vote_end(c, "passed: kicked");
-            if (c->items[v.slot].joined) connections_kick(c, v.slot, "kicked by a vote");
+            vote_end(c, true);
+            if (c->items[v.slot].joined) {
+                c->items[v.slot].kick_why = KICK_VOTED;
+                connections_kick(c, v.slot, "kicked by a vote");
+            }
         }
     } else if (players - no < needed) {
-        vote_end(c, "did not pass");
+        vote_end(c, false);
     }
 }
 
 static void vote_tick(Connections *c)
 {
     if (c->vote.kind == VOTE_NONE) return;
-    if (--c->vote.ticks_left <= 0) vote_end(c, "ran out of time");
+    if (--c->vote.ticks_left <= 0) vote_end(c, false);
 }
 
 static void vote_start(Connections *c, int slot, VoteKind kind, const char *target, int target_slot, const char *reason)
@@ -422,10 +451,7 @@ static void vote_start(Connections *c, int slot, VoteKind kind, const char *targ
     snprintf(c->vote.target, sizeof c->vote.target, "%s", target);
     snprintf(c->vote.reason, sizeof c->vote.reason, "%s", reason ? reason : "");
     c->vote.answer[slot] = 1;
-    if (kind == VOTE_MAP) announce(c, "%s started a vote to change the map to %s: /yes or /no", c->items[slot].name, target);
-    else if (c->vote.reason[0]) announce(c, "%s started a vote to kick %s - Reason: %s: /yes or /no", c->items[slot].name, target, c->vote.reason);
-    else announce(c, "%s started a vote to kick %s: /yes or /no", c->items[slot].name, target);
-    tell_vote(c, NULL);
+    tell_vote(c, NULL); // the vote's box says who wants what; the original's console says nothing
     vote_check(c);
 }
 
@@ -447,12 +473,7 @@ static void team_command(Connections *c, Game *g, int slot, const char *rest)
     conn->chose_team = true;
     conn->team = team;
     connections_place(c, g, slot, team);
-    switch (team) {
-    case TEAM_ALPHA: announce(c, "%s has joined alpha team", conn->name); break;
-    case TEAM_BRAVO: announce(c, "%s has joined bravo team", conn->name); break;
-    case TEAM_SPECTATOR: announce(c, "%s is now spectating", conn->name); break;
-    default: announce(c, "%s has joined the game", conn->name); break;
-    }
+    announce_join(c, g, slot);
 }
 
 // A command said in the chat: team <n>, votemap <map>, votekick <player>, yes, no.

@@ -19,7 +19,11 @@
 #include "network/stream.h"
 #include "network/transport.h"
 
+// Why a player is being cut off, for the word of its leaving.
+typedef enum KickWhy { KICK_NONE, KICK_VOTED, KICK_CONSOLE } KickWhy;
+
 typedef struct Connection {
+    KickWhy kick_why; // set before the kick; the leaving is announced by it
     ENetPeer *peer; // NULL: the slot is free
     bool joined;    // Hello accepted: it has a soldier
     char name[NET_NAME_SIZE];

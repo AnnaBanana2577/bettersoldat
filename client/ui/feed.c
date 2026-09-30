@@ -21,10 +21,10 @@ const char *team_name(Team team)
 Rgba team_color(Team team)
 {
     switch (team) {
-    case TEAM_ALPHA: return (Rgba){0xEA, 0x35, 0x30, 0xFF};
+    case TEAM_ALPHA: return (Rgba){0xDF, 0x31, 0x31, 0xFF}; // ALPHA_MESSAGE_COLOR and the rest
     case TEAM_BRAVO: return (Rgba){0x31, 0x31, 0xDF, 0xFF};
-    case TEAM_CHARLIE: return (Rgba){0xDF, 0xDF, 0x53, 0xFF};
-    case TEAM_DELTA: return (Rgba){0x53, 0xDF, 0x53, 0xFF};
+    case TEAM_CHARLIE: return (Rgba){0xDF, 0xDF, 0x31, 0xFF};
+    case TEAM_DELTA: return (Rgba){0x31, 0xDF, 0x31, 0xFF};
     default: return (Rgba){0xFF, 0xFF, 0xFF, 0xFF};
     }
 }
@@ -167,7 +167,6 @@ static void match_end(Feed *f, Console *con, const Game *g, const char names[MAX
         else snprintf(text, sizeof text, "Draw!");
     }
     big_message(f, text, color, FEED_CAPTURE_MESSAGE_TICKS);
-    console_print_color(con, HUD_COLOR_GAME, "%s\n", text);
 }
 
 void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], bool team_game, int me)
@@ -183,6 +182,15 @@ void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYER
     }
     for (int i = 0; i < HUD_BIG_MESSAGES; i++)
         if (f->big[i].delay > 0) f->big[i].delay--;
+
+    // "Time Left:" (UpdateFrame.pas) with the clock's beeps: in seconds under an hour,
+    // every minute inside the last ten and every ten before; in minutes past it
+    if (g->match.state == MATCH_PLAYING) {
+        int32_t t = g->match.time_left;
+        bool due = t > 0 && (t <= 600 ? t % 60 == 0 : t <= 3600 ? t % 600 == 0 : t <= 18000 ? t % 3600 == 0 : t % 18000 == 0);
+        if (due && t <= 3600) console_print_color(con, HUD_COLOR_GAME, "Time Left: %d seconds\n", t / 60);
+        else if (due) console_print_color(con, HUD_COLOR_GAME, "Time Left: %d minutes\n", t / 3600);
+    }
 
     for (int i = 0; i < g->events.count; i++) {
         const Event *e = &g->events.items[i];
@@ -202,19 +210,19 @@ void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYER
             console_print_color(con, team_color(scoring), "%s scores for %s Team\n", names[e->flag_score.player], team_name(scoring));
             break;
         }
-        case EVENT_FLAG_GRAB: { // the enemy's flag taken: mine to me, theirs to the rest
+        case EVENT_FLAG_GRAB: { // the enemy's flag taken: mine to me, theirs to the rest; no
+                                // line in the console, as the original (its SmallCapText is never drawn)
             ThingStyle flag = e->flag_grab.flag;
             if (e->flag_grab.player == me) snprintf(text, sizeof text, "You got the %s Flag!", flag_name(flag));
             else snprintf(text, sizeof text, "%s Flag captured!", flag_name(flag));
             big_message(f, text, flag_color(flag), FEED_CAPTURE_MESSAGE_TICKS);
-            console_print_color(con, flag_color(flag), "%s captured the %s Flag\n", names[e->flag_grab.player], flag_name(flag));
             break;
         }
         case EVENT_FLAG_RETURN: { // by a player: said; by the clock: nothing, as the original
             ThingStyle flag = e->flag_return.flag;
             if (e->flag_return.player == 255) break;
             snprintf(text, sizeof text, "%s Flag returned!", flag_name(flag));
-            big_message(f, text, flag_color(flag), FEED_CAPTURE_MESSAGE_TICKS);
+            big_message(f, text, team_color(TEAM_ALPHA), FEED_CAPTURE_MESSAGE_TICKS); // alpha's colour for either, as the original
             console_print_color(con, flag_color(flag), "%s returned the %s Flag\n", names[e->flag_return.player], flag_name(flag));
             break;
         }

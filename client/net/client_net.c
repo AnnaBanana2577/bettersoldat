@@ -1,4 +1,5 @@
 #include "net/client_net.h"
+#include "ui/hud_data.h" // the colours of the line's word
 
 #include <stdio.h>
 #include <string.h>
@@ -26,6 +27,9 @@ void client_net_connect(ClientNet *n, Console *con, const char *address, uint16_
     }
     n->state = CLIENT_NET_CONNECTING;
     n->slot = -1;
+    n->had_map = false;
+    snprintf(n->address, sizeof n->address, "%s", address);
+    n->port = port;
     console_print(con, "connecting to %s:%u...\n", address, port);
 }
 
@@ -68,7 +72,7 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         n->slot = m.slot;
         n->tick = m.tick;
         n->state = CLIENT_NET_JOINED;
-        console_print(con, "joined as %d, at the server's tick %u\n", m.slot, m.tick);
+        console_print_color(con, HUD_COLOR_CLIENT, "Connection accepted to %s:%u\n", n->address, n->port);
         break;
     }
     case MSG_MAP: {
@@ -80,7 +84,8 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         snprintf(n->hostname, sizeof n->hostname, "%s", m.hostname);
         n->mapped = true;
         client_stream_reset(&n->stream, m.round);
-        console_print(con, "round %u on %s\n", m.round, m.map);
+        if (n->had_map) console_print_color(con, HUD_COLOR_GAME, "Next map: %s\n", m.map); // as the original, on a change
+        n->had_map = true;
         break;
     }
     case MSG_DENIED: {
@@ -120,11 +125,10 @@ void client_net_poll(ClientNet *n, Console *con, Game *g)
     while (net_poll(&n->link, &e, 0) != NET_EVENT_NONE) {
         switch (e.kind) {
         case NET_EVENT_CONNECT:
-            console_print(con, "connected; saying hello\n");
             send_hello(n);
             break;
         case NET_EVENT_DISCONNECT:
-            console_print(con, n->state == CLIENT_NET_CONNECTING ? "no answer\n" : "the server closed the line\n");
+            console_print_color(con, HUD_COLOR_WARNING, n->state == CLIENT_NET_CONNECTING ? "Connection timeout\n" : "Connection problem\n");
             net_close(&n->link);
             n->state = CLIENT_NET_OFF;
             n->slot = -1;

@@ -25,7 +25,7 @@
 
 #include "game/entities.h"
 
-#define NET_VERSION 4
+#define NET_VERSION 5
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
 #define NET_TEXT_SIZE 128 // a line of chat, a reason
@@ -194,10 +194,24 @@ typedef struct MsgDenied {
     char reason[NET_TEXT_SIZE];
 } MsgDenied;
 
+// The kinds of line the server itself says: the original's colour classes for them
+// (Constants.pas *_MESSAGE_COLOR), which the client colours as the original does.
+typedef enum ChatKind {
+    CHAT_SERVER,    // its own chat, said as "*SERVER*: "
+    CHAT_ENTER,     // who came and went, with no team
+    CHAT_ALPHA,     // who came to and left alpha
+    CHAT_BRAVO,     // bravo
+    CHAT_SPECTATOR, // the spectators
+    CHAT_CLIENT,    // who was cut off: kicked
+    CHAT_GAME,      // the game's word
+    CHAT_VOTE,      // a vote's
+    CHAT_KINDS
+} ChatKind;
+
 typedef struct MsgChat {
-    uint8_t slot; // who said it; MAX_PLAYERS for the server, whose `team` means a line of the game's
-                  // (who came, who went, a vote) rather than the server's own chat ("*SERVER*:")
-    bool team;
+    uint8_t slot; // who said it; MAX_PLAYERS for the server, whose lines are of `kind`
+    bool team;    // a player's, to its team alone
+    uint8_t kind; // the server's (ChatKind); nothing for a player's
     char text[NET_TEXT_SIZE];
 } MsgChat;
 

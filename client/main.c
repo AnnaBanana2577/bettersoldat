@@ -198,18 +198,33 @@ static void player_name(const App *app, int i, char *name, size_t size);
 // original's ClientHandleChatMessage places it: to the console as "[Name] text" in the
 // chat's colour, "(TEAM) [Name] text" in the team's, a long line in two; and over the
 // speaker's head for a while its words decide. The server's own lines are its chat
-// ("*SERVER*: text") or, marked `team`, a plain line of the game's: who came and went.
-static void chat_heard(App *app, int slot, bool team, const char *text)
+// ("*SERVER*: text") or a line of the game's (who came and went, a vote) in the
+// colour the original gives its `kind`.
+static Rgba chat_kind_color(ChatKind kind)
+{
+    switch (kind) {
+    case CHAT_ALPHA: return HUD_COLOR_ALPHAJ;
+    case CHAT_BRAVO: return HUD_COLOR_BRAVOJ;
+    case CHAT_SPECTATOR: return HUD_COLOR_DELTAJ;
+    case CHAT_CLIENT: return HUD_COLOR_CLIENT;
+    case CHAT_GAME: return HUD_COLOR_GAME;
+    case CHAT_VOTE: return HUD_COLOR_VOTE;
+    default: return HUD_COLOR_ENTER;
+    }
+}
+
+static void chat_heard(App *app, int slot, bool team, ChatKind kind, const char *text)
 {
     Console *con = app->console;
     if (slot == MAX_PLAYERS) {
-        if (team) console_print_color(con, HUD_COLOR_ENTER, "%s\n", text);
-        else console_print_color(con, HUD_COLOR_SERVER, "*SERVER*: %s\n", text);
+        if (kind == CHAT_SERVER) console_print_color(con, HUD_COLOR_SERVER, "*SERVER*: %s\n", text);
+        else console_print_color(con, chat_kind_color(kind), "%s\n", text);
         return;
     }
     char name[HUD_NAME];
     player_name(app, slot, name, sizeof name);
-    Rgba color = team ? HUD_COLOR_TEAMCHAT : HUD_COLOR_CHAT;
+    bool spectator = app->game->world.soldiers[slot].team == TEAM_SPECTATOR;
+    Rgba color = team ? HUD_COLOR_TEAMCHAT : spectator ? HUD_COLOR_SPECTATOR_CHAT : HUD_COLOR_CHAT;
     const char *prefix = team ? "(TEAM) " : "";
     if (strlen(text) < MORECHATTEXT) console_print_color(con, color, "%s[%s] %s\n", prefix, name, text);
     else console_print_color(con, color, "%s[%s] \n %s\n", prefix, name, text);
@@ -225,11 +240,30 @@ static void chat_heard(App *app, int slot, bool team, const char *text)
 
 // Something I say: to the server, which says it back to everyone, me among them; alone,
 // straight to my own console and head.
+// The original's word to me on my own votes (ControlGame.pas, Game.pas): a yes to the
+// vote on, and a kick I begin, in the vote's colour; a map vote begun says nothing.
+static void vote_said(App *app, const char *text)
+{
+    const MsgVote *v = &app->net.vote;
+    if (strcmp(text, "/yes") == 0) {
+        if (v->kind == VOTE_MAP) console_print_color(app->console, HUD_COLOR_VOTE, "You have voted on %s\n", v->target);
+        else if (v->kind == VOTE_KICK) console_print_color(app->console, HUD_COLOR_VOTE, "You have voted to kick %s\n", v->target);
+    } else if (strncmp(text, "/votekick ", 10) == 0) {
+        char who[HUD_TEXT] = "", name[HUD_NAME], *end;
+        sscanf(text + 10, "%159s", who);
+        long slot = strtol(who, &end, 10);
+        if (who[0] && *end == '\0' && slot >= 0 && slot < MAX_PLAYERS) player_name(app, (int)slot, name, sizeof name);
+        else snprintf(name, sizeof name, "%s", who);
+        console_print_color(app->console, HUD_COLOR_VOTE, "You have voted to kick %s from the game\n", name);
+    }
+}
+
 static void say(App *app, bool team, const char *text)
 {
     if (!text[0]) return;
+    if (text[0] == '/' && client_net_joined(&app->net)) vote_said(app, text);
     if (client_net_say(&app->net, text, team)) return;
-    chat_heard(app, app->me, team, text);
+    chat_heard(app, app->me, team, CHAT_SERVER, text);
 }
 
 // say <text...> / say_team <text...>: chat, as a command (the taunt binds use it).
@@ -1353,7 +1387,7 @@ int main(int argc, char *argv[])
             app.me = app.net.slot;
         }
         MsgChat heard;
-        while (client_net_take_chat(&app.net, &heard)) chat_heard(&app, heard.slot, heard.team, heard.text);
+        while (client_net_take_chat(&app.net, &heard)) chat_heard(&app, heard.slot, heard.team, (ChatKind)heard.kind, heard.text);
         // the menu goes as a server takes us, and comes back when the line is lost
         if (app.net.state != app.net_state_seen) {
             if (app.net.state == CLIENT_NET_JOINED) mainmenu_show(&app.mainmenu, false);

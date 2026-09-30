@@ -25,6 +25,13 @@
 #define HUD_COLOR_SERVER ((Rgba){0xFB, 0xDA, 0x22, 0xF9})   // SERVER_MESSAGE_COLOR: the server's chat
 #define HUD_COLOR_DEFAULT ((Rgba){0xCC, 0xFF, 0xAA, 0xEE})  // DEFAULT_MESSAGE_COLOR: the console's answers
 #define HUD_COLOR_DEBUG ((Rgba){0xFF, 0x89, 0x89, 0xEE})    // DEBUG_MESSAGE_COLOR: what went wrong
+#define HUD_COLOR_CLIENT ((Rgba){0xFC, 0xD8, 0x22, 0xF9})   // CLIENT_MESSAGE_COLOR: the line's word, who was cut off
+#define HUD_COLOR_WARNING ((Rgba){0xE3, 0x69, 0x52, 0xEE})  // WARNING_MESSAGE_COLOR: the line lost
+#define HUD_COLOR_VOTE ((Rgba){0xDD, 0xEE, 0x99, 0xEE})     // VOTE_MESSAGE_COLOR
+#define HUD_COLOR_ALPHAJ ((Rgba){0xE1, 0x53, 0x53, 0xFF})   // ALPHAJ_MESSAGE_COLOR: who came to and left alpha
+#define HUD_COLOR_BRAVOJ ((Rgba){0x53, 0x53, 0xE1, 0xFF})   // BRAVOJ_MESSAGE_COLOR
+#define HUD_COLOR_DELTAJ ((Rgba){0x53, 0xDF, 0x53, 0xFF})   // DELTAJ_MESSAGE_COLOR: the spectators', too
+#define HUD_COLOR_SPECTATOR_CHAT ((Rgba){0xDF, 0x7A, 0xB0, 0xF5}) // SPECTATOR_C_MESSAGE_COLOR: a spectator's chat
 
 typedef enum HudGameMode {
     HUD_MODE_DEATHMATCH,

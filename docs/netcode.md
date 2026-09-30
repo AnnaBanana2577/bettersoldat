@@ -40,7 +40,10 @@ a test holds that every event type is classified.
 - **Local consequences, never sent:** fire, bullet end, wall hit, ricochet, collider
   hit, grenade bounce, cluster split, blood, explosion, and Hit itself. Every machine
   flies the same bullet from the same seed and produces these for itself. Hit is the
-  simulation proposing a wound; only the server turns it into damage.
+  simulation proposing a wound; only the server turns it into damage, but its knockback
+  and bink land wherever it is produced, as the original writes a victim's NextPush
+  wherever the bullet is simulated: the owner's word about its soldier stands, so the
+  owner must feel the knock itself.
 - **The owner's decisions, in its client state:** the shot (EVENT_SHOT, numbered so the
   same bullet comes out everywhere), the weapon throw (EVENT_WEAPON_DROP) and the flag
   throw (EVENT_FLAG_THROW).
@@ -210,6 +213,8 @@ commit that changes the netcode says what it measured, on what line.
    one vote runs at a time for a minute and passes on 51% of the players; a map vote
    passed is handed to the server's loop, a kick is a Denied and the line cut. The one
    message added is Vote, the server's word of a vote begun or over, for the HUD. The
+   server's own chat lines carry a kind, the original's colour class (who came to which
+   team, who was kicked, a vote's word), so the client colours them as the original. The
    server's console reads its standard input on a thread, so nextmap and the rest can
    be typed at it. For the HUD alone the served half also relays two things of the
    player's the simulation never reads: whether it is typing (a bit in its client
