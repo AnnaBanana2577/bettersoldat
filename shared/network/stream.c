@@ -19,6 +19,7 @@ void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base)
     net_u32(b, &m->event_ack);
     netfields_serialize(b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m->owned, base);
     netfields_serialize(b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &m->owned, base);
+    net_bool(b, &m->typing);
 }
 
 static const SnapBase NO_BASE = {0};
@@ -95,6 +96,7 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     m.owned = base ? *base : (Soldier){0};
     netfields_serialize(&b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m.owned, base);
     netfields_serialize(&b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &m.owned, base);
+    net_bool(&b, &m.typing);
     if (!netbuf_ok(&b) || soldier_out_of_bounds(&g->ctx, m.owned.pos)) {
         s->dropped++;
         return false;
@@ -120,6 +122,7 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     // its loadout always, a weapon that isn't a primary or a secondary put right
     Soldier *soldier = &g->world.soldiers[slot];
     if (soldier->active && !soldier->dead) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
+    soldier->typing = m.typing;
     soldier->primary_choice = weapon_is_primary(m.owned.primary_choice) ? m.owned.primary_choice : WEAPON_EAGLE;
     soldier->secondary_choice = weapon_is_secondary(m.owned.secondary_choice) ? m.owned.secondary_choice : WEAPON_KNIFE;
     return true;
@@ -349,11 +352,13 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
             bool placed = heard->life != s->life;
             Vec2 before = s->pos;
             if (i == me) {
-                // the server's word of me, but my look and loadout are mine
+                // the server's word of me, but my look, loadout and typing are mine
                 PlayerLook look = s->look;
                 WeaponId primary = s->primary_choice, secondary = s->secondary_choice;
+                bool typing = s->typing;
                 soldier_copy_served(s, heard);
                 s->look = look;
+                s->typing = typing;
                 s->primary_choice = primary;
                 s->secondary_choice = secondary;
                 if (placed) soldier_copy_owned(g->ctx.anims, s, heard);
@@ -421,7 +426,7 @@ size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, siz
 
     NetBuf b = netbuf_writer(buf, size);
     MsgKind kind = MSG_CLIENT_STATE;
-    MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .owned = *me};
+    MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .owned = *me, .typing = me->typing};
     msg_kind(&b, &kind);
     msg_client_state(&b, &m, base);
     wire_write(&b, &c->out, c->event_ack, -1, WIRE_PER_PACKET);

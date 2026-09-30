@@ -117,6 +117,9 @@ void die(const Context *ctx, World *w, Hit hit, Events *events)
             .health = s->health,
             .part = hit.part,
             .kills = killer->kills,
+            .distance = hit.distance,
+            .airtime = hit.airtime,
+            .ricochets = hit.ricochets,
         },
     });
 }

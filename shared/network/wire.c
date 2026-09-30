@@ -131,6 +131,9 @@ void wire_event(NetBuf *b, Event *e)
         net_f32(b, &k->health);
         net_u8(b, &k->part);
         i16(b, &k->kills);
+        net_f32(b, &k->distance);
+        i16(b, &k->airtime);
+        net_u8(b, &k->ricochets);
         break;
     }
     case EVENT_RESPAWN: {

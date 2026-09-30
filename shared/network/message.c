@@ -47,6 +47,7 @@ void msg_map(NetBuf *b, MsgMap *m)
 {
     net_u16(b, &m->round);
     net_string(b, m->map, sizeof m->map);
+    net_string(b, m->hostname, sizeof m->hostname);
 }
 
 void msg_vote(NetBuf *b, MsgVote *m)
@@ -56,6 +57,7 @@ void msg_vote(NetBuf *b, MsgVote *m)
     m->kind = (VoteKind)kind;
     net_string(b, m->target, sizeof m->target);
     net_string(b, m->starter, sizeof m->starter);
+    net_string(b, m->reason, sizeof m->reason);
     net_u16(b, &m->seconds);
 }
 

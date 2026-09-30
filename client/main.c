@@ -49,8 +49,10 @@
 #include "net/client_net.h"
 #include "render/interface.h"
 #include "render/render.h"
+#include "render/textures.h"
 #include "render/scale_data.h"
 #include <ctype.h>
+#include <math.h>
 
 #include "audio/audio.h"
 #include "ui/consoles.h"
@@ -61,7 +63,7 @@
 #define CONFIG "config.cfg"
 #define SCREENSHOT_FRAME 60
 #define RADIO_CALLS 3  // the radio menu's first choices, and each one's second choices
-#define CHAT_TICKS 150 // what was said stays over the head this long, and fades at the end
+#define CURSORSPRITE_DISTANCE 15.0f // the original's: how near the cursor names a player
 
 // The original's frame pacing, its defaults: vsync off (r_swapeffect 0), frames no closer
 // than 1/500 s (r_fpslimit, r_maxfps), and a millisecond's sleep after each so the loop
@@ -109,6 +111,10 @@ typedef struct App {
     char chat_last[HUD_TEXT]; // the last line sent, for "//" to bring back
     HudChatType chat_last_type;
     Consoles consoles;        // the HUD's two consoles, fed from the game console's scrollback
+    bool vote_reason_typing;  // the prompt takes a kick vote's reason (the kick window's OK)
+    int kick_target;          // the player it is about
+    char maps[128][64];       // the maps under assets, for the map window
+    int map_count;
     bool was_dead;         // my soldier as of the last tick, for the weapons menu at death
     bool limbo_lock;       // the weapons menu closed while dead stays closed (the original's LimboLock)
     double accumulator;
@@ -265,6 +271,8 @@ static void chat_open(App *app, HudChatType type)
 static void chat_close(App *app)
 {
     app->hud_data.chat_type = HUD_CHAT_NONE;
+    app->vote_reason_typing = false;
+    app->hud_data.vote_reason_typing = false;
     app->hud_data.chat_text[0] = '\0';
     app->chat_completing = 0;
     SDL_StopTextInput();
@@ -335,6 +343,16 @@ static void chat_send(App *app)
     snprintf(app->chat_last, sizeof app->chat_last, "%s", line);
     app->chat_last_type = type;
     chat_close(app);
+    if (app->vote_reason_typing) { // the kick window's reason: the vote, with it, if enough was typed
+        app->vote_reason_typing = false;
+        app->hud_data.vote_reason_typing = false;
+        if (strlen(line) > 3) {
+            char text[HUD_TEXT];
+            snprintf(text, sizeof text, "/votekick %d %.*s", app->kick_target, NET_REASON_SIZE - 1, line + 1);
+            say(app, false, text);
+        }
+        return;
+    }
     if (line[0] == '/') {
         char word[HUD_TEXT] = "";
         sscanf(line + 1, "%159s", word);
@@ -756,6 +774,7 @@ static void tick(App *app)
     World *w = &app->game->world;
     bool online = client_net_joined(&app->net);
     Command cmds[MAX_PLAYERS] = {0};
+    w->soldiers[app->me].typing = app->hud_data.chat_type != HUD_CHAT_NONE; // the dots over my head, for the others
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
         s->remote = online && i != app->me;
@@ -850,9 +869,21 @@ static void apply_menu_action(App *app, MenuAction action)
         if (!me->dead) me->secondary = weapon_state(&app->game->ctx, (WeaponId)action.value);
         break;
     }
+    case MENU_ACTION_KICK: // the reason first, typed at the prompt; the vote goes with it
+        if (action.value < 0 || action.value >= MAX_PLAYERS || !app->hud_data.players[action.value].active) break;
+        app->kick_target = action.value;
+        chat_open(app, HUD_CHAT_PUBLIC);
+        app->vote_reason_typing = app->hud_data.chat_type != HUD_CHAT_NONE;
+        app->hud_data.vote_reason_typing = app->vote_reason_typing;
+        break;
+    case MENU_ACTION_VOTE_MAP: {
+        if (app->map_count == 0) break;
+        char text[HUD_TEXT];
+        snprintf(text, sizeof text, "/votemap %s", app->maps[clampi(action.value, 0, app->map_count - 1)]);
+        say(app, false, text);
+        break;
+    }
     case MENU_ACTION_PICK_TEAM: // a change of team goes to the server, once there is one
-    case MENU_ACTION_KICK:
-    case MENU_ACTION_VOTE_MAP:
     default: break;
     }
 }
@@ -938,8 +969,15 @@ static void hud_data_build(App *app)
     d->vote = v->kind == VOTE_KICK ? HUD_VOTE_KICK : v->kind == VOTE_MAP ? HUD_VOTE_MAP : HUD_VOTE_NONE;
     snprintf(d->vote_target, sizeof d->vote_target, "%s", v->target);
     snprintf(d->vote_starter, sizeof d->vote_starter, "%s", v->starter);
-    d->vote_reason[0] = '\0';
-    snprintf(d->hostname, sizeof(d->hostname), "bettersoldat");
+    snprintf(d->vote_reason, sizeof d->vote_reason, "%s", v->reason);
+    snprintf(d->hostname, sizeof(d->hostname), "%s", client_net_joined(&app->net) ? app->net.hostname : "bettersoldat");
+    // the map window's offer, kept within the list
+    if (app->map_count > 0) {
+        app->menus.map_index = clampi(app->menus.map_index, 0, app->map_count - 1);
+        snprintf(d->map_offered, sizeof d->map_offered, "%s", app->maps[app->menus.map_index]);
+    } else {
+        snprintf(d->map_offered, sizeof d->map_offered, "%s", app->map->value);
+    }
     d->kill_limit = g->match.settings.score_limit;
     d->time_left_min = g->match.time_left / TICK_RATE / 60;
     d->time_left_sec = g->match.time_left / TICK_RATE % 60;
@@ -956,6 +994,34 @@ static void hud_data_build(App *app)
         p->dead = s->dead;
         p->holding_flag = s->held && thing_is_flag(g->world.things[s->held - 1].style);
         p->shirt = s->look.shirt;
+        p->kills = s->kills;
+        p->deaths = s->deaths;
+        p->flags = s->flags;
+        p->ping = s->ping;
+        p->typing = i != app->me && s->typing;
+    }
+    d->ping = me->ping;
+    d->bonus = me->bonus == BONUS_PREDATOR ? HUD_BONUS_PREDATOR : me->bonus == BONUS_BERSERKER ? HUD_BONUS_BERSERKER
+               : me->bonus == BONUS_FLAME_GOD ? HUD_BONUS_FLAMEGOD : HUD_BONUS_NONE;
+    d->bonus_time = me->bonus_time;
+    // the player under the cursor (UpdateFrame.pas): named, with its health if a teammate
+    d->cursor_text[0] = '\0';
+    d->cursor_friendly = false;
+    for (int j = 0; j < MAX_PLAYERS && me->active; j++) {
+        const Soldier *s = &g->world.soldiers[j];
+        bool teammate = d->team_game && s->team == me->team;
+        if (j == app->me || !s->active || s->team == TEAM_SPECTATOR || s->bonus == BONUS_PREDATOR) continue;
+        if (!(s->stance == STANCE_STAND || teammate || me->dead || s->dead)) continue;
+        if (vec2_length(vec2_sub(app->input.aim, s->pos)) >= CURSORSPRITE_DISTANCE) continue;
+        char name[HUD_NAME];
+        player_name(app, j, name, sizeof name);
+        if (teammate) {
+            snprintf(d->cursor_text, sizeof d->cursor_text, "%s %d%%", name, (int)roundf(s->health / DEFAULT_HEALTH * 100.0f));
+            d->cursor_friendly = true;
+        } else {
+            snprintf(d->cursor_text, sizeof d->cursor_text, "%s", name);
+        }
+        break;
     }
     d->me = app->me;
     d->camera_follow = -1;
@@ -980,7 +1046,7 @@ static void hud_data_build(App *app)
     // the consoles: the main one, or the big one while a line is typed
     consoles_pull(&app->consoles, app->console);
     consoles_fill(&app->consoles, d, d->chat_type != HUD_CHAT_NONE);
-    feed_fill(&app->feed, d);
+    feed_fill(&app->feed, d, &g->ctx.weapons);
     if (app->hud_demo->integer) hud_data_demo(d, app->hud_demo->integer);
 }
 
@@ -1120,6 +1186,11 @@ int main(int argc, char *argv[])
     if (!client_net_init(&app.net)) fprintf(stderr, "ENet wouldn't start: no connecting\n");
     if (!console_open(&app, argc, argv)) return 1;
     consoles_init(&app.consoles, app.console_length->integer);
+    {
+        char dir[512];
+        snprintf(dir, sizeof dir, "%s/maps", app.assets->value);
+        app.map_count = list_files(dir, ".pms", app.maps, (int)(sizeof app.maps / sizeof app.maps[0]));
+    }
     if (!game_open(&app, true)) {
         fprintf(stderr, "could not load map '%s' from '%s'\nusage: client +assets <dir> +map <name>\n",
                 app.map->value, app.assets->value);

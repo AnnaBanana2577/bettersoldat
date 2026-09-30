@@ -400,6 +400,17 @@ void stream_tests(void)
           "and its weapon choices reach the server for its next spawn");
     CHECK(d.game->world.soldiers[2].look.shirt.r == 1 && d.game->world.soldiers[2].primary_choice == WEAPON_BARRETT,
           "while the client keeps its own over the server's word of them");
+    d.game->world.soldiers[2].typing = true; // at the prompt: the dots over its head reach the others
+    for (int round = 0; round < 6; round++) {
+        connections_poll(&conns, gs);
+        server_tick(&conns, gs, 0);
+        client_pump(&c);
+        client_tick(&c, 0);
+        client_pump(&d);
+        client_tick(&d, 0);
+        enet_host_service(server.host, NULL, 10);
+    }
+    CHECK(c.game->world.soldiers[2].typing, "a player typing is seen typing by the others");
 
     // a correction of another player goes to the picture and is smoothed away
     c.stream.blend[2] = vec2(20.0f, 0.0f);

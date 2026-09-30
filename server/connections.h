@@ -31,6 +31,7 @@ typedef struct Connection {
 typedef struct Vote {
     VoteKind kind;              // VOTE_NONE: none running
     char target[NET_MAP_SIZE];  // the map, or the player's name
+    char reason[NET_REASON_SIZE]; // a kick's, as the starter typed it
     int slot;                   // the player, for a kick
     int starter;
     int32_t ticks_left;
@@ -45,6 +46,7 @@ typedef struct Connections {
     Console *console;              // may be NULL
     uint16_t round;                // the round being played, from 1
     char map[NET_MAP_SIZE];        // on which map
+    char hostname[NET_NAME_SIZE];  // the server's name, told with the map (sv_hostname)
     char maps_dir[512];            // where a voted map must be found, <assets>/maps; empty accepts any
     Vote vote;
     char vote_map[NET_MAP_SIZE];   // a map vote passed, until the server takes it

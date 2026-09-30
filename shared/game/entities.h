@@ -247,6 +247,10 @@ typedef struct Soldier {
     WeaponId secondary_choice;
     int32_t kills, deaths, flags;
     PlayerLook look;
+    // The player's, relayed by the server in the served half for the HUD alone; the
+    // simulation reads neither: whether the player is typing, and its round trip in ms.
+    bool typing;
+    uint16_t ping;
 
     // This machine's alone, never on the wire: the soldier is heard of, not played
     // here, so its keys move it between words but fire nothing.
@@ -369,11 +373,19 @@ typedef struct EventExplosion { uint16_t id; uint8_t player; WeaponId weapon; Ve
 // amount of 0 is a shove alone (a blast over spawn protection); `spray` says the hit
 // also disturbs the victim's aim, as bullets and blasts do. `impact` is the blow a death
 // gives the gun it lets go of.
-typedef struct Hit { uint8_t shooter, target; WeaponId weapon; float amount; uint8_t part; Vec2 pos, push, impact; bool spray; } Hit;
+// `distance` (meters), `airtime` (ticks) and `ricochets` are the bullet's flight, for the
+// killer's readout; 0 for a blast or a blade.
+typedef struct Hit {
+    uint8_t shooter, target; WeaponId weapon; float amount; uint8_t part; Vec2 pos, push, impact; bool spray;
+    float distance; int32_t airtime; uint8_t ricochets;
+} Hit;
 
 typedef struct EventDamage { uint8_t attacker, target; WeaponId weapon; float amount; bool vest; } EventDamage;
 // kills: the killer's tally now
-typedef struct EventKill { uint8_t killer, target; WeaponId weapon; Vec2 pos; float health; uint8_t part; int32_t kills; } EventKill;
+typedef struct EventKill {
+    uint8_t killer, target; WeaponId weapon; Vec2 pos; float health; uint8_t part; int32_t kills;
+    float distance; int32_t airtime; uint8_t ricochets; // the shot's, as the Hit had them
+} EventKill;
 // The server placed a soldier: where, on which team, holding what, and the number of
 // the life that begins. All its own client needs to begin it too.
 typedef struct EventRespawn { uint8_t target; uint8_t life; Team team; WeaponId primary, secondary; Vec2 pos; } EventRespawn;

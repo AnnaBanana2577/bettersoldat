@@ -244,6 +244,8 @@ void soldier_copy_served(Soldier *dst, const Soldier *src)
     dst->primary_choice = src->primary_choice;
     dst->secondary_choice = src->secondary_choice;
     dst->look = src->look;
+    dst->typing = src->typing;
+    dst->ping = src->ping;
 }
 
 void soldier_copy_rest(Soldier *dst, const Soldier *src)

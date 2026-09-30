@@ -25,11 +25,12 @@
 
 #include "game/entities.h"
 
-#define NET_VERSION 2
+#define NET_VERSION 3
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
 #define NET_TEXT_SIZE 128 // a line of chat, a reason
 #define NET_MAP_SIZE 64  // a map's name, with its terminator
+#define NET_REASON_SIZE 26 // a kick vote's reason (the original's REASON_CHARS)
 #define NET_MTU 1200      // a packet, so that nothing is fragmented
 
 // --- the buffer --------------------------------------------------------------------
@@ -175,6 +176,7 @@ typedef struct MsgWelcome {
 typedef struct MsgMap {
     uint16_t round;
     char map[NET_MAP_SIZE];
+    char hostname[NET_NAME_SIZE]; // the server's, for the scoreboard
 } MsgMap;
 
 // A vote as the HUD shows it: what is voted on and by whom, and how long it has. The
@@ -184,6 +186,7 @@ typedef struct MsgVote {
     VoteKind kind;
     char target[NET_MAP_SIZE];  // the map, or the player's name
     char starter[NET_NAME_SIZE];
+    char reason[NET_REASON_SIZE]; // a kick's, as typed
     uint16_t seconds;
 } MsgVote;
 

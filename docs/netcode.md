@@ -205,4 +205,7 @@ commit that changes the netcode says what it measured, on what line.
    passed is handed to the server's loop, a kick is a Denied and the line cut. The one
    message added is Vote, the server's word of a vote begun or over, for the HUD. The
    server's console reads its standard input on a thread, so nextmap and the rest can
-   be typed at it.
+   be typed at it. For the HUD alone the served half also relays two things of the
+   player's the simulation never reads: whether it is typing (a bit in its client
+   state) and its round trip as the server measures it; a kick vote carries the reason
+   typed, and the Map the server's name.

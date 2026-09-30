@@ -139,6 +139,7 @@ typedef struct HudData {
     char vote_starter[HUD_NAME];
     char vote_reason[HUD_TEXT];
     bool vote_reason_typing; // "Type reason for vote:"
+    char map_offered[HUD_NAME]; // the map the escape menu's map window shows
 
     // the radio menu, from the radio_* cvars: the first choice, then the second
     bool radio_menu;

@@ -77,6 +77,7 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         if (!netbuf_done(&b)) return;
         n->round = m.round;
         snprintf(n->map, sizeof n->map, "%s", m.map);
+        snprintf(n->hostname, sizeof n->hostname, "%s", m.hostname);
         n->mapped = true;
         client_stream_reset(&n->stream, m.round);
         console_print(con, "round %u on %s\n", m.round, m.map);

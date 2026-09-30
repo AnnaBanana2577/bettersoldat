@@ -115,6 +115,16 @@ static void kill(Feed *f, const Game *g, const char names[MAX_PLAYERS][HUD_NAME]
     } else {
         kill_line(f, text, (Rgba){0xD3, 0xB7, 0x27, 0xEB}, k->weapon, true);
     }
+    if (k->killer == me && k->target != me) { // my weapon's tally, and the shot's readout
+        f->stats[k->weapon].kills++;
+        if (k->part == 12) f->stats[k->weapon].headshots++;
+        if (k->distance > 0.0f) {
+            f->shot_ticks = FEED_KILL_MESSAGE_TICKS - 30;
+            f->shot_distance = k->distance;
+            f->shot_airtime = (float)k->airtime / 60.0f;
+            f->shot_ricochets = k->ricochets;
+        }
+    }
     if (k->killer == me && k->target == me) {
         big_message(f, "You killed yourself", (Rgba){0xC5, 0x30, 0x25, 0xFF}, FEED_KILL_MESSAGE_TICKS);
     } else if (k->target == me) {
@@ -149,6 +159,7 @@ static void match_end(Feed *f, Console *con, const Game *g, const char names[MAX
 void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], bool team_game, int me)
 {
     (void)team_game;
+    if (f->shot_ticks > 0) f->shot_ticks--;
     // the kill console scrolls once, a while after the last kill (UpdateFrame.pas)
     if (++f->scroll_tick == FEED_SCROLL_TICKS) {
         kill_scroll(f);
@@ -162,6 +173,12 @@ void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYER
         char text[HUD_TEXT];
         switch (e->type) {
         case EVENT_KILL: kill(f, g, names, &e->kill, me); break;
+        case EVENT_FIRE:
+            if (e->fire.player == me) f->stats[e->fire.weapon].shots++;
+            break;
+        case EVENT_DAMAGE:
+            if (e->damage.attacker == me && e->damage.target != me) f->stats[e->damage.weapon].hits++;
+            break;
         case EVENT_FLAG_SCORE: {
             Team flag = flag_team(e->flag_score.flag);
             snprintf(text, sizeof text, "%s Flag Captured!", team_name(flag));
@@ -186,8 +203,20 @@ void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYER
     }
 }
 
-void feed_fill(const Feed *f, HudData *d)
+void feed_fill(const Feed *f, HudData *d, const Weapons *weapons)
 {
+    d->weapon_stat_count = 0;
+    for (int w = 0; w < WEAPON_COUNT && d->weapon_stat_count < HUD_WEAPON_STATS; w++) {
+        if (!weapons->info[w].name) continue;
+        HudWeaponStat *s = &d->weapon_stats[d->weapon_stat_count++];
+        *s = f->stats[w];
+        s->weapon = (WeaponId)w;
+        snprintf(s->name, sizeof s->name, "%s", weapons->info[w].name);
+    }
+    d->shot_distance_shown = f->shot_ticks > 0;
+    d->shot_distance = f->shot_distance;
+    d->shot_airtime = f->shot_airtime;
+    d->shot_ricochets = f->shot_ricochets;
     d->kill_count = f->kill_count;
     for (int i = 0; i < f->kill_count; i++) d->kills[i] = f->kills[i];
     d->big_count = HUD_BIG_MESSAGES;

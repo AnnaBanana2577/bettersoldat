@@ -22,14 +22,18 @@ typedef struct Feed {
     int kill_count;
     int scroll_tick;
     HudBigMessage big[HUD_BIG_MESSAGES]; // by layer: 0 the flags', 1 the match's
+    HudWeaponStat stats[WEAPON_COUNT];   // my shots, hits, kills and headshots by weapon (F2)
+    int shot_ticks;                       // the last kill's shot readout, while shown
+    float shot_distance, shot_airtime;
+    int shot_ricochets;
 } Feed;
 
 // After a tick: the kill console scrolls when it is time, and the tick's events add
 // theirs. `names` are the players' for the lines; `me` gets the big words about myself.
 void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], bool team_game, int me);
 
-// Into the HUD, each frame.
-void feed_fill(const Feed *f, HudData *d);
+// Into the HUD, each frame; `weapons` name the stats' lines.
+void feed_fill(const Feed *f, HudData *d, const Weapons *weapons);
 
 // The team's name and colour as the texts show them.
 const char *team_name(Team team);

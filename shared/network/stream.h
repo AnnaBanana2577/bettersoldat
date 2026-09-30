@@ -40,6 +40,7 @@ typedef struct MsgClientState {
     uint32_t ack;       // the newest snapshot (its tick) the client has, 0 for none
     uint32_t event_ack; // the newest of the server's events the client has applied
     Soldier owned;      // the owned half, and the loadout choice, ride in a Soldier
+    bool typing;        // the player is at the chat prompt: the dots over its head
     // then the client's own decisions since the server's acknowledgement (wire.h)
 } MsgClientState;
 

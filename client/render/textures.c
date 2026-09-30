@@ -90,6 +90,34 @@ bool find_image(const char *dir, const char *name, char *path, int path_size)
     return true;
 }
 
+typedef struct FileList {
+    const char *ext;
+    char (*names)[64];
+    int max, count;
+} FileList;
+
+static bool list_visit(const char *name, void *user)
+{
+    FileList *l = user;
+    size_t n = strlen(name), e = strlen(l->ext);
+    if (n <= e || l->count >= l->max) return true;
+    for (size_t i = 0; i < e; i++)
+        if (tolower((unsigned char)name[n - e + i]) != tolower((unsigned char)l->ext[i])) return true;
+    snprintf(l->names[l->count], 64, "%.*s", (int)(n - e), name);
+    l->count++;
+    return true;
+}
+
+static int name_compare(const void *a, const void *b) { return strcmp(a, b); }
+
+int list_files(const char *dir, const char *ext, char (*names)[64], int max)
+{
+    FileList l = {.ext = ext, .names = names, .max = max};
+    for_each_file(dir, list_visit, &l);
+    qsort(names, (size_t)l.count, 64, name_compare);
+    return l.count;
+}
+
 GfxTexture map_texture_load(const char *base, const char *name)
 {
     char dir[512], path[512];

@@ -76,6 +76,8 @@ const NetField SOLDIER_SERVED_FIELDS[] = {
     NETFIELD(Soldier, look.skin, NET_RGBA, 0),
     NETFIELD(Soldier, look.hair, NET_RGBA, 0),
     NETFIELD(Soldier, look.jet, NET_RGBA, 0),
+    NETFIELD(Soldier, typing, NET_BOOL, 0),
+    NETFIELD(Soldier, ping, NET_U, 16),
     NETFIELD_ENUM(Soldier, look.hair_style, 4),
     NETFIELD_ENUM(Soldier, look.head_style, 2),
     NETFIELD_ENUM(Soldier, look.chain_style, 2),

@@ -1344,7 +1344,7 @@ static void draw_window_texts(const Interface *hud, const HudData *d, const Game
         }
     } else {
         text_color((Rgba){135, 235, 135, 230});
-        text_draw(d->vote_target, first->x1, first->y1 - 15); // the map the window offers
+        text_draw(d->map_offered, first->x1, first->y1 - 15); // the map the window offers
     }
     text_color((Rgba){255, 255, 255, 250});
     for (int i = 0; i < menu->button_count; i++) {

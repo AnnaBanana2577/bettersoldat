@@ -80,6 +80,7 @@ static void tell_map(Connections *c, ENetPeer *peer)
     uint8_t buf[NET_MTU];
     MsgMap m = {.round = c->round};
     snprintf(m.map, sizeof m.map, "%s", c->map);
+    snprintf(m.hostname, sizeof m.hostname, "%s", c->hostname);
     size_t n = build(buf, sizeof buf, MSG_MAP, route_map, &m);
     if (n) net_send(peer, MSG_MAP, buf, n);
 }
@@ -93,6 +94,7 @@ static void tell_vote(Connections *c, ENetPeer *peer)
     MsgVote m = {.kind = c->vote.kind, .seconds = (uint16_t)((c->vote.ticks_left + TICK_RATE - 1) / TICK_RATE)};
     snprintf(m.target, sizeof m.target, "%s", c->vote.target);
     snprintf(m.starter, sizeof m.starter, "%s", c->vote.starter >= 0 ? c->items[c->vote.starter].name : "");
+    snprintf(m.reason, sizeof m.reason, "%s", c->vote.reason);
     uint8_t buf[NET_MTU];
     size_t n = build(buf, sizeof buf, MSG_VOTE, route_vote, &m);
     if (!n) return;
@@ -272,6 +274,9 @@ void connections_broadcast(Connections *c, MsgKind kind, const uint8_t *data, si
 
 void connections_poll(Connections *c, Game *g)
 {
+    // everyone's round trip, for the HUDs, in the served half
+    for (int i = 0; i < MAX_PLAYERS; i++)
+        if (c->items[i].joined && c->items[i].peer) g->world.soldiers[i].ping = (uint16_t)(c->items[i].peer->roundTripTime > 65535 ? 65535 : c->items[i].peer->roundTripTime);
     NetEvent e;
     while (net_poll(c->link, &e, 0) != NET_EVENT_NONE) {
         switch (e.kind) {
@@ -394,12 +399,14 @@ static void vote_tick(Connections *c)
     if (--c->vote.ticks_left <= 0) vote_end(c, "ran out of time");
 }
 
-static void vote_start(Connections *c, int slot, VoteKind kind, const char *target, int target_slot)
+static void vote_start(Connections *c, int slot, VoteKind kind, const char *target, int target_slot, const char *reason)
 {
     c->vote = (Vote){.kind = kind, .slot = target_slot, .starter = slot, .ticks_left = VOTE_TICKS};
     snprintf(c->vote.target, sizeof c->vote.target, "%s", target);
+    snprintf(c->vote.reason, sizeof c->vote.reason, "%s", reason ? reason : "");
     c->vote.answer[slot] = 1;
     if (kind == VOTE_MAP) announce(c, "%s started a vote to change the map to %s: /yes or /no", c->items[slot].name, target);
+    else if (c->vote.reason[0]) announce(c, "%s started a vote to kick %s - Reason: %s: /yes or /no", c->items[slot].name, target, c->vote.reason);
     else announce(c, "%s started a vote to kick %s: /yes or /no", c->items[slot].name, target);
     tell_vote(c, NULL);
     vote_check(c);
@@ -426,14 +433,20 @@ static void vote_command(Connections *c, const Game *g, int slot, const char *te
                 tell(c, slot, "No such map: %s", rest);
                 return;
             }
-            vote_start(c, slot, VOTE_MAP, rest, -1);
+            vote_start(c, slot, VOTE_MAP, rest, -1, NULL);
         } else {
-            int target = player_named(c, rest);
+            // the player first, then the reason, as much of it as the box shows
+            char who[NET_TEXT_SIZE];
+            int k = 0;
+            while (*rest && *rest != ' ' && k < (int)sizeof who - 1) who[k++] = *rest++;
+            who[k] = '\0';
+            while (*rest == ' ') rest++;
+            int target = player_named(c, who);
             if (target < 0) {
-                tell(c, slot, "No such player: %s", rest);
+                tell(c, slot, "No such player: %s", who);
                 return;
             }
-            vote_start(c, slot, VOTE_KICK, c->items[target].name, target);
+            vote_start(c, slot, VOTE_KICK, c->items[target].name, target, rest);
         }
     } else if (strcmp(word, "yes") == 0 || strcmp(word, "no") == 0) {
         if (c->vote.kind == VOTE_NONE) {

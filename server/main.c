@@ -41,6 +41,7 @@ typedef struct Server {
     Cvar *map;
     Cvar *maps; // the rotation
     Cvar *port;
+    Cvar *hostname;
     Game *game; // large; on the heap
     NetLink link;
     Connections connections;
@@ -157,6 +158,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->map = cvar_register(con, "map", "Arena", 0, "the map to load");
     sv->maps = cvar_register(con, "sv_maps", "", 0, "the maps in rotation, space-separated; empty plays the map again");
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
+    sv->hostname = cvar_register(con, "sv_hostname", "bettersoldat server", 0, "the server's name, on the scoreboard");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
     console_add_command(con, "say", cmd_say, sv, "say something to everyone, as the server");
@@ -207,6 +209,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     snprintf(sv.connections.maps_dir, sizeof sv.connections.maps_dir, "%s/maps", sv.assets->value);
+    snprintf(sv.connections.hostname, sizeof sv.connections.hostname, "%s", sv.hostname->value);
     if (!stdin_reader_start()) fprintf(stderr, "the console won't read its input\n");
     signal(SIGINT, on_interrupt);
     signal(SIGTERM, on_interrupt);
