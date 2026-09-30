@@ -154,6 +154,9 @@ bool console_add_command(Console *con, const char *name, ConsoleCommandFn fn, vo
 // matched without regard to case. An empty or NULL text unbinds.
 bool console_bind(Console *con, const char *key, const char *text);
 const char *console_bind_get(const Console *con, const char *key); // NULL if unbound
+// The binds, for listing: how many, and the i-th's key and text (false past the end).
+int console_bind_count(const Console *con);
+bool console_bind_at(const Console *con, int i, const char **key, const char **text);
 
 // A key went down or up: runs its bind. Down runs the bind; up runs "-cmd" if the bind
 // is "+cmd", and nothing otherwise. The client ignores key repeats.

@@ -293,6 +293,16 @@ bool console_bind(Console *con, const char *key, const char *text)
     return true;
 }
 
+int console_bind_count(const Console *con) { return con->bind_count; }
+
+bool console_bind_at(const Console *con, int i, const char **key, const char **text)
+{
+    if (i < 0 || i >= con->bind_count) return false;
+    *key = con->binds[i].key;
+    *text = con->binds[i].text;
+    return true;
+}
+
 const char *console_bind_get(const Console *con, const char *key)
 {
     const Bind *b = bind_find(con, key);

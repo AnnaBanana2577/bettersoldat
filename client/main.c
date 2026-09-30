@@ -57,6 +57,7 @@
 #include "audio/audio.h"
 #include "ui/consoles.h"
 #include "ui/feed.h"
+#include "ui/mainmenu.h"
 #include "ui/menus.h"
 
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
@@ -85,6 +86,8 @@ typedef struct App {
     Cvar *map;
     Cvar *width, *height; // the window
     Cvar *swapeffect;     // vsync
+    Cvar *fullscreen;     // 0 windowed, 1 fullscreen, 2 borderless
+    Cvar *server;         // the address the main menu joins
     Cvar *sensitivity;
     Cvar *wireframe, *debug;
     Cvar *minimap, *info, *player_names, *console_length;
@@ -139,6 +142,8 @@ typedef struct App {
     Interface hud;
     HudData hud_data; // what the HUD shows beyond the frame: filled here from what there is
     Feed feed;        // the kill console and the big messages, from the ticks' events
+    MainMenu mainmenu;
+    ClientNetState net_state_seen; // as of the last frame: the menu goes on joining, comes back on losing the line
     Audio audio;      // what is heard, from the ticks' events and the soldiers
     GameMenus menus;
     double time;      // seconds since the start
@@ -579,6 +584,8 @@ static bool console_open(App *app, int argc, char *argv[])
     app->width = cvar_register(con, "r_screenwidth", "1280", CVAR_ARCHIVE, "the window's width");
     app->height = cvar_register(con, "r_screenheight", "960", CVAR_ARCHIVE, "the window's height");
     app->swapeffect = cvar_register(con, "r_swapeffect", "0", CVAR_ARCHIVE, "wait for the display's refresh (vsync)");
+    app->fullscreen = cvar_register(con, "r_fullscreen", "0", CVAR_ARCHIVE, "0 windowed, 1 fullscreen, 2 borderless window");
+    app->server = cvar_register(con, "cl_server", "127.0.0.1:23073", CVAR_ARCHIVE, "the server the main menu joins, host:port");
     app->sensitivity = cvar_register(con, "cl_sensitivity", "1", CVAR_ARCHIVE, "the mouse's speed");
     app->wireframe = cvar_register(con, "r_wireframe", "0", 0, "draw the map's polygons as lines");
     app->debug = cvar_register(con, "r_debug", "0", 0, "spawn points, colliders, special polys, bones");
@@ -679,8 +686,22 @@ static PlayerLook look_from_cvars(const App *app)
 }
 
 // The cvars the loop reads each frame; vsync only once it changes, as it costs a call.
+// r_fullscreen: the window as the cvar says, and its size when windowed.
+static void apply_window_mode(App *app)
+{
+    int mode = clampi(app->fullscreen->integer, 0, 2);
+    Uint32 flags = mode == 1 ? SDL_WINDOW_FULLSCREEN : mode == 2 ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
+    if (SDL_SetWindowFullscreen(app->window, flags) != 0) fprintf(stderr, "window mode %d: %s\n", mode, SDL_GetError());
+    if (mode == 0) {
+        SDL_SetWindowSize(app->window, app->width->integer, app->height->integer);
+        SDL_SetWindowPosition(app->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+    }
+    app->fullscreen->modified = app->width->modified = app->height->modified = false;
+}
+
 static void apply_cvars(App *app)
 {
+    if (app->fullscreen->modified || app->width->modified || app->height->modified) apply_window_mode(app);
     if (app->swapeffect->modified) {
         gfx_vsync(app->swapeffect->integer != 0);
         app->swapeffect->modified = false;
@@ -746,6 +767,7 @@ static bool window_open(App *app)
         return false;
     }
     if (!gfx_init(app->window)) return false;
+    apply_window_mode(app);
     apply_cvars(app);
     return true;
 }
@@ -902,7 +924,13 @@ static void apply_menu_action(App *app, MenuAction action)
 {
     Soldier *me = &app->game->world.soldiers[app->me];
     switch (action.kind) {
-    case MENU_ACTION_QUIT: app->quit = true; break; // the main menu, when there is one
+    case MENU_ACTION_QUIT: // exit to the main menu: the line closed, the menus down
+        console_execute(app->console, "disconnect");
+        menus_hide_all(&app->menus);
+        chat_close(app);
+        input_release_all(&app->input);
+        mainmenu_show(&app->mainmenu, true);
+        break;
     case MENU_ACTION_OPEN_TEAM_MENU:
         menus_show(&app->menus, MENU_TEAM, true, app->hud_data.mode, 1);
         break;
@@ -992,6 +1020,10 @@ static void poll_events(App *app)
             }
             break;
         default:
+            if (app->mainmenu.shown) {
+                mainmenu_event(&app->mainmenu, app->console, &e);
+                break;
+            }
             if (chat_event(app, &e)) break;
             if (!menu_event(app, &e)) input_event(&app->input, app->console, &e);
             break;
@@ -1287,6 +1319,8 @@ int main(int argc, char *argv[])
     snapshot_tick(&app); // both snapshots start as the world before the first tick
     app.camera = (GameCamera){.pos = app.game->world.soldiers[app.me].pos, .viewport = window_rect(&app)};
     input_start(&app.input, view_size(&app));
+    mainmenu_show(&app.mainmenu, app.net.state == CLIENT_NET_OFF); // unless the command line is already connecting
+    app.net_state_seen = app.net.state;
 
     Uint64 last = SDL_GetPerformanceCounter();
     double since_frame = 0; // the time the frame being drawn covers
@@ -1309,6 +1343,12 @@ int main(int argc, char *argv[])
         }
         MsgChat heard;
         while (client_net_take_chat(&app.net, &heard)) chat_heard(&app, heard.slot, heard.team, heard.text);
+        // the menu goes as a server takes us, and comes back when the line is lost
+        if (app.net.state != app.net_state_seen) {
+            if (app.net.state == CLIENT_NET_JOINED) mainmenu_show(&app.mainmenu, false);
+            else if (app.net.state == CLIENT_NET_OFF && app.net_state_seen == CLIENT_NET_JOINED) mainmenu_show(&app.mainmenu, true);
+            app.net_state_seen = app.net.state;
+        }
         apply_cvars(&app);
         app.camera.viewport = window_rect(&app);
         input_sample(&app.input, screen_to_world(&app.camera, cursor(&app)));
@@ -1334,6 +1374,14 @@ int main(int argc, char *argv[])
             hud_data_build(&app);
             interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
                            &app.camera, app.input.cursor, app.camera.viewport);
+            if (app.mainmenu.shown) {
+                Rect r = app.camera.viewport;
+                mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, app.game->ctx.anims, &app.game->ctx.weapons,
+                              app.input.cursor, GAME_HEIGHT * r.width / r.height, GAME_HEIGHT / r.height, app.time,
+                              console_log_line(app.console, 0), client_net_joined(&app.net));
+                char command[256];
+                if (mainmenu_take_command(&app.mainmenu, command, sizeof command)) console_execute(app.console, command);
+            }
             if (app.screenshot[0] && ++frames_drawn == SCREENSHOT_FRAME) {
                 Rect r = app.camera.viewport;
                 if (!gfx_save_screen(app.screenshot, (int)r.width, (int)r.height)) {

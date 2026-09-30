@@ -198,3 +198,24 @@ void input_clear(Input *in)
 {
     in->pressed = 0;
 }
+
+void input_release_all(Input *in)
+{
+    in->held = 0;
+    in->pressed = 0;
+    memset(in->down, 0, sizeof in->down);
+    memset(in->down_with, 0, sizeof in->down_with);
+}
+
+bool input_event_key_name(const SDL_Event *e, char *buf, size_t size)
+{
+    switch (e->type) {
+    case SDL_KEYDOWN: return key_name(e->key.keysym.scancode, buf, size) != NULL;
+    case SDL_MOUSEBUTTONDOWN: snprintf(buf, size, "mouse%d", mouse_number(e->button.button)); return true;
+    case SDL_MOUSEWHEEL:
+        if (e->wheel.y == 0) return false;
+        snprintf(buf, size, "%s", e->wheel.y > 0 ? "mwheelup" : "mwheeldown");
+        return true;
+    default: return false;
+    }
+}

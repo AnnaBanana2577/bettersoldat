@@ -76,3 +76,10 @@ void input_sample(Input *in, Vec2 aim);
 Command input_command(const Input *in, uint32_t seq);
 
 void input_clear(Input *in);
+
+// Every key let go of at once: a menu has taken the keyboard.
+void input_release_all(Input *in);
+
+// The name a key or mouse button going down binds under, without modifiers ("w",
+// "mouse1", "mwheelup"); false for any other event.
+bool input_event_key_name(const SDL_Event *e, char *buf, size_t size);

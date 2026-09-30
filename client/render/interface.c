@@ -766,6 +766,16 @@ static void draw_frags_texts(const Frame *f, const HudData *d, float menu_bottom
     (void)menu_bottom; // the demo's name goes above it, once demos are recorded
 }
 
+void interface_draw_box(const Interface *hud, float x, float y, float w, float h, Rgba color)
+{
+    draw_sprite_scaled(&hud->back, x, y, w / BACKGROUND_WIDTH, h / BACKGROUND_WIDTH, color);
+}
+
+void interface_draw_pointer(const Interface *hud, Vec2 at)
+{
+    draw_sprite(&hud->menucursor, at.x, at.y, 0, (Rgba){255, 255, 255, STATUS_TRANSPARENCY});
+}
+
 // The console in the corner, smaller when a line runs past the window.
 static void draw_console(const Frame *f, const HudData *d, bool dim)
 {
