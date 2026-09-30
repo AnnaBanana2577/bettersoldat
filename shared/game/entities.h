@@ -376,8 +376,11 @@ typedef struct EventFlagReturn { uint8_t player; ThingStyle flag; Vec2 pos; } Ev
 typedef struct EventFlagScore { uint8_t player; ThingStyle flag; Vec2 pos; } EventFlagScore;
 typedef struct EventKitPickup { uint8_t player; uint8_t thing; ThingStyle kit; Vec2 pos; } EventKitPickup;
 typedef struct EventWeaponPickup { uint8_t player; uint8_t thing; WeaponId weapon; int32_t ammo; Vec2 pos; } EventWeaponPickup;
-// thrown by hand, or let go of by a death
-typedef struct EventWeaponDrop { uint8_t player; WeaponId weapon; int32_t ammo; bool thrown; } EventWeaponDrop;
+// A gun left the hand: thrown on purpose, or let go of by a death, which gives it the
+// blow that killed (`impact`). `pos` is the hand. The things pass lays it down.
+typedef struct EventWeaponDrop { uint8_t player; WeaponId weapon; int32_t ammo; bool thrown; Vec2 pos, impact; } EventWeaponDrop;
+// A thrown knife stopped in a wall, a collider or a body, and lies there to be taken.
+typedef struct EventKnifeLand { uint8_t owner; Vec2 pos; } EventKnifeLand;
 typedef struct EventThingHit { ThingStyle thing; Vec2 pos, vel; uint8_t part; } EventThingHit;
 // A hurting, lava, regenerating or exploding poly touched.
 typedef struct EventPolyEffect { uint8_t target; PolyType type; Vec2 pos; bool spark; } EventPolyEffect;
@@ -408,6 +411,7 @@ typedef enum EventType {
     EVENT_KIT_PICKUP,
     EVENT_WEAPON_PICKUP,
     EVENT_WEAPON_DROP,
+    EVENT_KNIFE_LAND,
     EVENT_THING_HIT,
     EVENT_POLY_EFFECT,
     EVENT_CORPSE_HIT,
@@ -438,6 +442,7 @@ typedef struct Event {
         EventKitPickup kit_pickup;
         EventWeaponPickup weapon_pickup;
         EventWeaponDrop weapon_drop;
+        EventKnifeLand knife_land;
         EventThingHit thing_hit;
         EventPolyEffect poly_effect;
         EventCorpseHit corpse_hit;

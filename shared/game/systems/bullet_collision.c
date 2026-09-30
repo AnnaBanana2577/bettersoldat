@@ -36,6 +36,12 @@ float hitbox_modifier(const WeaponStats *stats, int part)
 
 static float bullet_gravity(const World *w) { return w->gravity * BULLET_GRAVITY; }
 
+// A thrown knife stopped where it is: the things pass lays it down there.
+static void knife_land(const Bullet *b, Events *events)
+{
+    event_emit(events, (Event){.type = EVENT_KNIFE_LAND, .knife_land = {.owner = b->owner, .pos = b->pos}});
+}
+
 // A bullet made by this one carries its lag: it meets the soldiers as its parent did.
 static void spawn_child(const Context *ctx, World *w, const Bullet *parent, Vec2 pos, Vec2 vel, WeaponId weapon, float damage,
                         Events *events)
@@ -224,7 +230,7 @@ static Vec2 map_collide(const Context *ctx, World *w, Bullet *b, uint16_t index,
                 break;
             case BULLET_THROWN_KNIFE:
                 b->pos = vec2_sub(pos, b->vel);
-                thrown_knife_land(ctx, w, b, events);
+                knife_land(b, events);
                 wall_hit(b, index, pos, b->vel, events);
                 bullet_end(b, index, events, &pos);
                 break;
@@ -256,7 +262,7 @@ static bool collider_collide(const Context *ctx, World *w, Bullet *b, uint16_t i
         case BULLET_THROWN_KNIFE:
         case BULLET_M2:
             b->pos = vec2_sub(p, b->vel);
-            if (b->style == BULLET_THROWN_KNIFE) thrown_knife_land(ctx, w, b, events);
+            if (b->style == BULLET_THROWN_KNIFE) knife_land(b, events);
             event_emit(events, (Event){
                 .type = EVENT_COLLIDER_HIT,
                 .collider_hit = {.id = index, .owner = b->owner, .pos = p, .vel = b->vel},
@@ -513,7 +519,7 @@ static bool body_collide(const Context *ctx, World *w, Bullet *b, uint16_t index
         case BULLET_THROWN_KNIFE:
             wound(events, b, ti, vec2_length(b->vel) * b->hit_multiply * 0.01f, &pose, part, point, push, false);
             if (corpse) return true; // it goes through a corpse rather than sticking in it
-            thrown_knife_land(ctx, w, b, events);
+            knife_land(b, events);
             bullet_end(b, index, events, &point);
             return true;
         case BULLET_CLUSTER_NADE:

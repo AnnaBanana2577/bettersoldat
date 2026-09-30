@@ -148,6 +148,9 @@ Vec2 aim_direction(const Soldier *s);
 
 bool weapon_is_primary(WeaponId id);   // Eagle through Minigun
 bool weapon_is_secondary(WeaponId id); // Colt, Knife, Chainsaw, LAW
+// The guns that lie on the ground once let go of: not the hands, the flamer, the M2,
+// the grenades, nor the bows outside Rambo.
+bool weapon_droppable(WeaponId id);
 
 // Soldat 1.7.1's table, which is also OpenSoldat's built-in one.
 void weapons_default(Weapons *w);
@@ -163,6 +166,9 @@ WeaponId weapon_named(const char *name);
 
 #define BRUTAL_DEATH_HEALTH (-400.0f)
 #define HEADCHOP_DEATH_HEALTH (-90.0f)
+
+// The wounds pass: where the world has authority, every Hit pending lands.
+void wounds_apply(const Context *ctx, World *w, const Events *last, Events *events);
 
 // A Hit lands: the knockback, the wound (the vest and berserker rules, then death), the
 // disturbed aim.
@@ -262,9 +268,10 @@ bool thing_spawn_boxes(const Map *m, int32_t kind, Thing *t, uint64_t *rng, Vec2
 // The round's things: the flags, the kits, the stationary guns.
 void things_spawn(const Context *ctx, World *w);
 
-// Every thing's tick: its physics, the flags' bases and captures, the pickups, the
-// timeouts.
-void things_update(const Context *ctx, World *w, Events *events);
+// The things pass: what was asked of the things since it last ran (a gun let go of, a
+// knife landed, a kill that lets a flag fall), then every thing's tick: its physics,
+// the flags' bases and captures, the pickups, the timeouts.
+void things_update(const Context *ctx, World *w, const Events *last, Events *events);
 
 // Whether bullets and blasts knock this thing about: flags always, the bow always,
 // dropped guns and kits as the match says, the rest never.
@@ -302,12 +309,12 @@ void bonuses_spawn(const Context *ctx, World *w, const MatchSettings *settings, 
 
 // --- dropped_gun.c -----------------------------------------------------------------
 
-// A gun leaves a soldier's hands: thrown on purpose, or let go of by a death.
-void dropped_gun_throw(const Context *ctx, World *w, uint8_t index, Soldier *s, WeaponId weapon, int32_t ammo, Events *events);
-void dropped_gun_from_death(const Context *ctx, World *w, uint8_t index, Soldier *s, Vec2 impact, Events *events);
+// A gun that left a soldier's hands (EVENT_WEAPON_DROP) laid down where the hand was,
+// flying as the death or the throw sends it. Only with authority.
+void dropped_gun_drop(const Context *ctx, World *w, const EventWeaponDrop *e);
 
-// A thrown knife that stopped in a wall or a body lies there as a knife to pick up.
-void thrown_knife_land(const Context *ctx, World *w, const Bullet *b, Events *events);
+// A thrown knife that stopped (EVENT_KNIFE_LAND) lies there as a knife to pick up.
+void thrown_knife_land(const Context *ctx, World *w, const EventKnifeLand *e);
 
 // Whether a soldier may take the gun, and the taking.
 bool dropped_gun_wanted(const Thing *t, const Soldier *s);

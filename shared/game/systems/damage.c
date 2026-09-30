@@ -69,6 +69,15 @@ void damage_apply(const Context *ctx, World *w, Hit hit, Events *events)
     if (hit.spray) hit_spray(ctx, w, hit.target, hit.shooter);
 }
 
+void wounds_apply(const Context *ctx, World *w, const Events *last, Events *events)
+{
+    if (!w->authority) return;
+    EventCursor pending = events_pending(last, events, PASS_WOUNDS);
+    for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
+        if (e->type == EVENT_HIT) damage_apply(ctx, w, e->hit, events);
+    }
+}
+
 void die(const Context *ctx, World *w, Hit hit, Events *events)
 {
     Soldier *s = &w->soldiers[hit.target];
@@ -78,10 +87,17 @@ void die(const Context *ctx, World *w, Hit hit, Events *events)
     s->death_vel = s->vel;
     s->death_part = hit.part;
 
-    if (s->weapon.id != WEAPON_FLAMER) dropped_gun_from_death(ctx, w, hit.target, s, hit.impact, events);
-    things_let_go(w, hit.target);
-    // The server forgets what the soldier held; a parachute still holds the body and
-    // says so again on its next tick, so the corpse floats down under it.
+    // the gun leaves the hand with the blow that killed; the things pass lays it down
+    if (s->weapon.id != WEAPON_FLAMER && weapon_droppable(s->weapon.id)) {
+        Pose pose = soldier_pose(ctx->anims, s, s->pos);
+        event_emit(events, (Event){
+            .type = EVENT_WEAPON_DROP,
+            .weapon_drop = {.player = hit.target, .weapon = s->weapon.id, .ammo = s->weapon.ammo, .pos = pose.p[15], .impact = hit.impact},
+        });
+    }
+    // The server forgets what the soldier held (the things pass lets the flag go on the
+    // kill); a parachute still holds the body and says so again on its next tick, so
+    // the corpse floats down under it.
     s->held = 0;
     s->weapon = weapon_state(ctx, WEAPON_NONE);
     s->dead = true;

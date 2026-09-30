@@ -130,6 +130,11 @@ void weapons_finalize(Weapons *w)
     }
 }
 
+bool weapon_droppable(WeaponId id)
+{
+    return weapon_is_primary(id) || id == WEAPON_COLT || id == WEAPON_KNIFE || id == WEAPON_CHAINSAW || id == WEAPON_LAW;
+}
+
 static bool equal_ignoring_case(const char *a, const char *b)
 {
     for (; *a && *b; a++, b++) {

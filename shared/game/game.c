@@ -56,7 +56,8 @@ void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], c
     }
     ragdolls_update(ctx, w, events);
     bullets_update(ctx, w, last, events);
-    things_update(ctx, w, events);
+    wounds_apply(ctx, w, last, events);
+    things_update(ctx, w, last, events);
     w->tick++;
 }
 
@@ -140,22 +141,11 @@ void game_init(Game *g, uint64_t seed, MatchSettings settings)
     events_clear(&g->events);
 }
 
-// The tick's hits become wounds. Only the hits the tick itself left: the wounds add
-// their own events (a damage, a kill) behind them.
-static void apply_hits(Game *g)
-{
-    int count = g->events.count;
-    for (int i = 0; i < count; i++) {
-        if (g->events.items[i].type == EVENT_HIT) damage_apply(&g->ctx, &g->world, g->events.items[i].hit, &g->events);
-    }
-}
-
 void game_tick(Game *g, const Command cmds[MAX_PLAYERS])
 {
     g->last = g->events;
     events_clear(&g->events);
     g->world.rules = match_rules(&g->match);
     world_step(&g->ctx, &g->world, cmds, &g->last, &g->events);
-    if (g->world.authority) apply_hits(g);
     match_run(&g->ctx, &g->world, &g->match, &g->events);
 }

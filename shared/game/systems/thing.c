@@ -572,8 +572,18 @@ static void thing_update(const Context *ctx, World *w, int index, Events *events
     }
 }
 
-void things_update(const Context *ctx, World *w, Events *events)
+void things_update(const Context *ctx, World *w, const Events *last, Events *events)
 {
+    EventCursor pending = events_pending(last, events, PASS_THINGS);
+    for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
+        switch (e->type) {
+        case EVENT_WEAPON_DROP: dropped_gun_drop(ctx, w, &e->weapon_drop); break;
+        case EVENT_KNIFE_LAND: thrown_knife_land(ctx, w, &e->knife_land); break;
+        case EVENT_KILL: things_let_go(w, e->kill.target); break;
+        default: break;
+        }
+    }
+
     for (int i = 0; i < MAX_THINGS; i++) {
         if (w->things[i].style != THING_NONE) thing_update(ctx, w, i, events);
     }

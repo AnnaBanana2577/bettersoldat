@@ -411,7 +411,13 @@ void combat_control(const Context *ctx, World *w, uint8_t index, Events *events)
     // the gun leaves the hand at frame 19 of the throw; the knife flies from frame 16,
     // or as soon as the key is let go
     if (weapon->id != WEAPON_KNIFE && body->id == ANIM_THROW_WEAPON && body->frame == 19 && weapon->id != WEAPON_NONE) {
-        dropped_gun_throw(ctx, w, index, s, weapon->id, weapon->ammo, events);
+        if (weapon_droppable(weapon->id)) {
+            Pose pose = soldier_pose(anims, s, s->pos);
+            event_emit(events, (Event){
+                .type = EVENT_WEAPON_DROP,
+                .weapon_drop = {.player = index, .weapon = weapon->id, .ammo = weapon->ammo, .thrown = true, .pos = pose.p[15]},
+            });
+        }
         s->weapon = weapon_state(ctx, WEAPON_NONE);
         info = &ctx->weapons.info[WEAPON_NONE];
         anim_apply(anims, body, ANIM_STAND, 1);

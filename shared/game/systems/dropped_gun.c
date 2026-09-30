@@ -4,49 +4,26 @@
 // nobody takes it. Ported from OpenSoldat Sprites.pas (DropWeapon, Die) and Things.pas
 // (the weapon cases of CheckSpriteCollision).
 //
-// Only the world with authority makes them: elsewhere the gun leaves the hand and is
-// heard of from there.
+// The gun leaves the hand as an event (EVENT_WEAPON_DROP, EVENT_KNIFE_LAND) and the
+// things pass lays it down from that, where the world has authority; elsewhere it is
+// heard of.
 
 #include "game/systems/systems.h"
 
 #define PICKUP_RESIST (GUN_RESIST_TIME - 30) // no taking it for its first half second
 
-// The guns that lie on the ground once let go of: not the hands, the flamer, the M2,
-// the grenades, nor the bows outside Rambo.
-static bool droppable(WeaponId id)
+void dropped_gun_drop(const Context *ctx, World *w, const EventWeaponDrop *e)
 {
-    return weapon_is_primary(id) || id == WEAPON_COLT || id == WEAPON_KNIFE || id == WEAPON_CHAINSAW || id == WEAPON_LAW;
-}
-
-// The gun from the hand (Skeleton.Pos[16]), flying as thing_create throws it; a death
-// gives its muzzle the killing blow.
-static void drop(const Context *ctx, World *w, uint8_t index, Soldier *s, WeaponId weapon, int32_t ammo, const Vec2 *impact, Events *events)
-{
-    if (!droppable(weapon)) return;
-    event_emit(events, (Event){.type = EVENT_WEAPON_DROP, .weapon_drop = {.player = index, .weapon = weapon, .ammo = ammo, .thrown = impact == NULL}});
     if (!w->authority) return;
-
-    Pose pose = soldier_pose(ctx->anims, s, s->pos);
-    int k = thing_create(ctx, w, THING_WEAPON, pose.p[15], weapon, (uint8_t)(index + 1), -1);
+    int k = thing_create(ctx, w, THING_WEAPON, e->pos, e->weapon, (uint8_t)(e->player + 1), -1);
     if (k < 0) return;
-    w->things[k].ammo = ammo;
-    if (impact) w->things[k].forces[1] = *impact;
+    w->things[k].ammo = e->ammo;
+    if (!e->thrown) w->things[k].forces[1] = e->impact; // a death gives its muzzle the killing blow
 }
 
-void dropped_gun_throw(const Context *ctx, World *w, uint8_t index, Soldier *s, WeaponId weapon, int32_t ammo, Events *events)
+void thrown_knife_land(const Context *ctx, World *w, const EventKnifeLand *e)
 {
-    drop(ctx, w, index, s, weapon, ammo, NULL, events);
-}
-
-void dropped_gun_from_death(const Context *ctx, World *w, uint8_t index, Soldier *s, Vec2 impact, Events *events)
-{
-    drop(ctx, w, index, s, s->weapon.id, s->weapon.ammo, &impact, events);
-}
-
-void thrown_knife_land(const Context *ctx, World *w, const Bullet *b, Events *events)
-{
-    (void)events;
-    if (w->authority) thing_create(ctx, w, THING_WEAPON, b->pos, WEAPON_KNIFE, (uint8_t)(b->owner + 1), -1);
+    if (w->authority) thing_create(ctx, w, THING_WEAPON, e->pos, WEAPON_KNIFE, (uint8_t)(e->owner + 1), -1);
 }
 
 bool dropped_gun_wanted(const Thing *t, const Soldier *s)
