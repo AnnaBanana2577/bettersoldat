@@ -346,7 +346,7 @@ static void draw_big_messages(const Frame *f, const HudData *d, Rect viewport)
             scale = max_size / text_style_size(FONT_BIG);
             extra /= scale;
         }
-        text_align(i == 0 ? TEXT_BASELINE : TEXT_TOP);
+        text_align(i == 1 ? TEXT_BASELINE : TEXT_TOP); // the original: the message layer sits on its baseline
         text_scale(extra);
         text_style_scaled(FONT_BIG, scale);
         text_color(with_alpha(m->color, alpha));
