@@ -26,6 +26,7 @@ typedef struct ClientNet {
     bool mapped;            // a Map not yet taken (client_net_take_map)
     MsgChat inbox[CLIENT_NET_INBOX]; // chat heard and not yet taken (client_net_take_chat), oldest first
     int inbox_count;
+    MsgVote vote;           // the vote on, kind none for none; for the HUD
 } ClientNet;
 
 // Once per program; false if ENet or the ring wouldn't start.

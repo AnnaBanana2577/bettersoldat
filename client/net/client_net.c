@@ -35,6 +35,7 @@ void client_net_disconnect(ClientNet *n, Console *con)
     net_close(&n->link);
     n->state = CLIENT_NET_OFF;
     n->slot = -1;
+    n->vote.kind = VOTE_NONE;
     console_print(con, "disconnected\n");
 }
 
@@ -85,6 +86,12 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         MsgDenied m = {0};
         msg_denied(&b, &m);
         if (netbuf_done(&b)) console_print(con, "denied: %s\n", m.reason);
+        break;
+    }
+    case MSG_VOTE: {
+        MsgVote m = {0};
+        msg_vote(&b, &m);
+        if (netbuf_done(&b)) n->vote = m;
         break;
     }
     case MSG_CHAT: {

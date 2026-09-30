@@ -229,8 +229,21 @@ static void messages(void)
     CHECK(got_kind == MSG_HELLO && got.version == NET_VERSION && strcmp(got.name, hello.name) == 0 && netbuf_done(&r),
           "a Hello round trips, kind first");
     CHECK(got.look.hair_style == 3 && got.primary == WEAPON_BARRETT, "with the player's look and loadout");
-    CHECK(MSG_RELIABLE[MSG_HELLO] && MSG_RELIABLE[MSG_CHAT] && !MSG_RELIABLE[MSG_SNAPSHOT] && !MSG_RELIABLE[MSG_CLIENT_STATE],
+    CHECK(MSG_RELIABLE[MSG_HELLO] && MSG_RELIABLE[MSG_CHAT] && MSG_RELIABLE[MSG_VOTE] && !MSG_RELIABLE[MSG_SNAPSHOT] &&
+              !MSG_RELIABLE[MSG_CLIENT_STATE],
           "news is reliable and state is not, by the table");
+    w = netbuf_writer(data, sizeof data);
+    kind = MSG_VOTE;
+    MsgVote vote = {.kind = VOTE_MAP, .target = "ctf_Ash", .starter = "Major Pain", .seconds = 60};
+    msg_kind(&w, &kind);
+    msg_vote(&w, &vote);
+    r = netbuf_reader(data, netbuf_bytes(&w));
+    MsgVote got_vote = {0};
+    msg_kind(&r, &got_kind);
+    msg_vote(&r, &got_vote);
+    CHECK(got_kind == MSG_VOTE && got_vote.kind == VOTE_MAP && strcmp(got_vote.target, "ctf_Ash") == 0 &&
+              strcmp(got_vote.starter, "Major Pain") == 0 && got_vote.seconds == 60 && netbuf_done(&r),
+          "a Vote round trips");
 
     w = netbuf_writer(data, sizeof data);
     kind = MSG_CHAT;

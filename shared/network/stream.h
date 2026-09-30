@@ -30,7 +30,6 @@
 #define STREAM_WHOLE_AFTER 24   // a baseline older than this many states or ticks: whole
 #define STREAM_RELEASE_TICKS 30 // no word for this long: the keys are let go
 #define STREAM_SNAP_DISTANCE 64.0f // a correction this far is a placing to the eye: shown at once, not smoothed
-#define NET_MAP_SIZE 64
 
 // --- the messages ------------------------------------------------------------------
 

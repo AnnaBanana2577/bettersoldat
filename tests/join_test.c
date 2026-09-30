@@ -5,6 +5,8 @@
 #include <string.h>
 
 #include "connections.h"
+
+#include <stdio.h>
 #include "test.h"
 
 #define PORT 40023
@@ -21,6 +23,8 @@ typedef struct TestClient {
     MsgChat chat;
     int chats;         // lines from players
     int announcements; // and from the server itself
+    MsgVote vote;      // the last word of a vote
+    int votes;
 } TestClient;
 
 static bool client_open(TestClient *c, uint16_t version)
@@ -64,6 +68,9 @@ static void client_pump(TestClient *c)
             } else if (kind == MSG_DENIED) {
                 msg_denied(&b, &c->denial);
                 c->denied = netbuf_done(&b);
+            } else if (kind == MSG_VOTE) {
+                msg_vote(&b, &c->vote);
+                if (netbuf_done(&b)) c->votes++;
             } else if (kind == MSG_CHAT) {
                 msg_chat(&b, &c->chat);
                 if (netbuf_done(&b) && c->chat.slot == MAX_PLAYERS) c->announcements++;
@@ -90,6 +97,10 @@ static bool second_answered(TestClient **c) { return c[1]->denied || c[1]->welco
 static bool first_heard_chat(TestClient **c) { return c[0]->chats > 0; }
 static bool third_welcomed(TestClient **c) { return c[2]->welcomed; }
 static bool third_heard_chat(TestClient **c) { return c[2]->chats > 0 && c[0]->chats > 2; }
+static int want_votes, want_announcements; // what the first client waits to have heard
+static bool vote_heard(TestClient **c) { return c[0]->votes >= want_votes && c[2]->votes >= want_votes; }
+static bool answered(TestClient **c) { return c[0]->announcements >= want_announcements; }
+static bool third_cut_off(TestClient **c) { return c[2]->closed; }
 
 void join_tests(void)
 {
@@ -145,6 +156,44 @@ void join_tests(void)
     CHECK(a.chats == a_before + 2 && d.chats == d_before + 1 && strcmp(d.chat.text, "to all") == 0,
           "a team line reaches the team alone, a public one everyone (a heard %d, d heard %d: %s)", a.chats - a_before,
           d.chats - d_before, d.chat.text);
+
+    // Votes ride the chat. A map vote by one of two players is half, short of the 51%;
+    // the other's yes passes it, and the server is handed the map.
+    snprintf(conns.maps_dir, sizeof conns.maps_dir, "assets/maps");
+    MsgChat cmd = {.slot = 0, .text = "/votemap ctf_Ash"};
+    client_send(&a, MSG_CHAT, route_chat, &cmd);
+    want_votes = 1;
+    pump(&conns, g, three, 3, vote_heard);
+    char voted[NET_MAP_SIZE];
+    CHECK(a.vote.kind == VOTE_MAP && strcmp(a.vote.target, "ctf_Ash") == 0 && strcmp(a.vote.starter, "Tester") == 0 &&
+              d.vote.kind == VOTE_MAP && !connections_take_vote_map(&conns, voted, sizeof voted),
+          "a map vote begins, everyone told what and by whom, and one of two is not enough");
+    snprintf(cmd.text, sizeof cmd.text, "/yes");
+    client_send(&d, MSG_CHAT, route_chat, &cmd);
+    want_votes = 2;
+    pump(&conns, g, three, 3, vote_heard);
+    CHECK(a.vote.kind == VOTE_NONE && connections_take_vote_map(&conns, voted, sizeof voted) && strcmp(voted, "ctf_Ash") == 0,
+          "the other's yes passes it: everyone hears it is over and the server is handed the map (%s)", voted);
+    snprintf(cmd.text, sizeof cmd.text, "/votemap NoSuchMap");
+    client_send(&a, MSG_CHAT, route_chat, &cmd);
+    want_announcements = a.announcements + 1; // the server's answer, to the asker alone
+    pump(&conns, g, three, 3, answered);
+    CHECK(conns.vote.kind == VOTE_NONE, "a vote for a map the server doesn't have never begins");
+    // a kick vote against the third, agreed to by the third, passes and cuts it off
+    snprintf(cmd.text, sizeof cmd.text, "/votekick 1");
+    client_send(&a, MSG_CHAT, route_chat, &cmd);
+    want_votes = 3;
+    pump(&conns, g, three, 3, vote_heard);
+    CHECK(conns.vote.kind == VOTE_KICK && conns.vote.slot == 1, "a kick vote names the player by slot");
+    snprintf(cmd.text, sizeof cmd.text, "/yes");
+    client_send(&d, MSG_CHAT, route_chat, &cmd);
+    pump(&conns, g, three, 3, third_cut_off);
+    for (int round = 0; round < 50 && conns.items[1].joined; round++) { // the server hears the line close
+        connections_poll(&conns, g);
+        enet_host_service(server.host, NULL, 10);
+    }
+    CHECK(d.closed && d.denied && !conns.items[1].joined && conns.vote.kind == VOTE_NONE,
+          "passed, it is told why and cut off, and its slot frees (denied: %s; closed %d, joined %d, vote %d)", d.denial.reason, d.closed, conns.items[1].joined, conns.vote.kind);
 
     net_close(&d.link);
     net_close(&a.link);

@@ -29,6 +29,7 @@
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
 #define NET_TEXT_SIZE 128 // a line of chat, a reason
+#define NET_MAP_SIZE 64  // a map's name, with its terminator
 #define NET_MTU 1200      // a packet, so that nothing is fragmented
 
 // --- the buffer --------------------------------------------------------------------
@@ -150,6 +151,7 @@ typedef enum MsgKind {
     MSG_MAP,          // server -> client: the map to play and the round's number: on joining, and each round
     MSG_CLIENT_STATE, // client -> server, every tick: the owned half (stream.h)
     MSG_SNAPSHOT,     // server -> client, every tick: everyone's halves (stream.h)
+    MSG_VOTE,         // server -> client: a vote begun (for the HUD), or over (kind none)
     MSG_COUNT,
 } MsgKind;
 
@@ -172,8 +174,18 @@ typedef struct MsgWelcome {
 // are dropped. Joining is hearing of the first.
 typedef struct MsgMap {
     uint16_t round;
-    char map[64];
+    char map[NET_MAP_SIZE];
 } MsgMap;
+
+// A vote as the HUD shows it: what is voted on and by whom, and how long it has. The
+// votes themselves are chat: /votemap, /votekick, /yes and /no, which the server reads.
+typedef enum VoteKind { VOTE_NONE, VOTE_KICK, VOTE_MAP } VoteKind;
+typedef struct MsgVote {
+    VoteKind kind;
+    char target[NET_MAP_SIZE];  // the map, or the player's name
+    char starter[NET_NAME_SIZE];
+    uint16_t seconds;
+} MsgVote;
 
 typedef struct MsgDenied {
     char reason[NET_TEXT_SIZE];
@@ -191,4 +203,5 @@ void msg_hello(NetBuf *b, MsgHello *m);
 void msg_welcome(NetBuf *b, MsgWelcome *m);
 void msg_denied(NetBuf *b, MsgDenied *m);
 void msg_chat(NetBuf *b, MsgChat *m);
+void msg_vote(NetBuf *b, MsgVote *m);
 void msg_map(NetBuf *b, MsgMap *m);

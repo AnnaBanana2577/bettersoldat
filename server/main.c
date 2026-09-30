@@ -22,6 +22,7 @@
 #include "console/console.h"
 #include "game/game.h"
 #include "rounds.h"
+#include "stdin_reader.h"
 
 // After the game's headers: GDI has a Polygon of its own.
 #ifdef _WIN32
@@ -110,11 +111,13 @@ static void cmd_nextmap(Console *con, int argc, char **argv, void *user)
     ((Server *)user)->next_round = true;
 }
 
-// The next round, on the map after this one in sv_maps (or this one again).
-static bool next_round(Server *sv)
+// The next round: on `chosen` if a vote chose one, else on the map after this one in
+// sv_maps (or this one again).
+static bool next_round(Server *sv, const char *chosen)
 {
     char map[NET_MAP_SIZE];
-    rounds_next_map(sv->maps->value, sv->map->value, map, sizeof map);
+    if (chosen) snprintf(map, sizeof map, "%s", chosen);
+    else rounds_next_map(sv->maps->value, sv->map->value, map, sizeof map);
     if (!round_start(sv->game, &sv->connections, sv->assets->value, map)) {
         fprintf(stderr, "could not load map '%s' from '%s'\n", map, sv->assets->value);
         return false;
@@ -183,6 +186,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "out of memory\n");
         return 1;
     }
+    snprintf(sv.connections.maps_dir, sizeof sv.connections.maps_dir, "%s/maps", sv.assets->value);
+    if (!stdin_reader_start()) fprintf(stderr, "the console won't read its input\n");
     signal(SIGINT, on_interrupt);
     signal(SIGTERM, on_interrupt);
     console_print(sv.console, "bettersoldat-server: %s on port %d, %d ticks a second\n", sv.map->value, sv.port->integer,
@@ -198,6 +203,8 @@ int main(int argc, char *argv[])
         sv.accumulator += t - last;
         last = t;
         if (sv.accumulator > MAX_STALL) sv.accumulator = MAX_STALL;
+        char line[STDIN_LINE_SIZE];
+        while (stdin_reader_take(line, sizeof line)) console_execute(sv.console, line);
         connections_poll(&sv.connections, sv.game);
         while (sv.accumulator >= TICK_SECONDS) {
             Command cmds[MAX_PLAYERS] = {0};
@@ -205,7 +212,9 @@ int main(int argc, char *argv[])
             game_tick(sv.game, cmds);
             connections_snapshots(&sv.connections, sv.game);
             sv.accumulator -= TICK_SECONDS;
-            if ((sv.next_round || match_over(&sv.game->match)) && !next_round(&sv)) sv.quit = true;
+            char chosen[NET_MAP_SIZE];
+            bool voted = connections_take_vote_map(&sv.connections, chosen, sizeof chosen);
+            if ((voted || sv.next_round || match_over(&sv.game->match)) && !next_round(&sv, voted ? chosen : NULL)) sv.quit = true;
         }
         net_flush(&sv.link);
         sleep_ms(SLEEP_MS);

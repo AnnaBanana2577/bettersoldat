@@ -71,7 +71,7 @@ static const char *VIEW_BINDS =
     "bind escape escmenu; bind tab weaponsmenu; bind m teammenu; bind f1 fragsmenu; bind f2 statsmenu;"
     "bind f3 \"toggle ui_minimap\"; bind f4 \"toggle r_swapeffect\"; bind f5 \"toggle ui_info\";"
     "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
-    "bind alt +radio; bind t chat; bind y teamchat";
+    "bind alt +radio; bind t chat; bind y teamchat; bind f12 \"say /yes\"; bind f11 \"say /no\"";
 
 typedef struct App {
     Console *console; // large; on the heap
@@ -197,6 +197,20 @@ static void cmd_say(Console *con, int argc, char **argv, void *user)
         n += (size_t)w; // past the end once it is full, and the loop ends
     }
     say(app, strcmp(argv[0], "say_team") == 0, text);
+}
+
+// votemap <map> / votekick <player>: a vote, which is a command said in the chat for
+// the server to read; /yes and /no answer it (F12 and F11).
+static void cmd_vote(Console *con, int argc, char **argv, void *user)
+{
+    App *app = user;
+    if (argc != 2) {
+        console_print(con, "usage: %s <%s>\n", argv[0], strcmp(argv[0], "votemap") == 0 ? "map" : "player");
+        return;
+    }
+    char text[HUD_TEXT];
+    snprintf(text, sizeof text, "/%s %s", argv[0], argv[1]);
+    say(app, false, text);
 }
 
 // chat / teamchat: the prompt opens, and the keys are its until Enter sends the line or
@@ -410,6 +424,8 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "say_team", cmd_say, app, "say something to the team");
     console_add_command(con, "chat", cmd_chat, app, "type a line to everyone");
     console_add_command(con, "teamchat", cmd_chat, app, "type a line to the team");
+    console_add_command(con, "votemap", cmd_vote, app, "start a vote to change the map: votemap <map>");
+    console_add_command(con, "votekick", cmd_vote, app, "start a vote to kick a player: votekick <name or slot>");
     console_add_command(con, "+radio", cmd_radio, app, "hold the radio menu open");
     console_add_command(con, "-radio", cmd_radio, app, NULL);
     console_add_command(con, "connect", cmd_connect, app, "join a server: connect <address[:port]>");
@@ -727,6 +743,12 @@ static void hud_data_build(App *app)
         flags++;
     }
     d->flags_known = flags == 2;
+    // the vote on, as the server last said
+    const MsgVote *v = &app->net.vote;
+    d->vote = v->kind == VOTE_KICK ? HUD_VOTE_KICK : v->kind == VOTE_MAP ? HUD_VOTE_MAP : HUD_VOTE_NONE;
+    snprintf(d->vote_target, sizeof d->vote_target, "%s", v->target);
+    snprintf(d->vote_starter, sizeof d->vote_starter, "%s", v->starter);
+    d->vote_reason[0] = '\0';
     snprintf(d->hostname, sizeof(d->hostname), "bettersoldat");
     d->kill_limit = g->match.settings.score_limit;
     d->time_left_min = g->match.time_left / TICK_RATE / 60;

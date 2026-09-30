@@ -12,6 +12,7 @@ const bool MSG_RELIABLE[MSG_COUNT] = {
     [MSG_MAP] = true,
     [MSG_CLIENT_STATE] = false,
     [MSG_SNAPSHOT] = false,
+    [MSG_VOTE] = true,
 };
 
 void msg_kind(NetBuf *b, MsgKind *kind)
@@ -46,6 +47,16 @@ void msg_map(NetBuf *b, MsgMap *m)
 {
     net_u16(b, &m->round);
     net_string(b, m->map, sizeof m->map);
+}
+
+void msg_vote(NetBuf *b, MsgVote *m)
+{
+    uint32_t kind = (uint32_t)m->kind;
+    net_range(b, &kind, VOTE_MAP);
+    m->kind = (VoteKind)kind;
+    net_string(b, m->target, sizeof m->target);
+    net_string(b, m->starter, sizeof m->starter);
+    net_u16(b, &m->seconds);
 }
 
 void msg_denied(NetBuf *b, MsgDenied *m) { net_string(b, m->reason, sizeof m->reason); }

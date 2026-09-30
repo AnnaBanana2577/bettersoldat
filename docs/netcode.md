@@ -199,4 +199,10 @@ commit that changes the netcode says what it measured, on what line.
    where the gostek is drawn. The match's mode (deathmatch, or CTF on a map with a flag's
    spawn) is decided by the map once, on the server and alone alike, and rides the
    snapshot in the match, so the client's HUD, team box, spawn and shirts follow it
-   rather than the map's name. Still to do: votes.
+   rather than the map's name. Votes ride the chat, as planned: a line beginning with
+   '/' is a command the server reads and never relays (/votemap, /votekick, /yes, /no);
+   one vote runs at a time for a minute and passes on 51% of the players; a map vote
+   passed is handed to the server's loop, a kick is a Denied and the line cut. The one
+   message added is Vote, the server's word of a vote begun or over, for the HUD. The
+   server's console reads its standard input on a thread, so nextmap and the rest can
+   be typed at it.

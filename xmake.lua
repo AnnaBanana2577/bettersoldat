@@ -69,6 +69,9 @@ target("server")
     add_deps("shared")
     add_files("server/**.c")
     add_includedirs("server")
+    if not is_plat("windows") then
+        add_syslinks("pthread") -- the console's reader
+    end
     set_rundir("$(projectdir)")
 
 -- The tests: headless checks of what shared/ holds, and of the server's join, streams
