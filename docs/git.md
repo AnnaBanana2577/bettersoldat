@@ -69,5 +69,12 @@ does not match is refused, so any release that changes the protocol will not tal
 the one before it. Say so in the tag's message, every time.
 
 A tag is the version; what ships beside it is the client, the server and the contents
-of `assets/`, unpacked flat so that config.cfg and the art sit beside the executable
-(see the readme). The tag alone is not a release until that exists.
+of `assets/`, unpacked flat so that config.cfg and the art sit beside the executable:
+the packages `xmake dist` makes (see xmake.lua). The tag alone is not a release until
+those exist.
+
+Pushing the tag makes them. The release workflow (.github/workflows/release.yml)
+builds the packages on Windows and Linux, runs the tests, and attaches the archives to
+a GitHub release named after the tag, with the tag's message as its notes. So the
+version in xmake.lua's `set_version` is bumped in a commit before the tag, the tag's
+message is written for players to read, and a tag whose tests fail releases nothing.

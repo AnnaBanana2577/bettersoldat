@@ -1,0 +1,99 @@
+# A version tag (v0.1.0) builds the packages on Windows and Linux, runs the tests, and
+# attaches the archives that `xmake dist` makes to a GitHub release named after the tag,
+# with the tag's own message as its notes (docs/git.md, Releases). A tag whose version
+# is not the one in xmake.lua, or whose tests fail, makes no release.
+
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  package:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: the tag is the version in xmake.lua
+        shell: bash
+        run: |
+          version=$(sed -n 's/^set_version("\([^"]*\)")/\1/p' xmake.lua)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME but xmake.lua says $version" >&2
+            exit 1
+          fi
+
+      # What SDL2 builds against on Linux: X11, Wayland, OpenGL and the sound systems.
+      - name: system libraries
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libxss-dev libxfixes-dev libxrender-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev \
+            libasound2-dev libpulse-dev libdbus-1-dev libudev-dev libdrm-dev libgbm-dev
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+          package-cache: true
+          package-cache-key: ${{ matrix.platform }}
+
+      - name: configure
+        run: xmake f -m release -y
+
+      - name: test
+        run: xmake test -y
+
+      - name: package
+        run: xmake dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.platform }}
+          path: |
+            build/dist/*.zip
+            build/dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The annotated tag's message is the release's notes.
+      - name: the tag's message
+        shell: bash
+        run: |
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > notes.md
+          cat notes.md
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: notes.md
+          files: |
+            dist/*.zip
+            dist/*.tar.gz
+          fail_on_unmatched_files: true
