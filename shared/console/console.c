@@ -240,8 +240,7 @@ static void cvar_set_from_console(Console *con, const char *name, const char *va
 
 static void cvar_show(Console *con, const Cvar *cv)
 {
-    console_print(con, "\"%s\" is \"%s\" (default \"%s\")\n", cv->name, cv->value, cv->default_value);
-    if (cv->help) console_print(con, "  %s\n", cv->help);
+    console_print(con, "%s is \"%s\" (%s)\n", cv->name, cv->value, cv->help ? cv->help : "");
 }
 
 // --- commands ------------------------------------------------------------------------
@@ -383,8 +382,14 @@ static void run(Console *con, Args *a)
     }
     Cvar *cv = cvar_find(con, name);
     if (cv) {
-        if (a->argc == 1) cvar_show(con, cv);
-        else cvar_set_from_console(con, cv->name, a->argv[1], 0);
+        if (a->argc == 1) {
+            cvar_show(con, cv);
+        } else if (!(cv->flags & CVAR_READONLY)) { // typed at the console, so it is told what took
+            cvar_set_from_console(con, cv->name, a->argv[1], 0);
+            console_print(con, "%s is now set to: \"%s\"\n", cv->name, cv->value);
+        } else {
+            cvar_set_from_console(con, cv->name, a->argv[1], 0); // which says it is read only
+        }
         return;
     }
     console_print(con, "unknown command: %s\n", name);

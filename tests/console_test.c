@@ -175,7 +175,8 @@ static void colours(void)
     Console *con = console_create(NULL, NULL);
     Cvar *fov = cvar_register(con, "fov", "90", 0, NULL);
     console_execute(con, "/fov 110"); // as typed at the game's prompt
-    CHECK(fov->integer == 110, "a cvar typed with a slash and a value, as at the prompt, is set (%d)", fov->integer);
+    CHECK(fov->integer == 110 && strstr(console_log_line(con, 0), "is now set to: \"110\"") != NULL,
+          "a cvar typed with a slash and a value, as at the prompt, is set and says so (%d: %s)", fov->integer, console_log_line(con, 0));
     console_execute(con, "fov");
     CHECK(strstr(console_log_line(con, 0), "110") != NULL, "and typed alone shows its value (%s)", console_log_line(con, 0));
     console_print(con, "plain\n");
@@ -184,7 +185,7 @@ static void colours(void)
     CHECK(console_log_color(con, 0, &c) && c.r == 1 && c.g == 2 && c.b == 3, "a coloured line keeps its colour");
     CHECK(console_log_color(con, 1, &c) && c.b == 3, "every line of the print does");
     CHECK(!console_log_color(con, 2, &c), "and a plain line has none");
-    CHECK(console_log_total(con) == 4, "four lines have been printed, by the count (%u)", console_log_total(con));
+    CHECK(console_log_total(con) == 5, "five lines have been printed, by the count (%u)", console_log_total(con));
     CHECK(console_knows(con, "echo") && !console_knows(con, "nosuchthing"), "the console knows its commands by name");
     console_destroy(con);
 }
