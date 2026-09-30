@@ -64,6 +64,7 @@
 #define SCREENSHOT_FRAME 60
 #define RADIO_CALLS 3  // the radio menu's first choices, and each one's second choices
 #define CURSORSPRITE_DISTANCE 15.0f // the original's: how near the cursor names a player
+#define SPECTATORAIMDIST 30.0f      // the original's: the free camera's speed, by the cursor's offset
 
 // The original's frame pacing, its defaults: vsync off (r_swapeffect 0), frames no closer
 // than 1/500 s (r_fpslimit, r_maxfps), and a millisecond's sleep after each so the loop
@@ -116,6 +117,13 @@ typedef struct App {
     char maps[128][64];       // the maps under assets, for the map window
     int map_count;
     bool was_dead;         // my soldier as of the last tick, for the weapons menu at death
+    int seen_life;         // the life the weapons menu last opened for: a new one opens it again
+    bool team_asked;       // the team menu shown for this round's join
+    // Watching: the player the camera follows (-1 for me), or the free camera, moved by
+    // the cursor's offset from the middle, as the original's spectator has it.
+    int camera_follow;
+    bool free_camera;
+    Buttons camera_keys; // last tick's, so a press switches once
     bool limbo_lock;       // the weapons menu closed while dead stays closed (the original's LimboLock)
     double accumulator;
     bool quit;
@@ -760,6 +768,27 @@ static void player_name(const App *app, int i, char *name, size_t size)
     else snprintf(name, size, "Player %d", i + 1);
 }
 
+// The next player to watch, from the one watched: alive, no spectator, and a teammate
+// unless I am watching from outside (GetCameraTarget). Nobody: the free camera.
+static void camera_next(App *app, bool backwards)
+{
+    const World *w = &app->game->world;
+    const Soldier *me = &w->soldiers[app->me];
+    bool outside = me->team == TEAM_SPECTATOR || !team_game(app);
+    int from = app->camera_follow < 0 ? app->me : app->camera_follow;
+    for (int n = 1; n <= MAX_PLAYERS; n++) {
+        int j = ((from + (backwards ? -n : n)) % MAX_PLAYERS + MAX_PLAYERS) % MAX_PLAYERS;
+        const Soldier *s = &w->soldiers[j];
+        if (j == app->me || !s->active || s->dead || s->team == TEAM_SPECTATOR) continue;
+        if (!outside && s->team != me->team) continue;
+        app->camera_follow = j;
+        app->free_camera = false;
+        return;
+    }
+    app->camera_follow = -1;
+    app->free_camera = true;
+}
+
 static void snapshot_tick(App *app)
 {
     app->previous = app->latest;
@@ -792,17 +821,42 @@ static void tick(App *app)
     feed_tick(&app->feed, app->console, app->game, names, team_game(app), app->me);
     consoles_tick(&app->consoles);
 
-    // The weapons menu opens at my death and stays through the spawn, to pick with,
-    // until I move or fire, or pick; unless I closed it while dead.
+    // The weapons menu opens at my death and with every new life, the first included, and
+    // stays through the spawn, to pick with, until I move or fire, or pick; unless I
+    // closed it while dead. A game with teams asks the team first: the server keeps me
+    // watching until I say.
     const Soldier *me = &w->soldiers[app->me];
-    bool dead = me->active && me->dead;
-    bool limbo = app->menus.menus[MENU_LIMBO].active;
-    if (dead != app->was_dead && !app->limbo_lock && !limbo && !app->menus.menus[MENU_ESC].active) {
+    bool spectator = me->active && me->team == TEAM_SPECTATOR;
+    bool dead = me->active && me->dead && !spectator;
+    bool limbo = app->menus.menus[MENU_LIMBO].active, esc = app->menus.menus[MENU_ESC].active;
+    bool new_life = me->active && !spectator && (int)me->life != app->seen_life;
+    if (new_life) app->seen_life = me->life;
+    if ((new_life || (dead && !app->was_dead)) && !app->limbo_lock && !limbo && !esc) {
         menus_show(&app->menus, MENU_LIMBO, true, app->hud_data.mode, 1);
     }
     const Buttons moving = BUTTON_LEFT | BUTTON_RIGHT | BUTTON_JUMP | BUTTON_CROUCH | BUTTON_PRONE | BUTTON_JET | BUTTON_FIRE | BUTTON_THROW;
     if (limbo && !dead && (cmds[app->me].buttons & moving)) menus_show(&app->menus, MENU_LIMBO, false, app->hud_data.mode, 1);
     app->was_dead = dead;
+    if (spectator && team_game(app) && !app->team_asked && !esc) {
+        menus_show(&app->menus, MENU_TEAM, true, app->hud_data.mode, 1);
+        app->team_asked = true;
+    }
+
+    // Watching (LocalInput.pas): dead or a spectator, fire or jump follows the next player
+    // and jet the one before, among those alive I may watch; with nobody, the free
+    // camera, which the cursor pushes. Alive, the camera is mine again.
+    Buttons pressed = (Buttons)(cmds[app->me].buttons & ~app->camera_keys);
+    app->camera_keys = cmds[app->me].buttons;
+    if (me->active && (me->dead || spectator)) {
+        if (!limbo && (pressed & (BUTTON_FIRE | BUTTON_JUMP | BUTTON_JET))) camera_next(app, (pressed & BUTTON_JET) != 0);
+        if (app->free_camera) {
+            Vec2 off = vec2_sub(app->input.cursor, vec2_scale(app->input.view, 0.5f));
+            if (fabsf(off.x) > 10.0f || fabsf(off.y) > 10.0f) app->camera.pos = vec2_add(app->camera.pos, vec2_scale(off, 1.0f / SPECTATORAIMDIST));
+        }
+    } else {
+        app->camera_follow = -1;
+        app->free_camera = false;
+    }
     for (int i = 0; i < MAX_PLAYERS; i++) // what was said fades
         if (app->hud_data.players[i].chat_delay > 0) app->hud_data.players[i].chat_delay--;
 }
@@ -883,7 +937,12 @@ static void apply_menu_action(App *app, MenuAction action)
         say(app, false, text);
         break;
     }
-    case MENU_ACTION_PICK_TEAM: // a change of team goes to the server, once there is one
+    case MENU_ACTION_PICK_TEAM: { // the server places me on it, or among the watchers
+        char text[HUD_TEXT];
+        snprintf(text, sizeof text, "/team %d", action.value);
+        say(app, false, text);
+        break;
+    }
     default: break;
     }
 }
@@ -999,6 +1058,7 @@ static void hud_data_build(App *app)
         p->flags = s->flags;
         p->ping = s->ping;
         p->typing = i != app->me && s->typing;
+        p->spectator = s->team == TEAM_SPECTATOR;
     }
     d->ping = me->ping;
     d->bonus = me->bonus == BONUS_PREDATOR ? HUD_BONUS_PREDATOR : me->bonus == BONUS_BERSERKER ? HUD_BONUS_BERSERKER
@@ -1024,7 +1084,8 @@ static void hud_data_build(App *app)
         break;
     }
     d->me = app->me;
-    d->camera_follow = -1;
+    d->camera_follow = app->camera_follow;
+    d->free_camera = app->free_camera;
     d->selected_weapon = me->weapon.id;
     d->selected_secondary = me->secondary.id;
     d->respawn_counter = me->respawn_counter;
@@ -1176,6 +1237,10 @@ static bool world_reload(App *app, const char *map)
     app->previous = app->latest = (TickSnapshot){0};
     app->limbo_lock = false;
     app->was_dead = false;
+    app->seen_life = -1;
+    app->team_asked = false;
+    app->camera_follow = -1;
+    app->free_camera = false;
     return true;
 }
 
@@ -1186,6 +1251,8 @@ int main(int argc, char *argv[])
     if (!client_net_init(&app.net)) fprintf(stderr, "ENet wouldn't start: no connecting\n");
     if (!console_open(&app, argc, argv)) return 1;
     consoles_init(&app.consoles, app.console_length->integer);
+    app.seen_life = -1;
+    app.camera_follow = -1;
     {
         char dir[512];
         snprintf(dir, sizeof dir, "%s/maps", app.assets->value);
@@ -1258,7 +1325,9 @@ int main(int argc, char *argv[])
             if (online) client_stream_smooth(&app.net.stream, (float)since_frame, app.smooth->number / 1000.0f);
             build_render_state(&app.frame, &app.game->ctx, &app.previous, &app.latest, alpha, app.me,
                                team_game(&app), online ? app.net.stream.blend : NULL);
-            camera_follow(&app.camera, app.frame.focus, cursor(&app), since_frame);
+            Vec2 target = app.frame.focus;
+            if (app.camera_follow >= 0 && app.frame.soldiers[app.camera_follow].active) target = app.frame.soldiers[app.camera_follow].pos;
+            if (!app.free_camera) camera_follow(&app.camera, target, cursor(&app), since_frame);
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);
             render_draw(&app.render, &app.frame, &app.camera, app.render_options, app.time);

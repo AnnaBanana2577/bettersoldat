@@ -815,6 +815,7 @@ static void draw_kill_console(const Frame *f, const HudData *d, Rect viewport)
 static void draw_respawn_texts(const Interface *hud, const Frame *f, const HudData *d, const RenderSoldier *me)
 {
     const HudPlayer *mine = &d->players[d->me];
+    if (mine->spectator) return; // a spectator is dead only in name
     if (mine->spectator) {
         if (d->survival_round_over) {
             text_style(FONT_MENU);

@@ -30,7 +30,7 @@ static void draw_soldiers(const Render *r, const RenderState *state)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const RenderSoldier *s = &state->soldiers[i];
-        if (s->active) gostek_draw(&r->gostek, s, s->corpse);
+        if (s->active && s->team != TEAM_SPECTATOR) gostek_draw(&r->gostek, s, s->corpse);
     }
 }
 

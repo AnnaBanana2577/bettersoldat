@@ -23,6 +23,8 @@ typedef struct Connection {
     ENetPeer *peer; // NULL: the slot is free
     bool joined;    // Hello accepted: it has a soldier
     char name[NET_NAME_SIZE];
+    bool chose_team; // said /team; in a game with teams a spectator until it does
+    Team team;       // what it said
 } Connection;
 
 #define VOTE_TICKS (60 * 60) // a minute to decide
@@ -74,6 +76,10 @@ void connections_snapshots(Connections *c, const Game *g);
 void connections_broadcast(Connections *c, MsgKind kind, const uint8_t *data, size_t size);
 
 int connections_count(const Connections *c);
+
+// A player's soldier on `team`: alive on its spawn, or a spectator, present on the roster
+// and nowhere else. What it held is let go of.
+void connections_place(Connections *c, Game *g, int slot, Team team);
 
 // A map vote passed since last asked: true, with the map, once.
 bool connections_take_vote_map(Connections *c, char *map, size_t size);

@@ -57,7 +57,9 @@ Command stream_command(const Soldier *s, bool quiet)
 {
     return (Command){
         .seq = s->cmd_seq,
-        .buttons = quiet ? 0 : (Buttons)(s->controls & ~BUTTONS_ONE_SHOT),
+        // the one-shots are its owner's alone; the throw is held while a grenade is wound
+        // up, and the pose returns to the stance without it
+        .buttons = quiet ? 0 : (Buttons)(s->controls & ~(BUTTONS_ONE_SHOT & ~BUTTON_THROW)),
         .aim = vec2_sub(s->aim, s->vel), // the step leads the aim by the velocity again
     };
 }
@@ -308,6 +310,7 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
     memset(m.soldiers, 0, sizeof m.soldiers);
     memset(m.things, 0, sizeof m.things);
     memset(&m.match, 0, sizeof m.match);
+    memset(m.names, 0, sizeof m.names); // a soldier sent as a delta brings no name
     if (against) {
         for (int i = 0; i < MAX_PLAYERS; i++)
             if (base.word[i] == SNAP_STATE) m.soldiers[i] = base.soldiers[i];

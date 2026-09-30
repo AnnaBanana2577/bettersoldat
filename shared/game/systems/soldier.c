@@ -22,12 +22,14 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
     int32_t kills = s->kills, deaths = s->deaths, flags = s->flags;
     uint8_t life = s->life;
     PlayerLook look = s->look; // the player's, not the life's
+    bool remote = s->remote;   // and whose keys move it is the machine's, not the life's
     uint64_t rng = s->rng != 0 ? s->rng : seed_from_position(pos);
 
     *s = (Soldier){
         .rng = rng,
         .life = life,
         .look = look,
+        .remote = remote,
         .kills = kills,
         .deaths = deaths,
         .flags = flags,
@@ -112,7 +114,7 @@ void soldier_integrate(Soldier *s, float gravity)
 void soldier_step(const Context *ctx, World *w, uint8_t index, Command cmd, Events *events, bool armed)
 {
     Soldier *s = &w->soldiers[index];
-    if (!s->active || s->dead) return;
+    if (!s->active || s->dead || s->team == TEAM_SPECTATOR) return;
 
     parachute_catch(w, s);
     soldier_integrate(s, w->gravity);
@@ -162,7 +164,7 @@ Hit suicide_hit(const World *w, uint8_t index)
 void soldier_served_tick(const Context *ctx, World *w, uint8_t index, Events *events)
 {
     Soldier *s = &w->soldiers[index];
-    if (!s->active) return;
+    if (!s->active || s->team == TEAM_SPECTATOR) return; // a spectator is neither alive nor to be respawned
 
     if (s->dead) {
         // CheckSkeletonOutOfBounds: a corpse that slid off the map is placed again at once;

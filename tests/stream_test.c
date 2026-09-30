@@ -26,7 +26,8 @@ typedef struct StreamClient {
     char map[NET_MAP_SIZE];
     int snapshots;
     size_t state_bytes, snapshot_bytes; // the last of each
-    int bot_shots, damages;             // events heard: the bot's shots made here, wounds to me
+    int bot_shots, damages;
+    int frags_of[MAX_PLAYERS]; // grenades seen thrown here, by thrower             // events heard: the bot's shots made here, wounds to me
 } StreamClient;
 
 // The client's world for a map: the same map as the server's, nobody in it, no authority.
@@ -39,6 +40,7 @@ static Game *client_world(const char *map)
 }
 
 static void route_hello(NetBuf *b, void *m) { msg_hello(b, m); }
+static void route_chat(NetBuf *b, void *m) { msg_chat(b, m); }
 
 static void client_send(StreamClient *c, MsgKind kind, void (*routine)(NetBuf *, void *), void *m)
 {
@@ -109,6 +111,7 @@ static void client_tick(StreamClient *c, Buttons buttons)
     for (int i = 0; i < c->game->events.count; i++) {
         const Event *e = &c->game->events.items[i];
         if (e->type == EVENT_BULLET_SPAWN && e->bullet_spawn.player == BOT) c->bot_shots++;
+        if (e->type == EVENT_BULLET_SPAWN && e->bullet_spawn.weapon == WEAPON_FRAG) c->frags_of[e->bullet_spawn.player]++;
         if (e->type == EVENT_DAMAGE && e->damage.target == c->slot) c->damages++;
     }
     client_stream_collect(&c->stream, c->game, c->slot);
@@ -121,6 +124,7 @@ static void client_tick(StreamClient *c, Buttons buttons)
 }
 
 static int server_bullets_of_client; // bullets the server made for slot 0, all told
+static int server_frags_of[MAX_PLAYERS]; // grenades the server made, by thrower
 static int server_hits_by_client;    // hits the server ruled for slot 0's bullets
 
 // One tick of the server: the players on their word, the bot on `bot_buttons`, aiming
@@ -135,6 +139,7 @@ static void server_tick(Connections *conns, Game *g, Buttons bot_buttons)
     for (int i = 0; i < g->events.count; i++) {
         const Event *e = &g->events.items[i];
         if (e->type == EVENT_BULLET_SPAWN && e->bullet_spawn.player == 0) server_bullets_of_client++;
+        if (e->type == EVENT_BULLET_SPAWN && e->bullet_spawn.weapon == WEAPON_FRAG) server_frags_of[e->bullet_spawn.player]++;
         if (e->type == EVENT_HIT && e->hit.shooter == 0) server_hits_by_client++;
     }
     connections_snapshots(conns, g);
@@ -308,6 +313,17 @@ void stream_tests(void)
           "my shots wound the bot on the server (%d hits, health %.0f -> %.0f, deaths %d -> %d)", server_hits_by_client, bot_health_before,
           gs->world.soldiers[BOT].health, bot_deaths_before, gs->world.soldiers[BOT].deaths);
 
+    // a grenade: the key held, then let go; one goes, here and on the server
+    mine->grenades = 3;
+    play(&conns, gs, &c, 20, BUTTON_THROW, 0);
+    CHECK(theirs->body.id == ANIM_THROW && mine->body.id == ANIM_THROW && abs(theirs->body.frame - mine->body.frame) <= 3,
+          "the wind-up shows on the server as here, its frame in step (%d/%d here, %d/%d there)", mine->body.id, mine->body.frame,
+          theirs->body.id, theirs->body.frame);
+    play(&conns, gs, &c, 60, 0, 0);
+    CHECK(c.frags_of[0] == 1 && server_frags_of[0] == 1 && mine->grenades == 2 && gs->world.soldiers[0].grenades == 2,
+          "one release throws one grenade here and one on the server (%d here, %d there; %d left, %d there)", c.frags_of[0],
+          server_frags_of[0], mine->grenades, gs->world.soldiers[0].grenades);
+
     // an old state is dropped
     uint32_t dropped = conns.streams[0].dropped;
     uint8_t buf[NET_MTU];
@@ -446,6 +462,22 @@ void stream_tests(void)
     mine = &c.game->world.soldiers[0];
     CHECK(match_has_teams(&gs->match) && match_has_teams(&c.game->match), "a map with flags plays CTF, on the server and by its snapshots here");
     theirs = &gs->world.soldiers[0];
+    // a game with teams: watching until a team is chosen, then placed on it
+    CHECK(theirs->active && theirs->team == TEAM_SPECTATOR && theirs->dead, "a player who has not chosen a team watches (team %d, dead %d)",
+          theirs->team, theirs->dead);
+    MsgChat pick = {.slot = 0, .text = "/team 2"};
+    client_send(&c, MSG_CHAT, route_chat, &pick);
+    play(&conns, gs, &c, 6, 0, 0);
+    CHECK(theirs->team == TEAM_BRAVO && !theirs->dead, "/team places it on the team it chose (team %d)", theirs->team);
+    snprintf(pick.text, sizeof pick.text, "/team 5");
+    client_send(&c, MSG_CHAT, route_chat, &pick);
+    play(&conns, gs, &c, 12, 0, 0);
+    CHECK(theirs->team == TEAM_SPECTATOR && theirs->dead && mine->team == TEAM_SPECTATOR,
+          "/team 5 makes it a spectator, which the client hears (there team %d dead %d life %u; here team %d dead %d life %u; dropped %u stale %u)",
+          theirs->team, theirs->dead, theirs->life, mine->team, mine->dead, mine->life, c.stream.dropped, c.stream.stale);
+    snprintf(pick.text, sizeof pick.text, "/team 1");
+    client_send(&c, MSG_CHAT, route_chat, &pick);
+    play(&conns, gs, &c, 6, 0, 0);
     CHECK(theirs->active && !theirs->dead && theirs->remote && conns.items[0].joined, "everyone joined is placed in the new round");
     CHECK(mine->active && mine->life == theirs->life && fabsf(mine->pos.x - theirs->pos.x) < 1.0f,
           "and hears where, from the snapshots of the new round (life %u, %.1f vs %.1f)", mine->life, mine->pos.x, theirs->pos.x);

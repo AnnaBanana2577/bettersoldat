@@ -200,7 +200,10 @@ commit that changes the netcode says what it measured, on what line.
    spawn) is decided by the map once, on the server and alone alike, and rides the
    snapshot in the match, so the client's HUD, team box, spawn and shirts follow it
    rather than the map's name. Votes ride the chat, as planned: a line beginning with
-   '/' is a command the server reads and never relays (/votemap, /votekick, /yes, /no);
+   '/' is a command the server reads and never relays (/team, /votemap, /votekick,
+   /yes, /no); /team is the team menu's choice, on which the server places the soldier
+   anew, and in a game with teams a newcomer watches as a spectator until it chooses.
+   A spectator is a soldier present and dead that the simulation passes by;
    one vote runs at a time for a minute and passes on 51% of the players; a map vote
    passed is handed to the server's loop, a kick is a Denied and the line cut. The one
    message added is Vote, the server's word of a vote begun or over, for the HUD. The

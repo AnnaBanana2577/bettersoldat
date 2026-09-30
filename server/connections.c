@@ -190,18 +190,35 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     announce(c, "%s has joined the game", conn->name);
 }
 
-static void place(Connections *c, Game *g, int slot)
+void connections_place(Connections *c, Game *g, int slot, Team team)
 {
     (void)c;
-    Team team = team_for(g);
     Soldier *s = &g->world.soldiers[slot];
-    Vec2 at = spawn_point(g->ctx.map, team, &g->world.rng);
+    if (s->active && s->held) things_let_go(&g->world, slot);
     // with the weapons it chose, or the original's first loadout for a choice that isn't one
     WeaponId primary = weapon_is_primary(s->primary_choice) ? s->primary_choice : WEAPON_EAGLE;
     WeaponId secondary = weapon_is_secondary(s->secondary_choice) ? s->secondary_choice : WEAPON_KNIFE;
-    soldier_spawn(&g->ctx, s, at, team, primary, secondary);
+    if (team == TEAM_SPECTATOR) {
+        // present and dead, never respawned: the simulation passes a spectator by
+        soldier_spawn(&g->ctx, s, vec2(0, 0), TEAM_SPECTATOR, primary, secondary);
+        s->dead = true;
+    } else {
+        Vec2 at = spawn_point(g->ctx.map, team, &g->world.rng);
+        soldier_spawn(&g->ctx, s, at, team, primary, secondary);
+    }
     s->life++;
     s->remote = true; // its keys move it; what it fires it tells
+}
+
+// The team a player is placed on: with teams, what it chose, and a spectator until it
+// has; without, none, unless it chose to watch.
+static void place(Connections *c, Game *g, int slot)
+{
+    const Connection *conn = &c->items[slot];
+    Team team;
+    if (match_has_teams(&g->match)) team = conn->chose_team ? conn->team : TEAM_SPECTATOR;
+    else team = conn->chose_team && conn->team == TEAM_SPECTATOR ? TEAM_SPECTATOR : TEAM_NONE;
+    connections_place(c, g, slot, team);
 }
 
 void connections_new_round(Connections *c, Game *g, const char *map)
@@ -235,9 +252,9 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     if (joined) announce(c, "%s has left the game", name);
 }
 
-static void vote_command(Connections *c, const Game *g, int slot, const char *text);
+static void vote_command(Connections *c, Game *g, int slot, const char *text);
 
-static void chat(Connections *c, const Game *g, ENetPeer *peer, const NetEvent *e)
+static void chat(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
 {
     int slot = slot_of(c, peer);
     if (slot < 0 || !c->items[slot].joined) return;
@@ -412,10 +429,35 @@ static void vote_start(Connections *c, int slot, VoteKind kind, const char *targ
     vote_check(c);
 }
 
-// A command said in the chat: votemap <map>, votekick <player>, yes, no.
-static void vote_command(Connections *c, const Game *g, int slot, const char *text)
+// /team <n>: the team menu's choice, the original's numbering: 0 to play with no teams,
+// 1 alpha, 2 bravo, 5 to watch. The soldier is placed anew on it.
+static void team_command(Connections *c, Game *g, int slot, const char *rest)
 {
-    (void)g;
+    char *end;
+    long n = strtol(rest, &end, 10);
+    bool teams = match_has_teams(&g->match);
+    bool ok = end != rest && (n == TEAM_SPECTATOR || (teams ? n == TEAM_ALPHA || n == TEAM_BRAVO : n == TEAM_NONE));
+    if (!ok) {
+        tell(c, slot, teams ? "Teams: 1 alpha, 2 bravo, 5 spectator" : "Teams: 0 play, 5 spectator");
+        return;
+    }
+    Connection *conn = &c->items[slot];
+    Team team = (Team)n;
+    if (conn->chose_team && conn->team == team) return; // already there
+    conn->chose_team = true;
+    conn->team = team;
+    connections_place(c, g, slot, team);
+    switch (team) {
+    case TEAM_ALPHA: announce(c, "%s has joined alpha team", conn->name); break;
+    case TEAM_BRAVO: announce(c, "%s has joined bravo team", conn->name); break;
+    case TEAM_SPECTATOR: announce(c, "%s is now spectating", conn->name); break;
+    default: announce(c, "%s has joined the game", conn->name); break;
+    }
+}
+
+// A command said in the chat: team <n>, votemap <map>, votekick <player>, yes, no.
+static void vote_command(Connections *c, Game *g, int slot, const char *text)
+{
     char word[NET_TEXT_SIZE];
     const char *rest = text;
     int n = 0;
@@ -423,7 +465,9 @@ static void vote_command(Connections *c, const Game *g, int slot, const char *te
     word[n] = '\0';
     while (*rest == ' ') rest++;
 
-    if (strcmp(word, "votemap") == 0 || strcmp(word, "votekick") == 0) {
+    if (strcmp(word, "team") == 0) {
+        team_command(c, g, slot, rest);
+    } else if (strcmp(word, "votemap") == 0 || strcmp(word, "votekick") == 0) {
         if (c->vote.kind != VOTE_NONE) {
             tell(c, slot, "A vote is already on");
             return;

@@ -50,11 +50,12 @@ static void grenade(void)
 {
     Game *g = scene("Arena", 150, WEAPON_AK74, WEAPON_AK74);
     settle(g);
+    g->world.soldiers[0].grenades = 3;
     Tally t = run(g, 300, hold_throw);
-    CHECK(t.spawned[WEAPON_FRAG] == 1, "a grenade is thrown");
+    CHECK(t.spawned[WEAPON_FRAG] == 1, "one grenade is thrown per release, of three (%d)", t.spawned[WEAPON_FRAG]);
     CHECK(t.explosions >= 1, "and goes off");
     CHECK(t.damage > 0, "and hurts");
-    CHECK(g->world.soldiers[0].grenades == 0, "and is counted off");
+    CHECK(g->world.soldiers[0].grenades == 2, "and is counted off (%d left)", g->world.soldiers[0].grenades);
     scene_free(g);
 }
 
