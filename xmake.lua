@@ -38,3 +38,14 @@ target("client")
         add_ldflags("/SUBSYSTEM:CONSOLE")
     end
     set_rundir("$(projectdir)")
+
+-- The tests: headless checks of what shared/ holds. Not built by default; run them with
+--   xmake test
+target("tests")
+    set_kind("binary")
+    set_default(false)
+    add_deps("shared")
+    add_files("tests/*.c")
+    add_includedirs("tests")
+    set_rundir("$(projectdir)")
+    add_tests("default")
