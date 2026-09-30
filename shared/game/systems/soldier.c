@@ -41,6 +41,7 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
         .bg = {.status = BACKGROUND_TRANSITION, .poly = BACKGROUND_POLY_UNKNOWN},
         .cease_fire_counter = DEFAULT_CEASE_FIRE,
         .grenades = 1,
+        .grenade_type = WEAPON_FRAG,
         .primary_choice = primary,
         .secondary_choice = secondary,
         .weapon = weapon_state(ctx, primary),
@@ -57,9 +58,15 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
 void soldier_respawn(const Context *ctx, World *w, uint8_t index, Events *events)
 {
     Soldier *s = &w->soldiers[index];
+    // what it held goes back: a flag to its base, a parachute away
+    if (s->held) {
+        if (w->things[s->held - 1].style == THING_PARACHUTE) thing_kill(&w->things[s->held - 1]);
+        else thing_respawn(ctx, w, s->held - 1);
+    }
     Vec2 pos = spawn_point(ctx->map, s->team, &w->rng);
     soldier_spawn(ctx, s, pos, s->team, s->primary_choice, s->secondary_choice);
     s->life++;
+    parachute_deploy(ctx, w, index);
     event_emit(events, (Event){
         .type = EVENT_RESPAWN,
         .respawn = {
@@ -103,7 +110,8 @@ void soldier_step(const Context *ctx, World *w, uint8_t index, Command cmd, Even
     s->cmd_seq = cmd.seq;
     s->controls = w->rules.frozen ? 0 : cmd.buttons; // between rounds nobody moves
     if (s->controls != 0) s->spawn_still = false;
-    s->aim = cmd.aim;
+    // The aim leads by the soldier's own motion, to the whole unit (ControlSprite).
+    s->aim = vec2((float)round_half_even(cmd.aim.x + s->vel.x), (float)round_half_even(cmd.aim.y + s->vel.y));
     if (s->controls & BUTTON_SUICIDE) event_emit(events, (Event){.type = EVENT_HIT, .hit = suicide_hit(w, index)});
 
     soldier_control(ctx, w, index, events, armed);
@@ -116,6 +124,10 @@ void soldier_step(const Context *ctx, World *w, uint8_t index, Command cmd, Even
     soldier_collide(ctx, w, index, events);
     weapon_timers(ctx, s);
     antics_apply(ctx, w, s);
+
+    // the bow heals its archer
+    if (w->tick % 3 == 0 && (s->weapon.id == WEAPON_BOW || s->weapon.id == WEAPON_BOW2) && s->health < DEFAULT_HEALTH) s->health += 1.0f;
+    parachute_carry(w, s);
 
     // Jet fuel regenerates when not jetting: every tick on the ground, every other in the air.
     if (s->jets < ctx->map->start_jet && !(s->controls & BUTTON_JET)) {
@@ -139,10 +151,14 @@ void soldier_served_tick(const Context *ctx, World *w, uint8_t index, Events *ev
     Soldier *s = &w->soldiers[index];
     if (!s->active) return;
 
+    if (s->flag_grab_cooldown > 0) s->flag_grab_cooldown--;
+    if (s->medikit_cooldown > 0) s->medikit_cooldown--;
     if (s->dead) {
-        s->respawn_counter--;
-        // CheckSkeletonOutOfBounds: a corpse that slid off the map is placed again at once
-        if (s->respawn_counter < 1 || soldier_out_of_bounds(ctx, s->pos)) soldier_respawn(ctx, w, index, events);
+        // CheckSkeletonOutOfBounds: a corpse that slid off the map is placed again at once;
+        // otherwise the count runs out, checked before it is counted down
+        const Ragdoll *body = &w->ragdolls[index];
+        if (s->respawn_counter < 1 || (body->active && ragdoll_out_of_bounds(ctx, body))) soldier_respawn(ctx, w, index, events);
+        else s->respawn_counter--;
         return;
     }
     if (soldier_out_of_bounds(ctx, s->pos)) {
@@ -183,7 +199,8 @@ void soldier_copy_owned(const Anims *anims, Soldier *dst, const Soldier *src)
     dst->secondary = src->secondary;
     dst->grenades = src->grenades;
     dst->spawn_still = src->spawn_still;
-    dst->para = src->para;
+    dst->grenade_type = src->grenade_type;
+    dst->use_time = src->use_time;
     dst->stat = src->stat;
 }
 
@@ -199,13 +216,16 @@ void soldier_copy_served(Soldier *dst, const Soldier *src)
     dst->cease_fire_counter = src->cease_fire_counter;
     dst->bonus = src->bonus;
     dst->bonus_time = src->bonus_time;
-    dst->holding_flag = src->holding_flag;
+    dst->held = src->held;
+    dst->flag_grab_cooldown = src->flag_grab_cooldown;
+    dst->medikit_cooldown = src->medikit_cooldown;
     dst->kills = src->kills;
     dst->deaths = src->deaths;
     dst->flags = src->flags;
     dst->death_pos = src->death_pos;
     dst->death_vel = src->death_vel;
     dst->death_part = src->death_part;
+    dst->torn_apart = src->torn_apart;
     dst->rng = src->rng;
     dst->cmd_seq = src->cmd_seq;
     dst->view_lag = src->view_lag;
@@ -234,6 +254,7 @@ void soldier_copy_rest(Soldier *dst, const Soldier *src)
     dst->collider_distance = src->collider_distance;
     dst->hit_spray = src->hit_spray;
     dst->idle = src->idle;
+    dst->dont_drop = src->dont_drop;
     dst->legs.count = src->legs.count;
     dst->body.count = src->body.count;
 }

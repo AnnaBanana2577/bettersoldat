@@ -7,13 +7,6 @@
 
 #include "game/systems/systems.h"
 
-// ticks
-#define BULLET_TIMEOUT (60 * 7)
-#define GRENADE_TIMEOUT (60 * 3)
-#define M2BULLET_TIMEOUT 60
-#define FLAMER_TIMEOUT 32
-#define MELEE_TIMEOUT 1
-
 typedef struct WeaponBase {
     const char *name;
     bool clip_reload;

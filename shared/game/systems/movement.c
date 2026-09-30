@@ -12,8 +12,8 @@
 // ControlSoldier; the feel depends on that order:
 //
 //   resolve_left_right -> jets_control -> combat_control -> prone_control
-//   -> animation_slowdown -> cover_check -> movement_control -> roll_control
-//   -> body_pose_control
+//   -> combat_after_prone -> animation_slowdown -> cover_check -> movement_control
+//   -> combat_reload_animation -> roll_control -> body_pose_control
 //
 // Ported from OpenSoldat Sprites.pas / Control.pas by way of soldat-odin.
 //
@@ -503,9 +503,11 @@ void soldier_control(const Context *ctx, World *w, uint8_t index, Events *events
     jets_control(ctx, w, s, input);
     if (armed) combat_control(ctx, w, index, events);
     prone_control(ctx, s, &input);
+    if (armed) combat_after_prone(ctx, w, s);
     animation_slowdown(s);
     cover_check(ctx, w, index);
     movement_control(ctx, s, input);
+    if (armed) combat_reload_animation(ctx, s);
     roll_control(ctx, s, input);
     body_pose_control(ctx, s);
 }

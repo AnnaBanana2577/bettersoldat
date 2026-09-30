@@ -14,7 +14,6 @@
 
 #define SPRITE_COL_RADIUS 3.0f
 #define SLIDELIMIT 0.2f
-#define MAX_VELOCITY 11.0f
 
 // The hit location the original reports for poly damage; not a real skeleton part.
 #define POLY_HIT_PART 12
@@ -24,7 +23,8 @@ static void self_hit(World *w, uint8_t index, float amount, Events *events)
     Soldier *s = &w->soldiers[index];
     event_emit(events, (Event){
         .type = EVENT_HIT,
-        .hit = {.shooter = index, .target = index, .weapon = WEAPON_NONE, .amount = amount, .part = POLY_HIT_PART, .pos = s->pos},
+        .hit = {.shooter = index, .target = index, .weapon = WEAPON_NONE, .amount = amount, .part = POLY_HIT_PART, .pos = s->pos,
+                .impact = s->vel},
     });
 }
 
@@ -90,7 +90,11 @@ static void handle_special_poly(const Context *ctx, World *w, uint8_t index, Pol
         break;
 
     case POLY_HURTS_FLAGGERS:
-        // Not handled in soldat-odin either: it needs the flag carrier check.
+        if (!s->dead && s->held && thing_is_flag(w->things[s->held - 1].style) && rand_int(&w->rng, 10) == 0) {
+            self_hit(w, index, 10.0f, events);
+            poly_effect(events, index, t, pos, false);
+        }
+        if (s->health < 1.0f) self_hit(w, index, 10.0f, events);
         break;
 
     default:
@@ -215,7 +219,7 @@ static bool check_radius_map_collision(const Context *ctx, World *w, uint8_t ind
             PolyType t = (PolyType)poly->type;
 
             bool collides = team_collides(t, s->team);
-            if ((!s->holding_flag && t == POLY_ONLY_FLAGGERS) || (s->holding_flag && t == POLY_NOT_FLAGGERS)) collides = false;
+            if ((!s->held && t == POLY_ONLY_FLAGGERS) || (s->held && t == POLY_NOT_FLAGGERS)) collides = false;
             if (!collides || t == POLY_DOESNT || t == POLY_ONLY_BULLETS) continue;
 
             for (int k = 0; k < 3; k++) {
@@ -265,7 +269,7 @@ void soldier_collide(const Context *ctx, World *w, uint8_t index, Events *events
     const Map *map = ctx->map;
     Soldier *s = &w->soldiers[index];
     s->on_ground = false;
-    s->bg.test_result = false;
+    bg_test_prepare(&s->bg);
 
     // head
     check_map_collision(ctx, w, index, vec2_add(s->pos, vec2(-3.5f, -12.0f)), 1, events);
@@ -299,10 +303,7 @@ void soldier_collide(const Context *ctx, World *w, uint8_t index, Events *events
     if (s->on_ground == s->on_ground_last) s->on_ground_permanent = s->on_ground;
     s->on_ground_last = s->on_ground;
 
-    if (!s->bg.test_result) {
-        s->bg.status = BACKGROUND_NORMAL;
-        s->bg.poly = BACKGROUND_POLY_NONE;
-    }
+    bg_test_reset(&s->bg);
 
     s->vel.x = clampf(s->vel.x, -MAX_VELOCITY, MAX_VELOCITY);
     s->vel.y = clampf(s->vel.y, -MAX_VELOCITY, MAX_VELOCITY);
@@ -310,8 +311,8 @@ void soldier_collide(const Context *ctx, World *w, uint8_t index, Events *events
 
 bool soldier_collides_with(const Soldier *s, PolyType t)
 {
-    if (t == POLY_ONLY_FLAGGERS) return s->holding_flag;
-    if (t == POLY_NOT_FLAGGERS) return !s->holding_flag;
+    if (t == POLY_ONLY_FLAGGERS) return s->held != 0;
+    if (t == POLY_NOT_FLAGGERS) return s->held == 0;
     return t != POLY_DOESNT && t != POLY_ONLY_BULLETS && team_collides(t, s->team);
 }
 
@@ -352,4 +353,13 @@ void bg_test_big_poly_center(const Map *m, BackgroundState *bg, Vec2 pos)
     } else if (bg->poly != BACKGROUND_POLY_NONE && point_in_poly(pos, &m->polys[bg->poly])) {
         bg->test_result = true;
     }
+}
+
+void bg_test_prepare(BackgroundState *bg) { bg->test_result = false; }
+
+void bg_test_reset(BackgroundState *bg)
+{
+    if (bg->test_result) return;
+    bg->status = BACKGROUND_NORMAL;
+    bg->poly = BACKGROUND_POLY_NONE;
 }

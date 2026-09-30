@@ -554,7 +554,7 @@ static void hud_data_build(App *app)
         else if (!p->name[0]) snprintf(p->name, sizeof(p->name), "Player %d", i + 1);
         p->team = s->team;
         p->dead = s->dead;
-        p->holding_flag = s->holding_flag;
+        p->holding_flag = s->held && thing_is_flag(g->world.things[s->held - 1].style);
         p->shirt = s->look.shirt;
     }
     d->me = ME;

@@ -55,8 +55,8 @@ void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], E
         if (w->soldiers[i].active) soldier_step(ctx, w, (uint8_t)i, cmds[i], events, true);
     }
     ragdolls_update(ctx, w, events);
-    things_update(ctx, w, events);
     bullets_update(ctx, w, events);
+    things_update(ctx, w, events);
     w->tick++;
 }
 
@@ -70,6 +70,7 @@ MatchSettings match_default_settings(void)
         .score_limit = DEFAULT_SCORE_LIMIT,
         .respawn_time = DEFAULT_RESPAWN_TIME,
         .max_grenades = DEFAULT_MAX_GRENADES,
+        .medikit_cooldown = DEFAULT_MEDIKIT_COOLDOWN,
     };
 }
 
@@ -84,6 +85,9 @@ WorldRules match_rules(const Match *m)
         .frozen = m->state == MATCH_ENDED,
         .friendly_fire = m->settings.friendly_fire,
         .kits_collide = m->settings.kits_collide,
+        .guns_collide = m->settings.guns_collide,
+        .medikit_cooldown = m->settings.medikit_cooldown * TICK_RATE,
+        .stationary_guns = m->settings.stationary_guns,
         .respawn_time = m->settings.respawn_time,
         .max_grenades = m->settings.max_grenades,
     };
@@ -103,6 +107,13 @@ static void match_end(Match *m, Events *events)
 void match_run(const Context *ctx, World *w, Match *m, Events *events)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) soldier_served_tick(ctx, w, (uint8_t)i, events);
+
+    // a capture scores for the carrier's team
+    for (int i = 0; i < events->count; i++) {
+        const Event *e = &events->items[i];
+        if (e->type == EVENT_FLAG_SCORE) m->scores[w->soldiers[e->flag_score.player].team]++;
+    }
+    bonuses_spawn(ctx, w, &m->settings, w->tick - 1); // on the tick just run
 
     if (m->state == MATCH_ENDED && m->counter > 0) m->counter--;
     if (m->state != MATCH_PLAYING) return;
@@ -125,7 +136,18 @@ void game_init(Game *g, uint64_t seed, MatchSettings settings)
     world_init(&g->world, seed);
     match_init(&g->match, settings);
     g->world.rules = match_rules(&g->match);
+    things_spawn(&g->ctx, &g->world);
     events_clear(&g->events);
+}
+
+// The tick's hits become wounds. Only the hits the tick itself left: the wounds add
+// their own events (a damage, a kill) behind them.
+static void apply_hits(Game *g)
+{
+    int count = g->events.count;
+    for (int i = 0; i < count; i++) {
+        if (g->events.items[i].type == EVENT_HIT) damage_apply(&g->ctx, &g->world, g->events.items[i].hit, &g->events);
+    }
 }
 
 void game_tick(Game *g, const Command cmds[MAX_PLAYERS])
@@ -133,5 +155,6 @@ void game_tick(Game *g, const Command cmds[MAX_PLAYERS])
     events_clear(&g->events);
     g->world.rules = match_rules(&g->match);
     world_step(&g->ctx, &g->world, cmds, &g->events);
+    if (g->world.authority) apply_hits(g);
     match_run(&g->ctx, &g->world, &g->match, &g->events);
 }

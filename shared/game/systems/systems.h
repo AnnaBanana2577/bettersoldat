@@ -11,17 +11,20 @@
 //   combat.c             the weapon in hand: firing, reloads, changing, throwing
 //   weapons.c            the weapons table and its defaults
 //   damage.c             the one place health changes
-//   bullet.c             the bullet pool
-//   thing.c              the thing pool: flags, kits, dropped guns, parachutes, stat guns
+//   bullet.c             the bullet pool: spawning, the tick, the flight
+//   bullet_collision.c   what a bullet meets: the map, colliders, soldiers, things
+//   explosion.c          grenades, rockets and clusters going off
+//   thing.c              the thing pool: creating, the physics, respawning, the pickups
+//   flag.c               the flags: carried, thrown, returned, captured
+//   kit.c                the medical, grenade and bonus kits
+//   dropped_gun.c        guns thrown or let go of, and the knives that land
+//   parachute.c          the parachute of a high spawn
+//   stat_gun.c           the stationary gun
 //   ragdoll.c            the corpses
 //   spawn.c              where a team is placed
 //   event.c              the tick's events
 //   history.c            the server's rewind of the soldiers
 //   rand.c               the game's own randomness
-//
-// Not yet ported from soldat-odin (their entry points exist and do nothing):
-// combat_control's firing and throwing, the bullet flight and collisions, the things,
-// the corpses.
 
 #include "game/game.h"
 
@@ -29,6 +32,7 @@
 
 #define DEFAULT_HEALTH 150.0f
 #define DEFAULT_CEASE_FIRE 90
+#define MAX_VELOCITY 11.0f // the safety clamp on a soldier's speed, each way
 
 // A fresh soldier at a spot; the tally and the count of its lives survive a respawn.
 void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId primary, WeaponId secondary);
@@ -86,6 +90,11 @@ bool soldier_collides_with(const Soldier *s, PolyType t);
 bool bg_test(const Map *m, BackgroundState *bg, uint16_t poly);
 void bg_test_big_poly_center(const Map *m, BackgroundState *bg, Vec2 pos);
 
+// Around a round of collision checks: no background poly met yet, and if none was met,
+// out of any.
+void bg_test_prepare(BackgroundState *bg);
+void bg_test_reset(BackgroundState *bg);
+
 // --- pose.c ------------------------------------------------------------------------
 
 // The pose of a living soldier drawn at pos (usually its own or an interpolated one).
@@ -103,6 +112,12 @@ Weapon weapon_state(const Context *ctx, WeaponId id);
 // This tick's buttons on the weapon, in the control order.
 void combat_control(const Context *ctx, World *w, uint8_t index, Events *events);
 
+// The two parts of the weapon's control that come later in the original's order: the
+// Barrett's bolt and the stationary gun's after going prone, the reload animations after
+// the locomotion.
+void combat_after_prone(const Context *ctx, World *w, Soldier *s);
+void combat_reload_animation(const Context *ctx, Soldier *s);
+
 // The fire and reload timers, after the step.
 void weapon_timers(const Context *ctx, Soldier *s);
 
@@ -119,6 +134,13 @@ Vec2 hands_aim_direction(const Pose *pose);
 Vec2 aim_direction(const Soldier *s);
 
 // --- weapons.c ---------------------------------------------------------------------
+
+// How long a bullet of each kind lives, in ticks.
+#define BULLET_TIMEOUT (60 * 7)
+#define GRENADE_TIMEOUT (60 * 3)
+#define M2BULLET_TIMEOUT 60
+#define FLAMER_TIMEOUT 32
+#define MELEE_TIMEOUT 1
 
 bool weapon_is_primary(WeaponId id);   // Eagle through Minigun
 bool weapon_is_secondary(WeaponId id); // Colt, Knife, Chainsaw, LAW
@@ -138,30 +160,184 @@ WeaponId weapon_named(const char *name);
 #define BRUTAL_DEATH_HEALTH (-400.0f)
 #define HEADCHOP_DEATH_HEALTH (-90.0f)
 
-// A Hit becomes a wound: the vest and berserker rules, then death.
+// A Hit lands: the knockback, the wound (the vest and berserker rules, then death), the
+// disturbed aim.
 void damage_apply(const Context *ctx, World *w, Hit hit, Events *events);
+
+// What a Hit would take off the target's health; 0 where it does not wound (a teammate
+// without friendly fire, the Flame God).
+float hit_damage(const World *w, Hit hit);
 void die(const Context *ctx, World *w, Hit hit, Events *events);
 
 // --- bullet.c ----------------------------------------------------------------------
 
+#define BULLET_GRAVITY 2.25f // a bullet falls this many times the world's gravity
+#define ARROW_RESIST 280     // an arrow stuck in a wall stays this long
+
 // A bullet into the first free slot of the pool; its index, or -1 if none was made.
 int bullet_spawn(const Context *ctx, World *w, Vec2 pos, Vec2 vel, WeaponId weapon, uint8_t owner, float damage, Events *events);
+
+// Every bullet's tick, then every bullet's flight.
 void bullets_update(const Context *ctx, World *w, Events *events);
+
+// Every deactivation goes through here, so the end is heard where it happens. `impact`
+// is where it stopped against something, if it did (may be NULL).
+void bullet_end(Bullet *b, uint16_t index, Events *events, const Vec2 *impact);
+
+// --- bullet_collision.c ------------------------------------------------------------
+
+// One tick of a bullet against the map, the colliders, the soldiers and the things.
+void bullet_collide(const Context *ctx, World *w, Bullet *b, uint16_t index, Events *events);
+
+// The pose points a bullet can hit, in priority order: the head first.
+#define HIT_PART_COUNT 7
+extern const int HIT_PARTS[HIT_PART_COUNT];
+
+// A weapon's damage modifier for a pose point: legs, chest or head.
+float hitbox_modifier(const WeaponStats *stats, int part);
+
+// --- explosion.c -------------------------------------------------------------------
+
+typedef enum ExplosionKind {
+    EXPLOSION_FRAG,    // a frag grenade
+    EXPLOSION_M79,     // an M79 grenade, a LAW rocket, a flame arrow
+    EXPLOSION_CLUSTER, // a cluster, and an M2 bullet's flak
+} ExplosionKind;
+
+// A bullet going off: every soldier in the radius hit, the corpses and things shoved,
+// nearby grenades and rockets set off, the bullet ended. `hit_soldier` and `hit_part`
+// name a soldier it struck directly, or are -1.
+void explode(const Context *ctx, World *w, Bullet *b, uint16_t index, ExplosionKind kind, int hit_soldier, int hit_part, Events *events);
 
 // --- thing.c -----------------------------------------------------------------------
 
-// The flags and kits from the map's spawn points, at the start of a round.
+#define GUN_RESIST_TIME (60 * 20)          // a dropped gun lies this long, and resists pickup at first
+#define FLAG_TIMEOUT (60 * 25)             // a loose flag, a bonus kit: this long before it goes
+#define FLAG_INTEREST_TIME (60 * 25)       // how long the bots go for a thing
+#define DEFAULT_INTEREST_TIME (60 * 5 + 50)
+#define BOW_INTEREST_TIME (60 * 41 + 40)
+
+// The spawn point kinds the map author places for the things.
+#define SPAWN_ALPHA_FLAG 5
+#define SPAWN_BRAVO_FLAG 6
+#define SPAWN_GRENADE_KIT 7
+#define SPAWN_MEDICAL_KIT 8
+#define SPAWN_CLUSTER_KIT 9
+#define SPAWN_VEST_KIT 10
+#define SPAWN_FLAMER_KIT 11
+#define SPAWN_BERSERK_KIT 12
+#define SPAWN_PREDATOR_KIT 13
+#define SPAWN_BOW 15
+#define SPAWN_STAT_GUN 16
+
+bool thing_is_flag(ThingStyle style);
+bool thing_is_kit(ThingStyle style);
+
+// A thing of a style at a spot (CreateThing), into `slot` or the first free one, owned
+// by soldier `owner` (index + 1, or 0). A gun of a living or dead owner flies from its
+// hand. Its index, or -1 if there was no room.
+int thing_create(const Context *ctx, World *w, ThingStyle style, Vec2 pos, WeaponId weapon, uint8_t owner, int slot);
+
+// The thing is gone (TThing.Kill). Its slot remembers where a kit last came up.
+void thing_kill(Thing *t);
+
+// A flag or kit back to one of its spawn points (TThing.Respawn), in the same slot.
+void thing_respawn(const Context *ctx, World *w, int index);
+
+// A random active spawn point of this kind, a few pixels off it (RandomizeStart); any
+// spawn point, and false, if the map has none of the kind.
+bool thing_spawn_point(const Map *m, int32_t kind, uint64_t *rng, Vec2 *pos);
+
+// SpawnBoxes: the same, but not the spawn point `t`'s slot last came up at, unless it
+// is the only one of the kind.
+bool thing_spawn_boxes(const Map *m, int32_t kind, Thing *t, uint64_t *rng, Vec2 *pos);
+
+// The round's things: the flags, the kits, the stationary guns.
 void things_spawn(const Context *ctx, World *w);
+
+// Every thing's tick: its physics, the flags' bases and captures, the pickups, the
+// timeouts.
 void things_update(const Context *ctx, World *w, Events *events);
+
+// Whether bullets and blasts knock this thing about: flags always, the bow always,
+// dropped guns and kits as the match says, the rest never.
+bool thing_collides_with_bullets(const World *w, const Thing *t);
+
+// A soldier died: the flag it carried falls, and what it threw is nobody's.
+void things_let_go(World *w, uint8_t index);
+
+// --- flag.c ------------------------------------------------------------------------
+
+// The flag spawn in-base is measured from: the map's first of the kind.
+Vec2 flag_base(const Map *m, ThingStyle style);
+
+// The flag's own tick after its physics: in base, and home again or captured.
+void flag_update(const Context *ctx, World *w, int index, Events *events);
+
+// A soldier near the flag takes it, or returns its own.
+void flag_touch(const Context *ctx, World *w, int index, uint8_t soldier, Events *events);
+
+// The carrier lobs the flag toward the cursor (TSprite.ThrowFlag), in its control step.
+void flag_throw(const Context *ctx, World *w, uint8_t soldier);
+
+// --- kit.c -------------------------------------------------------------------------
+
+// The medical or grenade kits of a map, or a bonus kit, at their spawn points
+// (SpawnThings).
+void kits_spawn(const Context *ctx, World *w, ThingStyle style, int amount);
+
+// Whether the kit is worth taking to this soldier, and what it gives.
+bool kit_wanted(const World *w, ThingStyle style, const Soldier *s);
+void kit_take(const Context *ctx, World *w, int index, uint8_t soldier, Events *events);
+
+// The bonus kits that turn up now and then, on the server's schedule.
+void bonuses_spawn(const Context *ctx, World *w, const MatchSettings *settings, uint32_t tick);
+
+// --- dropped_gun.c -----------------------------------------------------------------
 
 // A gun leaves a soldier's hands: thrown on purpose, or let go of by a death.
 void dropped_gun_throw(const Context *ctx, World *w, uint8_t index, Soldier *s, WeaponId weapon, int32_t ammo, Events *events);
 void dropped_gun_from_death(const Context *ctx, World *w, uint8_t index, Soldier *s, Vec2 impact, Events *events);
 
+// A thrown knife that stopped in a wall or a body lies there as a knife to pick up.
+void thrown_knife_land(const Context *ctx, World *w, const Bullet *b, Events *events);
+
+// Whether a soldier may take the gun, and the taking.
+bool dropped_gun_wanted(const Thing *t, const Soldier *s);
+void dropped_gun_take(const Context *ctx, World *w, int index, uint8_t soldier, Events *events);
+
+// --- parachute.c -------------------------------------------------------------------
+
+// A soldier placed high over the map floats down under one (TSprite.Parachute).
+void parachute_deploy(const Context *ctx, World *w, uint8_t soldier);
+
+// The parachute's tick: hung from its holder's head.
+void parachute_update(const Context *ctx, World *w, int index);
+
+// The holder's side, in its own step: the parachute slows the fall and is let go of on
+// the ground.
+void parachute_carry(World *w, Soldier *s);
+
+// --- stat_gun.c --------------------------------------------------------------------
+
+// The stationary gun's tick: taken, aimed and fired by whoever mans it.
+void stat_gun_update(const Context *ctx, World *w, int index, Events *events);
+
+// The gunner's side: a jump or the jets leave the gun; the heat bleeds off.
+void stat_gun_leave(World *w, Soldier *s);
+void stat_gun_cool(const World *w, Soldier *s);
+
 // --- ragdoll.c ---------------------------------------------------------------------
 
 // One tick of every corpse.
 void ragdolls_update(const Context *ctx, World *w, Events *events);
+
+// A corpse's points as a pose, for the bullets to meet it where it lies.
+Pose ragdoll_pose(const Ragdoll *r);
+
+// Any of the body's points off the map (CheckSkeletonOutOfBounds): the soldier is placed
+// again.
+bool ragdoll_out_of_bounds(const Context *ctx, const Ragdoll *r);
 
 // --- spawn.c -----------------------------------------------------------------------
 

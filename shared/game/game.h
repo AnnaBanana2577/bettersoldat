@@ -45,9 +45,12 @@ typedef struct Context {
 typedef struct WorldRules {
     bool frozen; // between rounds nobody moves
     bool friendly_fire;
-    bool kits_collide; // bullets and blasts knock kits (flags always)
+    bool kits_collide; // bullets and blasts knock kits (sv_kits_collide; flags always)
+    bool guns_collide; // and dropped guns (sv_guns_collide; the bow always)
     int32_t respawn_time;
     int32_t max_grenades;
+    int32_t medikit_cooldown; // ticks before a soldier may take a second medikit
+    bool stationary_guns;     // the map's stationary guns are placed
 } WorldRules;
 
 typedef struct World {
@@ -58,7 +61,6 @@ typedef struct World {
     Bullet bullets[MAX_BULLETS];
     Thing things[MAX_THINGS];
     Ragdoll ragdolls[MAX_PLAYERS]; // the corpses, one per dead soldier
-    Vec2 flag_home[2];             // where the alpha and bravo flags spawn and return to
     History *history;              // the server's rewind for judging shots; NULL elsewhere
     WorldRules rules;
 
@@ -72,6 +74,7 @@ typedef enum MatchState { MATCH_PLAYING, MATCH_ENDED, MATCH_PAUSED } MatchState;
 
 #define DEFAULT_RESPAWN_TIME 180
 #define DEFAULT_MAX_GRENADES 2
+#define DEFAULT_MEDIKIT_COOLDOWN 2 // seconds
 #define DEFAULT_TIME_LIMIT (15 * 60 * TICK_RATE)
 #define DEFAULT_SCORE_LIMIT 10
 #define ROUND_END_TICKS (5 * TICK_RATE + 20) // the scores stand this long before the next round
@@ -83,6 +86,11 @@ typedef struct MatchSettings {
     int32_t max_grenades;
     bool friendly_fire;
     bool kits_collide;
+    bool guns_collide;
+    bool stationary_guns;         // sv_stationaryguns
+    int32_t medikit_cooldown;     // seconds (sv_healthcooldown)
+    int32_t bonus_frequency;      // 0 none, 1 rare .. 5 often (sv_bonus_frequency)
+    bool bonus_flamer, bonus_predator, bonus_berserker, bonus_vest, bonus_cluster;
 } MatchSettings;
 
 typedef struct Match {
@@ -112,8 +120,8 @@ void context_destroy(Context *ctx);
 void world_init(World *w, uint64_t seed);
 
 // One tick of everything in the world, in the order the server and the clients run
-// it: every active soldier on its command, then the corpses, the things, the bullets;
-// then the tick advances.
+// it (the original's UpdateFrame): every active soldier on its command, then the
+// corpses, the bullets, the things; then the tick advances.
 void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], Events *events);
 
 // --- Match -------------------------------------------------------------------------
@@ -122,7 +130,8 @@ MatchSettings match_default_settings(void);
 void match_init(Match *m, MatchSettings settings);
 
 // The match's tick, after the world's: what the server keeps of every soldier (the
-// respawns, the spawn protection, the bonuses), the clock, the end of the round.
+// respawns, the spawn protection, the bonuses), the captures scored, the bonus kits
+// that turn up, the clock, the end of the round.
 void match_run(const Context *ctx, World *w, Match *m, Events *events);
 
 // The round has ended and its scores have stood long enough: time for the next.
@@ -136,5 +145,6 @@ WorldRules match_rules(const Match *m);
 // A fresh world and match over an already loaded context.
 void game_init(Game *g, uint64_t seed, MatchSettings settings);
 
-// The whole-world tick: the match's rules into the world, world_step, match_run.
+// The whole-world tick: the match's rules into the world, world_step, the hits turned
+// into wounds where the world has authority, match_run.
 void game_tick(Game *g, const Command cmds[MAX_PLAYERS]);

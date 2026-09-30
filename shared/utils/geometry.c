@@ -27,39 +27,70 @@ int round_half_even(float x)
     return i % 2 == 0 ? i : i + 1;
 }
 
+static float sqr_dist(Vec2 a, Vec2 b)
+{
+    Vec2 d = vec2_sub(b, a);
+    return d.x * d.x + d.y * d.y;
+}
+
+static bool in_range(float v, float lo, float hi) { return v >= lo && v <= hi; }
+
+// Calc.pas IsLineIntersectingCircle: the line as y = ax + b (flipped to x = ay + b when
+// steeper than 45 degrees), the circle solved against it, and the roots kept that lie on
+// the segment. Up to two points; returns how many.
+static int line_circle_intersections(Vec2 p1, Vec2 p2, Vec2 center, float radius, Vec2 points[2])
+{
+    float dx = p2.x - p1.x, dy = p2.y - p1.y;
+    if (fabsf(dx) < 0.00001f && fabsf(dy) < 0.00001f) return 0;
+
+    bool flipped = fabsf(dy) > fabsf(dx);
+    if (flipped) {
+        p1 = vec2(p1.y, p1.x);
+        p2 = vec2(p2.y, p2.x);
+        center = vec2(center.y, center.x);
+        float t = dx;
+        dx = dy;
+        dy = t;
+    }
+
+    float a = dy / dx;
+    float b = p1.y - a * p1.x;
+    float a1 = a * a + 1.0f;
+    float b1 = 2.0f * (a * b - a * center.y - center.x);
+    float c1 = center.y * center.y - radius * radius + center.x * center.x - 2.0f * b * center.y + b * b;
+    float delta = b1 * b1 - 4.0f * a1 * c1;
+    if (delta < 0.0f) return 0;
+
+    float min_x = minf(p1.x, p2.x), max_x = maxf(p1.x, p2.x);
+    float min_y = minf(p1.y, p2.y), max_y = maxf(p1.y, p2.y);
+    float root = sqrtf(delta), a2 = 2.0f * a1;
+    int n = 0;
+    for (int k = 0; k < 2; k++) {
+        float x = (-b1 + (k == 0 ? -root : root)) / a2;
+        float y = a * x + b;
+        if (in_range(x, min_x, max_x) && in_range(y, min_y, max_y)) points[n++] = flipped ? vec2(y, x) : vec2(x, y);
+    }
+    return n;
+}
+
+// Calc.pas LineCircleCollision: an end inside the circle is the point; otherwise the
+// crossing nearer the start.
 bool line_circle_collision(Vec2 start, Vec2 end, Vec2 center, float radius, Vec2 *point)
 {
     float r2 = radius * radius;
-    Vec2 sc = vec2_sub(start, center);
-    Vec2 ec = vec2_sub(end, center);
-    if (vec2_dot(sc, sc) <= r2) {
+    if (sqr_dist(start, center) <= r2) {
         *point = start;
         return true;
     }
-    if (vec2_dot(ec, ec) <= r2) {
+    if (sqr_dist(end, center) <= r2) {
         *point = end;
         return true;
     }
 
-    Vec2 d = vec2_sub(end, start);
-    float a = vec2_dot(d, d);
-    if (a < 1e-10f) return false;
-
-    float b = 2.0f * vec2_dot(sc, d);
-    float c = vec2_dot(sc, sc) - r2;
-    float disc = b * b - 4.0f * a * c;
-    if (disc < 0.0f) return false;
-
-    float sq = sqrtf(disc);
-    float t1 = (-b - sq) / (2.0f * a);
-    float t2 = (-b + sq) / (2.0f * a);
-    if (t1 >= 0.0f && t1 <= 1.0f) {
-        *point = vec2_add(start, vec2_scale(d, t1));
-        return true;
-    }
-    if (t2 >= 0.0f && t2 <= 1.0f) {
-        *point = vec2_add(start, vec2_scale(d, t2));
-        return true;
-    }
-    return false;
+    Vec2 points[2];
+    int n = line_circle_intersections(start, end, center, radius, points);
+    if (n == 0) return false;
+    *point = points[0];
+    if (n == 2 && sqr_dist(points[0], start) > sqr_dist(points[1], start)) *point = points[1];
+    return true;
 }

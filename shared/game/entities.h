@@ -193,6 +193,7 @@ typedef struct Soldier {
     Vec2 death_pos;
     Vec2 death_vel;
     uint8_t death_part;
+    bool torn_apart; // killed or hit dead by a berserker: the body comes apart as a brutal death's does
     uint64_t rng;        // its own randomness (the spread of its shots), rolled where it is played
     uint32_t cmd_seq;    // the command it last ran: what its bullets are stamped with
     uint32_t shot_count; // bullets it has fired: each is stamped with its number
@@ -218,6 +219,7 @@ typedef struct Soldier {
     Weapon weapon;
     Weapon secondary;
     int32_t grenades;
+    WeaponId grenade_type; // frag grenades, or the cluster grenades of a cluster kit
     int32_t burst_count;
     bool grenade_can_throw;
     bool can_auto_reload_spas;
@@ -227,11 +229,15 @@ typedef struct Soldier {
     uint8_t collider_distance;
     uint16_t hit_spray; // bink: aim disturbance from being hit, decaying one per tick
     bool spawn_still;   // not moved since spawning: the weapons menu still applies
-    uint8_t para, stat; // the parachute or stationary gun in use (thing index + 1)
+    uint8_t stat;      // the stationary gun manned (thing index + 1)
+    int16_t use_time;  // how hot the stationary guns it fires run: past the overheat they stop
     Idle idle;
-    bool holding_flag;
+    bool dont_drop; // a knife just thrown: the held drop key throws nothing more until released
 
     // the server's
+    uint8_t held;                // the flag carried or the parachute hung from (thing index + 1)
+    int32_t flag_grab_cooldown;  // a flag just thrown can't be grabbed back at once
+    int32_t medikit_cooldown;    // a medikit just taken: no second one yet
     int32_t respawn_counter;
     int32_t cease_fire_counter; // spawn protection: no shooting, no wounds while >= 0
     float vest;
@@ -294,12 +300,12 @@ typedef enum ThingStyle {
 } ThingStyle;
 
 typedef struct Thing {
-    ThingStyle style;
-    WeaponId weapon; // a dropped gun's
+    ThingStyle style; // THING_NONE: the slot is free
+    WeaponId weapon;  // a dropped gun's
     int32_t ammo;
     bool flip;      // a dropped gun thrown facing left
     uint8_t holder; // soldier index + 1, 0 when loose
-    uint8_t owner;  // who dropped or threw it, index + 1
+    uint8_t owner;  // who dropped or threw it, index + 1: it passes the polys its team does
     int32_t timeout;
     bool is_static; // at rest: no physics until something moves it
     int points;     // 2 or 4
@@ -307,10 +313,11 @@ typedef struct Thing {
     Vec2 old_pos[4];
     Vec2 forces[4];
     uint8_t collide_count[4]; // touches per point, for the landing sounds
+    uint8_t cut;              // constraints let go of, from the last: a parachute's line once landed
     bool in_base;             // a flag at home
-    int32_t interest;         // how long the bots still go for it
-    int32_t respawn_wait;     // a taken kit's way back
-    ThingStyle respawn_style;
+    int32_t interest;         // how long the bots still go for it; a stationary gun's heat
+    uint8_t last_spawn;       // the spawn point (1-based) a kit last came up at, not to be picked again
+    BackgroundState bg;
 } Thing;
 
 // ---------------------------------------------------------------------------------
@@ -325,6 +332,7 @@ typedef struct Ragdoll {
     uint32_t torn;     // bit n: constraint n (0-based) no longer holds
     uint8_t hits;      // landings so far, which quiet the thud
     int32_t dead_time; // ticks since the body started, which dry the bleeding up
+    bool on_ground;    // the last point checked touched the map: a parachute is let go of
 } Ragdoll;
 
 // ---------------------------------------------------------------------------------
@@ -344,8 +352,11 @@ typedef struct EventExplosion { uint16_t id; uint8_t player; WeaponId weapon; Ve
 
 // A bullet or blast of `shooter` wounded `target`: the damage computed, the skeleton
 // part hit (0 for a blast), the point hit, and the knockback to give. Nothing has
-// changed yet; the server applies it with damage_apply, a client only shows it.
-typedef struct Hit { uint8_t shooter, target; WeaponId weapon; float amount; uint8_t part; Vec2 pos, push; } Hit;
+// changed yet; the server applies it with damage_apply, a client only shows it. An
+// amount of 0 is a shove alone (a blast over spawn protection); `spray` says the hit
+// also disturbs the victim's aim, as bullets and blasts do. `impact` is the blow a death
+// gives the gun it lets go of.
+typedef struct Hit { uint8_t shooter, target; WeaponId weapon; float amount; uint8_t part; Vec2 pos, push, impact; bool spray; } Hit;
 
 typedef struct EventDamage { uint8_t attacker, target; WeaponId weapon; float amount; bool vest; } EventDamage;
 // kills: the killer's tally now
