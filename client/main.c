@@ -50,6 +50,7 @@
 #include "render/interface.h"
 #include "render/render.h"
 #include "render/scale_data.h"
+#include "audio/audio.h"
 #include "ui/feed.h"
 #include "ui/menus.h"
 
@@ -86,6 +87,7 @@ typedef struct App {
     Cvar *hair_style, *head_style, *chain_style;  // and its styles, by number
     Cvar *primary, *secondary;                    // the loadout at the next spawn
     Cvar *smooth;                                 // milliseconds a correction of another player is smoothed over
+    Cvar *volume;                                 // snd_volume, 0 to 100
     Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
     Cvar *hud_demo;       // the HUD full of sample data, to see every part of it: page 1, 2 or 3
@@ -112,6 +114,7 @@ typedef struct App {
     Interface hud;
     HudData hud_data; // what the HUD shows beyond the frame: filled here from what there is
     Feed feed;        // the kill console and the big messages, from the ticks' events
+    Audio audio;      // what is heard, from the ticks' events and the soldiers
     GameMenus menus;
     double time;      // seconds since the start
 
@@ -383,6 +386,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->secondary = cvar_register(con, "cl_player_secwep", "1", CVAR_ARCHIVE, "0 USSOCOM, 1 knife, 2 chainsaw, 3 LAW");
     app->smooth = cvar_register(con, "cl_smooth", "100", CVAR_ARCHIVE,
                                 "milliseconds a correction of another player is smoothed over; 0 snaps");
+    app->volume = cvar_register(con, "snd_volume", "50", CVAR_ARCHIVE, "the sound's volume, 0 to 100");
     const char *calls[RADIO_CALLS] = {"Enemy flagger", "Friendly flagger", "Enemy spotted"};
     const char *places[RADIO_CALLS] = {"up!", "middle!", "down!"};
     for (int i = 0; i < RADIO_CALLS; i++) {
@@ -464,6 +468,9 @@ static void apply_cvars(App *app)
         app->swapeffect->modified = false;
     }
     app->input.sensitivity = app->sensitivity->number;
+    // the original's curve: 50 is a quarter of the way up, and it is quiet enough there
+    float v = clampf(app->volume->number / 100.0f, 0.0f, 1.0f);
+    audio_volume(&app->audio, v * v * 0.48f);
     app->render_options.wireframe = app->wireframe->integer != 0;
     app->render_options.debug = app->debug->integer != 0;
     Soldier *me = &app->game->world.soldiers[app->me];
@@ -564,6 +571,7 @@ static void tick(App *app)
     cmds[app->me] = input_command(&app->input, ++app->seq);
     game_tick(app->game, cmds);
     render_tick(&app->render, &app->game->ctx, &app->game->world, &app->game->events);
+    audio_tick(&app->audio, app->game, app->me, app->camera.pos);
     if (online) client_net_tick(&app->net, app->game);
     input_clear(&app->input);
     snapshot_tick(app);
@@ -919,6 +927,7 @@ int main(int argc, char *argv[])
     }
 
     render_init(&app.render, app.assets->value, &app.game->ctx);
+    audio_init(&app.audio, app.assets->value);
     scale_data_load(&app.scales, app.assets->value);
     interface_load(&app.hud, app.assets->value, &app.scales);
     interface_open(&app);
@@ -992,6 +1001,7 @@ int main(int argc, char *argv[])
     }
 
     client_net_shutdown(&app.net);
+    audio_shutdown(&app.audio);
     fonts_unload();
     interface_unload(&app.hud);
     render_destroy(&app.render);
