@@ -164,6 +164,17 @@ typedef struct Idle {
     int8_t random;
 } Idle;
 
+// How a player looks: the colours and the styles the gostek is drawn with. The player
+// chooses them (the client's cl_player_* cvars) and they travel with the name, so every
+// client draws everyone the same. Nothing in a tick reads them.
+typedef struct PlayerLook {
+    Rgba shirt, pants, skin, hair;
+    Rgba jet;            // the jet's flame, once the sparks are drawn
+    uint8_t hair_style;  // 0 army (none), 1 dreadlocks, 2 punk, 3 Mr. T, 4 normal
+    uint8_t head_style;  // 0 none, 1 helmet, 2 hat
+    uint8_t chain_style; // 0 none, 1 dog tags, 2 gold chain
+} PlayerLook;
+
 // A soldier is run in one place at a time: the server runs them all, on the commands
 // their clients sent, and a client runs its own as well to predict it. What a soldier's
 // player decides and what the server decides are kept apart, because the server sends
@@ -229,6 +240,7 @@ typedef struct Soldier {
     WeaponId primary_choice; // the loadout for the next spawn
     WeaponId secondary_choice;
     int32_t kills, deaths, flags;
+    PlayerLook look;
 } Soldier;
 
 // ---------------------------------------------------------------------------------

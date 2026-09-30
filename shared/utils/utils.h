@@ -58,6 +58,10 @@ typedef struct Rgba {
 // Soldat's files store colors as BGRA.
 Rgba rgba_from_bgra(const uint8_t bgra[4]);
 
+// A colour written as "RRGGBB" in hex, with or without a '#' first: the config's form.
+// Opaque. False, with `out` left alone, if the text is anything else.
+bool rgba_parse_hex(const char *text, Rgba *out);
+
 // --- file.c ------------------------------------------------------------------------
 
 // Reads a whole file into a null-terminated heap buffer (the terminator is not counted

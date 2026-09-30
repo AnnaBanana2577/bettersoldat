@@ -13,6 +13,12 @@
 // twice. Keys are named by their place on the keyboard (SDL's scancodes), as the
 // original binds them, so "w" is the key above "s" on any layout.
 //
+// A key pressed with a modifier held is looked up as "alt+w", "ctrl+w" or "shift+w"
+// first, and as "w" when that has no bind, so Alt+W can say something while W alone
+// still jumps. A key goes up under the name it went down with, so what a +cmd began, the
+// release always ends. The modifier keys are keys too: "alt" itself can hold the radio
+// menu open.
+//
 // The mouse is the original's: SDL's relative mode locks the system cursor in the
 // window and the game keeps its own, moved by the raw deltas times the sensitivity and
 // clamped to the view, in the view's units (480 tall, however big the window), so it
@@ -36,6 +42,10 @@ typedef struct Input {
     Vec2 cursor;       // the game's cursor, in view units from the view's top-left
     Vec2 view;         // the view's size in those units: GAME_HEIGHT tall, the width follows the window
     float sensitivity; // the original's cl_sensitivity
+
+    // For each key that is down, the modifier it went down with (0 none, else an index
+    // into the modifiers' names), so it goes up under the same name.
+    uint8_t down_with[SDL_NUM_SCANCODES];
 } Input;
 
 // Registers the buttons' commands, which press and release `in`.
@@ -56,7 +66,7 @@ void input_mouse_motion(Input *in, const SDL_MouseMotionEvent *motion);
 
 // A key, mouse button or wheel event: names the key and runs its bind. Key repeats do
 // nothing. False for any other event.
-bool input_event(Console *con, const SDL_Event *e);
+bool input_event(Input *in, Console *con, const SDL_Event *e);
 
 // Takes `aim`, the cursor in world space, for this frame's commands.
 void input_sample(Input *in, Vec2 aim);

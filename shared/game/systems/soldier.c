@@ -212,6 +212,7 @@ void soldier_copy_served(Soldier *dst, const Soldier *src)
     dst->shot_count = src->shot_count;
     dst->primary_choice = src->primary_choice;
     dst->secondary_choice = src->secondary_choice;
+    dst->look = src->look;
 }
 
 void soldier_copy_rest(Soldier *dst, const Soldier *src)

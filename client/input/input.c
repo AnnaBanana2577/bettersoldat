@@ -127,14 +127,45 @@ static int mouse_number(Uint8 button)
     }
 }
 
-bool input_event(Console *con, const SDL_Event *e)
+// The modifiers a key can be bound with, by the index kept in Input.down_with.
+static const struct {
+    Uint16 mod;
+    const char *name;
+} MODIFIERS[] = {{0, NULL}, {KMOD_ALT, "alt"}, {KMOD_CTRL, "ctrl"}, {KMOD_SHIFT, "shift"}};
+
+// A key event's name: with a modifier held, "alt+w" if that is bound, "w" otherwise;
+// on the way up, whichever it went down with.
+static const char *key_event_name(Input *in, const Console *con, const SDL_KeyboardEvent *k, char *buf, size_t size)
 {
-    char buf[16];
+    char plain[16];
+    const char *name = key_name(k->keysym.scancode, plain, sizeof plain);
+    if (!name) return NULL;
+
+    uint8_t with = 0;
+    if (k->type == SDL_KEYDOWN) {
+        for (uint8_t i = 1; i < sizeof MODIFIERS / sizeof MODIFIERS[0] && !with; i++) {
+            if (!(k->keysym.mod & MODIFIERS[i].mod)) continue;
+            snprintf(buf, size, "%s+%s", MODIFIERS[i].name, name);
+            if (console_bind_get(con, buf)) with = i;
+        }
+        in->down_with[k->keysym.scancode] = with;
+    } else {
+        with = in->down_with[k->keysym.scancode];
+        in->down_with[k->keysym.scancode] = 0;
+    }
+    if (with) snprintf(buf, size, "%s+%s", MODIFIERS[with].name, name);
+    else snprintf(buf, size, "%s", name);
+    return buf;
+}
+
+bool input_event(Input *in, Console *con, const SDL_Event *e)
+{
+    char buf[32];
     switch (e->type) {
     case SDL_KEYDOWN:
     case SDL_KEYUP: {
         if (e->key.repeat) return true;
-        const char *name = key_name(e->key.keysym.scancode, buf, sizeof buf);
+        const char *name = key_event_name(in, con, &e->key, buf, sizeof buf);
         if (name) console_key(con, name, e->type == SDL_KEYDOWN);
         return true;
     }

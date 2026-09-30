@@ -9,11 +9,17 @@
 // have a team-2 variant. The table's order is the draw order. The wounds (ranny/)
 // follow the part each covers and show as health runs low. The weapons are more
 // entries of the same shape.
+//
+// The colours, the hair, the headgear and the chain come from the soldier's PlayerLook.
+// The chains and the dreadlocks hang from the original's skeleton points 21 to 24,
+// which its physics trails behind the neck and the head; the pose carries only the
+// animation's 20, so here they hang straight down from the neck and the head's top by
+// the lengths the skeleton (gostek.po) gives them.
 
 #include "render/render_state.h"
 #include "render/sprite.h"
 
-#define GOSTEK_PART_COUNT 35
+#define GOSTEK_PART_COUNT 52
 
 // One sprite per (part, team 2, mirrored), plus the weapons and their muzzle flashes.
 typedef struct Gostek {

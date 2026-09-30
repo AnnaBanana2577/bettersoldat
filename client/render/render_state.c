@@ -48,6 +48,7 @@ static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, cons
     out.jetting = (to->controls & BUTTON_JET) && to->jets > 0;
     out.fired = to->fired;
     out.spawn_protected = to->cease_fire_counter >= 0;
+    out.look = to->look;
     return out;
 }
 

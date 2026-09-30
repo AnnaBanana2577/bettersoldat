@@ -25,7 +25,9 @@
 // for the HUD full of sample data, or `+screenshot out.png` for a PNG of the 60th frame.
 //
 // The binds below are the fallback for a missing config.cfg; the file's are the ones
-// that count. The view's: Escape the menu, Tab the weapons, M the
+// that count. Alt held is the radio menu (+radio): a call by its number, then a
+// place by its, said to the team from the radio_* cvars. Alt with a letter is a taunt
+// in the config (say, say_team). The view's: Escape the menu, Tab the weapons, M the
 // teams, F1 the scoreboard, F2 the weapon stats, F3 the minimap (ui_minimap), F5 the
 // FPS line (ui_info), F7 the names (ui_playernames). F9 toggles the wireframe
 // (r_wireframe), F10 the debug overlay (r_debug), F4 vsync (r_swapeffect, off as the
@@ -51,6 +53,8 @@
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
 #define CONFIG "config.cfg"
 #define SCREENSHOT_FRAME 60
+#define RADIO_CALLS 3  // the radio menu's first choices, and each one's second choices
+#define CHAT_TICKS 150 // what was said stays over the head this long, and fades at the end
 
 // The original's frame pacing, its defaults: vsync off (r_swapeffect 0), frames no closer
 // than 1/500 s (r_fpslimit, r_maxfps), and a millisecond's sleep after each so the loop
@@ -62,7 +66,8 @@
 static const char *VIEW_BINDS =
     "bind escape escmenu; bind tab weaponsmenu; bind m teammenu; bind f1 fragsmenu; bind f2 statsmenu;"
     "bind f3 \"toggle ui_minimap\"; bind f4 \"toggle r_swapeffect\"; bind f5 \"toggle ui_info\";"
-    "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\"";
+    "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
+    "bind alt +radio";
 
 typedef struct App {
     Console *console; // large; on the heap
@@ -73,6 +78,12 @@ typedef struct App {
     Cvar *sensitivity;
     Cvar *wireframe, *debug;
     Cvar *minimap, *info, *player_names, *console_length;
+    Cvar *player_name;
+    Cvar *shirt, *pants, *skin, *hair, *jet;      // the look's colours, "RRGGBB"
+    Cvar *hair_style, *head_style, *chain_style;  // and its styles, by number
+    Cvar *primary, *secondary;                    // the loadout at the first spawn
+    Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
+    Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
     Cvar *hud_demo;       // the HUD full of sample data, to see every part of it: page 1, 2 or 3
     char screenshot[512]; // a PNG of the 60th frame, then quit
 
@@ -132,6 +143,56 @@ static void cmd_screenshot(Console *con, int argc, char **argv, void *user)
     snprintf(app->screenshot, sizeof app->screenshot, "%s", argv[1]);
 }
 
+// say <text...> / say_team <text...>: chat. Nobody else hears yet: it goes to the
+// console and over my head, as it will once a server relays it.
+static void cmd_say(Console *con, int argc, char **argv, void *user)
+{
+    App *app = user;
+    if (argc < 2) {
+        console_print(con, "usage: %s <text>\n", argv[0]);
+        return;
+    }
+    HudPlayer *me = &app->hud_data.players[ME];
+    bool team = strcmp(argv[0], "say_team") == 0;
+    size_t n = 0;
+    me->chat[0] = '\0';
+    for (int i = 1; i < argc && n < sizeof me->chat - 1; i++) {
+        int w = snprintf(me->chat + n, sizeof me->chat - n, i > 1 ? " %s" : "%s", argv[i]);
+        if (w < 0) break;
+        n += (size_t)w; // past the end once it is full, and the loop ends
+    }
+    me->chat_team = team;
+    me->chat_delay = CHAT_TICKS;
+    console_print(con, "%s%s: %s\n", team ? "(team) " : "", app->player_name->value, me->chat);
+}
+
+// +radio / -radio: the radio menu, shown while the key is held. The digits choose
+// (menu_event): a call, then its place, and the two are said to the team.
+static void cmd_radio(Console *con, int argc, char **argv, void *user)
+{
+    (void)con, (void)argc;
+    App *app = user;
+    app->hud_data.radio_menu = argv[0][0] == '+';
+    app->hud_data.radio_state = 0;
+}
+
+// The radio menu's digit: the call, or the place that finishes the message.
+static void radio_choose(App *app, int digit)
+{
+    HudData *d = &app->hud_data;
+    if (digit < 1 || digit > RADIO_CALLS) return;
+    if (!d->radio_state) {
+        d->radio_state = digit;
+        return;
+    }
+    char text[CONSOLE_TEXT_SIZE];
+    snprintf(text, sizeof text, "say_team \"%s %s\"", app->radio_first[d->radio_state - 1]->value,
+             app->radio_second[d->radio_state - 1][digit - 1]->value);
+    console_execute(app->console, text);
+    d->radio_menu = false;
+    d->radio_state = 0;
+}
+
 // escmenu / weaponsmenu / teammenu / fragsmenu / statsmenu: each toggles its menu. The
 // scoreboard and the stats sit in the same place, so one closes the other, and neither
 // opens over the escape menu.
@@ -175,6 +236,29 @@ static bool console_open(App *app, int argc, char *argv[])
     app->player_names = cvar_register(con, "ui_playernames", "1", CVAR_ARCHIVE, "the names over the players");
     app->console_length =
         cvar_register(con, "ui_console_length", "6", CVAR_ARCHIVE, "how many console lines the HUD shows");
+    app->player_name = cvar_register(con, "cl_player_name", "Player", CVAR_ARCHIVE, "my name");
+    app->shirt = cvar_register(con, "cl_player_shirt", "304289", CVAR_ARCHIVE, "the shirt's colour, RRGGBB");
+    app->pants = cvar_register(con, "cl_player_pants", "FF0000", CVAR_ARCHIVE, "the pants' colour, RRGGBB");
+    app->skin = cvar_register(con, "cl_player_skin", "E6B478", CVAR_ARCHIVE, "the skin's colour, RRGGBB");
+    app->hair = cvar_register(con, "cl_player_hair", "000000", CVAR_ARCHIVE, "the hair's colour, RRGGBB");
+    app->jet = cvar_register(con, "cl_player_jet", "00008B", CVAR_ARCHIVE, "the jet flame's colour, RRGGBB");
+    app->hair_style = cvar_register(con, "cl_player_hairstyle", "0", CVAR_ARCHIVE,
+                                    "0 army, 1 dreadlocks, 2 punk, 3 Mr. T, 4 normal");
+    app->head_style = cvar_register(con, "cl_player_headstyle", "0", CVAR_ARCHIVE, "0 none, 1 helmet, 2 hat");
+    app->chain_style = cvar_register(con, "cl_player_chainstyle", "0", CVAR_ARCHIVE, "0 none, 1 dog tags, 2 gold chain");
+    app->primary = cvar_register(con, "cl_player_wep", "1", CVAR_ARCHIVE, "the primary at the first spawn, 1 to 10");
+    app->secondary = cvar_register(con, "cl_player_secwep", "1", CVAR_ARCHIVE, "0 USSOCOM, 1 knife, 2 chainsaw, 3 LAW");
+    const char *calls[RADIO_CALLS] = {"Enemy flagger", "Friendly flagger", "Enemy spotted"};
+    const char *places[RADIO_CALLS] = {"up!", "middle!", "down!"};
+    for (int i = 0; i < RADIO_CALLS; i++) {
+        char name[CONSOLE_NAME_SIZE];
+        snprintf(name, sizeof name, "radio_%d", i + 1);
+        app->radio_first[i] = cvar_register(con, name, calls[i], CVAR_ARCHIVE, "a call of the radio menu");
+        for (int j = 0; j < RADIO_CALLS; j++) {
+            snprintf(name, sizeof name, "radio_%d_%d", i + 1, j + 1);
+            app->radio_second[i][j] = cvar_register(con, name, places[j], CVAR_ARCHIVE, "a place of that call");
+        }
+    }
     app->hud_demo = cvar_register(con, "hud_demo", "0", 0, "fill the HUD with sample data: page 1, 2 or 3");
     console_add_command(con, "quit", cmd_quit, app, "leave the game");
     console_add_command(con, "screenshot", cmd_screenshot, app, "write the 60th frame from now to a PNG, then quit");
@@ -183,6 +267,10 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "teammenu", cmd_menu, app, "the team menu");
     console_add_command(con, "fragsmenu", cmd_menu, app, "the scoreboard");
     console_add_command(con, "statsmenu", cmd_menu, app, "the weapon stats");
+    console_add_command(con, "say", cmd_say, app, "say something to everyone");
+    console_add_command(con, "say_team", cmd_say, app, "say something to the team");
+    console_add_command(con, "+radio", cmd_radio, app, "hold the radio menu open");
+    console_add_command(con, "-radio", cmd_radio, app, NULL);
     input_init(&app->input, con);
 
     input_default_binds(con);
@@ -200,6 +288,45 @@ static void console_close(App *app)
     app->console = NULL;
 }
 
+// A team game: the map says, by its name, until a server does.
+static bool team_game(const App *app) { return strncmp(app->map->value, "ctf_", 4) == 0; }
+
+// The team's shirt, worn over the player's own in a team game.
+static Rgba team_shirt(Team team)
+{
+    switch (team) {
+    case TEAM_ALPHA: return (Rgba){199, 56, 51, 255};
+    case TEAM_BRAVO: return (Rgba){64, 107, 204, 255};
+    case TEAM_CHARLIE: return (Rgba){230, 199, 64, 255};
+    case TEAM_DELTA: return (Rgba){77, 179, 89, 255};
+    default: return (Rgba){140, 140, 148, 255};
+    }
+}
+
+// A colour cvar's colour; its default's if what it holds isn't one.
+static Rgba cvar_color(const Cvar *cv)
+{
+    Rgba color = {255, 255, 255, 255};
+    if (!rgba_parse_hex(cv->value, &color)) rgba_parse_hex(cv->default_value, &color);
+    return color;
+}
+
+// My look, from the cl_player_* cvars, for `team`.
+static PlayerLook look_from_cvars(const App *app, Team team)
+{
+    PlayerLook look = {
+        .shirt = team_game(app) ? team_shirt(team) : cvar_color(app->shirt),
+        .pants = cvar_color(app->pants),
+        .skin = cvar_color(app->skin),
+        .hair = cvar_color(app->hair),
+        .jet = cvar_color(app->jet),
+        .hair_style = (uint8_t)clampi(app->hair_style->integer, 0, 4),
+        .head_style = (uint8_t)clampi(app->head_style->integer, 0, 2),
+        .chain_style = (uint8_t)clampi(app->chain_style->integer, 0, 2),
+    };
+    return look;
+}
+
 // The cvars the loop reads each frame; vsync only once it changes, as it costs a call.
 static void apply_cvars(App *app)
 {
@@ -210,9 +337,11 @@ static void apply_cvars(App *app)
     app->input.sensitivity = app->sensitivity->number;
     app->render_options.wireframe = app->wireframe->integer != 0;
     app->render_options.debug = app->debug->integer != 0;
+    Soldier *me = &app->game->world.soldiers[ME];
+    me->look = look_from_cvars(app, me->team);
 }
 
-// The world, with me in it.
+// The world, with me in it, dressed and armed as the cvars say.
 static bool game_open(App *app)
 {
     app->game = calloc(1, sizeof(Game));
@@ -221,10 +350,13 @@ static bool game_open(App *app)
     Game *g = app->game;
     game_init(g, 1, match_default_settings());
     g->world.authority = true;
+    for (int i = 0; i < MAX_PLAYERS; i++) g->world.soldiers[i].look = look_from_cvars(app, TEAM_ALPHA);
 
     Soldier *me = &g->world.soldiers[ME];
     Vec2 at = spawn_point(g->ctx.map, TEAM_ALPHA, &g->world.rng);
-    soldier_spawn(&g->ctx, me, at, TEAM_ALPHA, WEAPON_AK74, WEAPON_COLT);
+    WeaponId primary = (WeaponId)clampi(app->primary->integer, WEAPON_EAGLE, WEAPON_MINIGUN);
+    WeaponId secondary = (WeaponId)(WEAPON_COLT + clampi(app->secondary->integer, 0, WEAPON_LAW - WEAPON_COLT));
+    soldier_spawn(&g->ctx, me, at, TEAM_ALPHA, primary, secondary);
     return true;
 }
 
@@ -277,6 +409,8 @@ static void tick(App *app)
     game_tick(app->game, cmds);
     input_clear(&app->input);
     snapshot_tick(app);
+    for (int i = 0; i < MAX_PLAYERS; i++) // what was said fades
+        if (app->hud_data.players[i].chat_delay > 0) app->hud_data.players[i].chat_delay--;
 }
 
 // How many ticks this frame owes: a whole tick comes out per tick, and the rest waits
@@ -342,18 +476,21 @@ static void apply_menu_action(App *app, MenuAction action)
 }
 
 // An open menu takes the keys and clicks the original gives it: a digit chooses, a left
-// click picks. True if it took the event.
+// click picks. The radio menu takes the digits too. True if it took the event.
 static bool menu_event(App *app, const SDL_Event *e)
 {
     GameMenus *m = &app->menus;
+    bool digit_down = e->type == SDL_KEYDOWN && !e->key.repeat && e->key.keysym.scancode >= SDL_SCANCODE_1 &&
+                      e->key.keysym.scancode <= SDL_SCANCODE_0;
+    int digit = e->key.keysym.scancode == SDL_SCANCODE_0 ? 0 : e->key.keysym.scancode - SDL_SCANCODE_1 + 1;
+    if (app->hud_data.radio_menu && !menus_any_active(m)) {
+        if (digit_down) radio_choose(app, digit);
+        return digit_down;
+    }
     if (!menus_any_active(m)) return false;
-    if (e->type == SDL_KEYDOWN && !e->key.repeat) {
-        SDL_Scancode key = e->key.keysym.scancode;
-        if (key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_0) {
-            int digit = key == SDL_SCANCODE_0 ? 0 : key - SDL_SCANCODE_1 + 1;
-            apply_menu_action(app, menus_number_key(m, digit));
-            return true;
-        }
+    if (digit_down) {
+        apply_menu_action(app, menus_number_key(m, digit));
+        return true;
     }
     if (e->type == SDL_MOUSEBUTTONDOWN && e->button.button == SDL_BUTTON_LEFT) {
         apply_menu_action(app, menus_click(m, app->hud_data.selected_weapon != WEAPON_NONE));
@@ -383,7 +520,7 @@ static void poll_events(App *app)
             }
             break;
         default:
-            if (!menu_event(app, &e)) input_event(app->console, &e);
+            if (!menu_event(app, &e)) input_event(&app->input, app->console, &e);
             break;
         }
     }
@@ -399,7 +536,7 @@ static void hud_data_build(App *app)
     const Game *g = app->game;
     const Soldier *me = &g->world.soldiers[ME];
 
-    d->mode = strncmp(app->map->value, "ctf_", 4) == 0 ? HUD_MODE_CTF : HUD_MODE_DEATHMATCH;
+    d->mode = team_game(app) ? HUD_MODE_CTF : HUD_MODE_DEATHMATCH;
     d->team_game = d->mode == HUD_MODE_CTF;
     snprintf(d->hostname, sizeof(d->hostname), "bettersoldat");
     d->kill_limit = g->match.settings.score_limit;
@@ -413,11 +550,12 @@ static void hud_data_build(App *app)
         HudPlayer *p = &d->players[i];
         p->active = s->active;
         if (!s->active) continue;
-        if (!p->name[0]) snprintf(p->name, sizeof(p->name), "Player %d", i + 1);
+        if (i == ME) snprintf(p->name, sizeof(p->name), "%s", app->player_name->value);
+        else if (!p->name[0]) snprintf(p->name, sizeof(p->name), "Player %d", i + 1);
         p->team = s->team;
         p->dead = s->dead;
         p->holding_flag = s->holding_flag;
-        p->shirt = (Rgba){199, 56, 51, 255}; // the gostek's, until players carry colours
+        p->shirt = s->look.shirt;
     }
     d->me = ME;
     d->camera_follow = -1;
@@ -431,6 +569,13 @@ static void hud_data_build(App *app)
     d->minimap = app->minimap->integer != 0;
     d->show_info = app->info->integer != 0;
     d->player_names = app->player_names->integer != 0;
+
+    // the radio menu's columns: the calls, and the places of the call chosen
+    int call = d->radio_state ? d->radio_state - 1 : 0;
+    for (int i = 0; i < RADIO_CALLS; i++) {
+        snprintf(d->radio_first[i], sizeof d->radio_first[i], "%s", app->radio_first[i]->value);
+        snprintf(d->radio_second[i], sizeof d->radio_second[i], "%s", app->radio_second[call][i]->value);
+    }
 
     // the console's newest lines, oldest first; they don't fade yet as the original's do
     int lines = clampi(app->console_length->integer, 0, HUD_CONSOLE_LINES);

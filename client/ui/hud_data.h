@@ -129,7 +129,7 @@ typedef struct HudData {
     char vote_reason[HUD_TEXT];
     bool vote_reason_typing; // "Type reason for vote:"
 
-    // the radio menu, from txt/radiomenu-default.ini: the first choice, then the second
+    // the radio menu, from the radio_* cvars: the first choice, then the second
     bool radio_menu;
     char radio_first[HUD_RADIO_LINES][HUD_NAME];
     char radio_second[HUD_RADIO_LINES][HUD_NAME];

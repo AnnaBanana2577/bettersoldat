@@ -40,6 +40,7 @@ typedef struct RenderSoldier {
     bool jetting;
     bool fired;           // a shot went off on the latest tick: the muzzle flash
     bool spawn_protected; // drawn faded
+    PlayerLook look;      // its colours, hair, headgear and chain
 } RenderSoldier;
 
 typedef struct RenderState {

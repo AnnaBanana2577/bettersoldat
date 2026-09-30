@@ -18,3 +18,4 @@ void check_that(bool ok, const char *file, int line, const char *fmt, ...);
 // --- the suites --------------------------------------------------------------------
 
 void console_tests(void);
+void color_tests(void);

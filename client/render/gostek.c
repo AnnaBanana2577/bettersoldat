@@ -28,7 +28,18 @@ typedef struct GostekPart {
     bool vest;  // drawn while the vest holds
     bool badge; // drawn while a bow is in the hands
     int nade;   // the nth grenade on the belt, 1 to 5; drawn while that many are carried
+    int hair;   // drawn for this hair style (PlayerLook.hair_style)
+    int dread;  // the nth dreadlock, 1 to 5: offset from the head's top and hanging from there
+    int head;   // drawn for this head style
+    int chain;  // drawn for this chain style
 } GostekPart;
+
+// The chains' and the dreadlocks' points, past the pose's 20: the neck (21) with the
+// pendant hanging below it (22), and the head's top (23) with the dreadlocks' end below
+// it (24), at the lengths gostek.po gives their constraints.
+#define GOSTEK_POINTS 24
+#define CHAIN_DROP 3.0f
+#define DREAD_DROP 1.5f
 
 static const GostekPart GOSTEK_PARTS[] = {
     {.file = "udo", .p1 = 6, .p2 = 3, .cx = 0.2f, .cy = 0.5f, .flex = 5, .flip = true, .team = true, .color = GOSTEK_COLOR_PANTS},
@@ -55,7 +66,26 @@ static const GostekPart GOSTEK_PARTS[] = {
     {.file = "ranny/biodro", .p1 = 5, .p2 = 6, .cx = 0.25f, .cy = 0.6f, .flip = true, .team = true, .blood = true},
     {.file = "morda", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_SKIN},
     {.file = "ranny/morda", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HEAD_BLOOD, .blood = true},
+    // The hair, the headgear and the chain, in the original's order. A helmet or a hat
+    // covers every hair style but Mr. T's; the bow's band replaces them all.
+    {.file = "hair3", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 3},
+    {.file = "helm", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 1},
+    {.file = "kap", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 2},
     {.file = "badge", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .badge = true},
+    {.file = "hair1", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 1},
+    {.file = "dred", .p1 = 23, .p2 = 24, .cx = 0, .cy = 1.22f, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 1, .dread = 1},
+    {.file = "dred", .p1 = 23, .p2 = 24, .cx = 0.1f, .cy = 0.5f, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 1, .dread = 2},
+    {.file = "dred", .p1 = 23, .p2 = 24, .cx = 0.04f, .cy = -0.3f, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 1, .dread = 3},
+    {.file = "dred", .p1 = 23, .p2 = 24, .cx = 0, .cy = -0.9f, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 1, .dread = 4},
+    {.file = "dred", .p1 = 23, .p2 = 24, .cx = -0.2f, .cy = -1.35f, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 1, .dread = 5},
+    {.file = "hair2", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 2},
+    {.file = "hair4", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 4},
+    {.file = "lancuch", .p1 = 10, .p2 = 22, .cx = 0.1f, .cy = 0.5f, .team = true, .chain = 1},
+    {.file = "lancuch", .p1 = 11, .p2 = 22, .cx = 0.1f, .cy = 0.5f, .team = true, .chain = 1},
+    {.file = "metal", .p1 = 22, .p2 = 21, .cx = 0.5f, .cy = 0.7f, .flip = true, .team = true, .chain = 1},
+    {.file = "zlotylancuch", .p1 = 10, .p2 = 22, .cx = 0.1f, .cy = 0.5f, .team = true, .chain = 2},
+    {.file = "zlotylancuch", .p1 = 11, .p2 = 22, .cx = 0.1f, .cy = 0.5f, .team = true, .chain = 2},
+    {.file = "zloto", .p1 = 22, .p2 = 21, .cx = 0.5f, .cy = 0.5f, .flip = true, .team = true, .chain = 2},
     // The belt, between the hips. The original's data pins all five to the same spot, so
     // a soldier carrying more shows no more; the count is still the original's.
     {.file = "frag-grenade", .dir = "weapons-gfx", .p1 = 5, .p2 = 6, .cx = 0.5f, .cy = 0.1f, .nade = 1},
@@ -157,26 +187,21 @@ static uint8_t blood_alpha(const RenderSoldier *s)
     return (uint8_t)clampf(200.0f - roundf(s->health), 0.0f, 255.0f);
 }
 
-// Shirt, pants and skin. The original takes these from each player's profile; fixed per
-// team until the roster carries them. Faded while the spawn protection lasts.
+// Shirt, pants, skin and hair: the player's own (PlayerLook; the shirt is the team's in
+// a team game, set where the look is). Faded while the spawn protection lasts.
 static Rgba gostek_color(GostekColor c, const RenderSoldier *s)
 {
-    uint8_t alpha = s->spawn_protected ? 153 : 255;
+    Rgba color;
     switch (c) {
-    case GOSTEK_COLOR_SKIN: return (Rgba){222, 181, 140, alpha};
-    case GOSTEK_COLOR_HAIR: return (Rgba){64, 46, 31, alpha};
-    case GOSTEK_COLOR_HEAD_BLOOD: return (Rgba){172, 169, 168, alpha};
-    case GOSTEK_COLOR_PANTS: return (Rgba){56, 61, 71, alpha};
-    case GOSTEK_COLOR_MAIN:
-        switch (s->team) {
-        case TEAM_ALPHA: return (Rgba){199, 56, 51, alpha};
-        case TEAM_BRAVO: return (Rgba){64, 107, 204, alpha};
-        case TEAM_CHARLIE: return (Rgba){230, 199, 64, alpha};
-        case TEAM_DELTA: return (Rgba){77, 179, 89, alpha};
-        default: return (Rgba){140, 140, 148, alpha};
-        }
-    default: return (Rgba){255, 255, 255, alpha};
+    case GOSTEK_COLOR_MAIN: color = s->look.shirt; break;
+    case GOSTEK_COLOR_PANTS: color = s->look.pants; break;
+    case GOSTEK_COLOR_SKIN: color = s->look.skin; break;
+    case GOSTEK_COLOR_HAIR: color = s->look.hair; break;
+    case GOSTEK_COLOR_HEAD_BLOOD: color = (Rgba){172, 169, 168, 255}; break;
+    default: color = RGBA_WHITE; break;
     }
+    color.a = s->spawn_protected ? 153 : 255;
+    return color;
 }
 
 static float angle_between(Vec2 p1, Vec2 p2)
@@ -228,6 +253,15 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
     bool jetting = s->jetting && !corpse;
     int team = s->team == TEAM_BRAVO || s->team == TEAM_DELTA ? 1 : 0;
     bool facing_left = s->facing_left;
+    const PlayerLook *look = &s->look;
+
+    // the pose's points, and the four the chains and the dreadlocks hang from
+    Vec2 p[GOSTEK_POINTS];
+    for (int i = 0; i < POSE_POINTS; i++) p[i] = pose->p[i];
+    p[21 - 1] = p[9 - 1];
+    p[22 - 1] = vec2_add(p[9 - 1], vec2(0, CHAIN_DROP));
+    p[23 - 1] = p[12 - 1];
+    p[24 - 1] = vec2_add(p[12 - 1], vec2(0, DREAD_DROP));
 
     // slung across the back, so before the body
     const WeaponArt *back = &WEAPON_ART[s->secondary];
@@ -238,6 +272,7 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
     // throw runs.
     int carried = s->grenades - (s->body_anim == ANIM_THROW ? 1 : 0);
     bool bow = s->weapon == WEAPON_BOW || s->weapon == WEAPON_BOW2;
+    bool hair_shown = !bow && (look->head_style == 0 || look->hair_style == 3);
 
     for (int i = 0; i < GOSTEK_PART_COUNT; i++) {
         const GostekPart *part = &GOSTEK_PARTS[i];
@@ -248,13 +283,16 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
         if (part->vest && s->vest <= 0.0f) continue;
         if (part->badge && !bow) continue;
         if (part->nade > 0 && part->nade > carried) continue; // a body keeps its belt, as the original leaves it
+        if (part->hair && (part->hair != look->hair_style || !hair_shown)) continue;
+        if (part->head && (part->head != look->head_style || bow)) continue;
+        if (part->chain && part->chain != look->chain_style) continue;
 
         bool mirrored = facing_left && part->flip;
         Sprite sprite = g->parts[i][part->team ? team : 0][mirrored ? 1 : 0];
         if (sprite.tex.handle == 0) continue;
 
-        Vec2 p1 = pose->p[part->p1 - 1];
-        Vec2 p2 = pose->p[part->p2 - 1];
+        Vec2 p1 = p[part->p1 - 1];
+        Vec2 p2 = p[part->p2 - 1];
         Vec2 along = vec2_sub(p2, p1);
         float angle = atan2f(along.y, along.x);
 
@@ -268,7 +306,20 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
             if (part->flip) cy = 1.0f - part->cy;
             else sy = -1.0f;
         }
-        if (part->flex > 0.0f) sx = minf(1.5f, vec2_length(along) / part->flex);
+        if (part->dread) {
+            // Each dreadlock's root is its (cx, cy), in its own pixels, turned with the head;
+            // from there it hangs toward point 24, each a little longer than the last.
+            Vec2 head = vec2_sub(p[12 - 1], p[9 - 1]);
+            float turn = atan2f(head.y, head.x) - 3.14159265f / 2;
+            float dir = facing_left ? -1.0f : 1.0f;
+            Vec2 root = {-part->cy * sprite.height * dir, part->cx * sprite.width};
+            p1 = vec2_add(p1, vec2(root.x * cosf(turn) - root.y * sinf(turn), root.x * sinf(turn) + root.y * cosf(turn)));
+            cx = 0.0f;
+            cy = 0.5f;
+            sx = 0.75f + 0.25f / 5 * (float)(part->dread - 1);
+        } else if (part->flex > 0.0f) {
+            sx = minf(1.5f, vec2_length(along) / part->flex);
+        }
 
         Rgba tint = gostek_color(part->color, s);
         if (part->blood) tint.a = bleeding;

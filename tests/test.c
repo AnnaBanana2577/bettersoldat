@@ -21,6 +21,7 @@ void check_that(bool ok, const char *file, int line, const char *fmt, ...)
 int main(void)
 {
     console_tests();
+    color_tests();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }
