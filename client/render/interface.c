@@ -332,6 +332,14 @@ static void draw_big_messages(const Frame *f, const HudData *d, Rect viewport)
         int alpha = m->color.a ? m->color.a : 255;
         alpha = clampi(3 * m->delay + 25, 0, alpha);
         float scale = m->scale * (viewport.height / GAME_HEIGHT) * 4.8f;
+        float x = m->x;
+        if (m->centered) { // the original's BigMessage: no wider than 0.7 of the view, in the middle
+            text_style_scaled(FONT_BIG, scale);
+            float w = text_width(m->text);
+            if (w > 0.7f * f->game_width) scale *= 0.7f * f->game_width / w;
+            text_style_scaled(FONT_BIG, scale);
+            x = (f->game_width - text_width(m->text)) / 2;
+        }
         float extra = 1.0f;
         if (scale * text_style_size(FONT_BIG) > max_size) {
             extra = scale;
@@ -344,7 +352,7 @@ static void draw_big_messages(const Frame *f, const HudData *d, Rect viewport)
         text_color(with_alpha(m->color, alpha));
         float a = alpha / 255.0f;
         text_shadow(1, 1, (Rgba){0, 0, 0, (uint8_t)(a * a * a * a * alpha)});
-        text_draw(m->text, m->x, m->y);
+        text_draw(m->text, x, m->y);
         text_align(TEXT_TOP);
         text_scale(1.0f);
     }

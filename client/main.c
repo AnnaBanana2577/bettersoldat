@@ -100,6 +100,8 @@ typedef struct App {
     ClientNet net; // the line to a server, once `connect` opens one
     uint32_t seq; // my commands, numbered
     bool chat_just_opened; // the key that opened the prompt is not its first letter
+    bool was_dead;         // my soldier as of the last tick, for the weapons menu at death
+    bool limbo_lock;       // the weapons menu closed while dead stays closed (the original's LimboLock)
     double accumulator;
     bool quit;
 
@@ -354,7 +356,14 @@ static void cmd_menu(Console *con, int argc, char **argv, void *user)
     GameMenus *m = &app->menus;
     const char *name = argv[0];
     if (strcmp(name, "escmenu") == 0) menus_show(m, MENU_ESC, !m->menus[MENU_ESC].active, d->mode, 1);
-    else if (strcmp(name, "weaponsmenu") == 0) menus_show(m, MENU_LIMBO, !m->menus[MENU_LIMBO].active, d->mode, 1);
+    else if (strcmp(name, "weaponsmenu") == 0) {
+        menus_show(m, MENU_LIMBO, !m->menus[MENU_LIMBO].active, d->mode, 1);
+        // closed while dead, it stays closed through the spawn; opened again, it comes back
+        if (app->game->world.soldiers[app->me].dead) {
+            app->limbo_lock = !m->menus[MENU_LIMBO].active;
+            console_print_color(con, HUD_COLOR_GAME, app->limbo_lock ? "Weapons menu disabled\n" : "Weapons menu active\n");
+        }
+    }
     else if (strcmp(name, "teammenu") == 0) menus_show(m, MENU_TEAM, !m->menus[MENU_TEAM].active, d->mode, 1);
     else if (m->menus[MENU_ESC].active) return;
     else if (strcmp(name, "fragsmenu") == 0) {
@@ -593,7 +602,19 @@ static void tick(App *app)
     snapshot_tick(app);
     char names[MAX_PLAYERS][HUD_NAME];
     for (int i = 0; i < MAX_PLAYERS; i++) player_name(app, i, names[i], sizeof names[i]);
-    feed_tick(&app->feed, app->console, app->game, names, team_game(app));
+    feed_tick(&app->feed, app->console, app->game, names, team_game(app), app->me);
+
+    // The weapons menu opens at my death and stays through the spawn, to pick with,
+    // until I move or fire, or pick; unless I closed it while dead.
+    const Soldier *me = &w->soldiers[app->me];
+    bool dead = me->active && me->dead;
+    bool limbo = app->menus.menus[MENU_LIMBO].active;
+    if (dead != app->was_dead && !app->limbo_lock && !limbo && !app->menus.menus[MENU_ESC].active) {
+        menus_show(&app->menus, MENU_LIMBO, true, app->hud_data.mode, 1);
+    }
+    const Buttons moving = BUTTON_LEFT | BUTTON_RIGHT | BUTTON_JUMP | BUTTON_CROUCH | BUTTON_PRONE | BUTTON_JET | BUTTON_FIRE | BUTTON_THROW;
+    if (limbo && !dead && (cmds[app->me].buttons & moving)) menus_show(&app->menus, MENU_LIMBO, false, app->hud_data.mode, 1);
+    app->was_dead = dead;
     for (int i = 0; i < MAX_PLAYERS; i++) // what was said fades
         if (app->hud_data.players[i].chat_delay > 0) app->hud_data.players[i].chat_delay--;
 }
@@ -925,6 +946,8 @@ static bool world_reload(App *app, const char *map)
     render_init(&app->render, app->assets->value, &app->game->ctx);
     interface_open(app);
     app->previous = app->latest = (TickSnapshot){0};
+    app->limbo_lock = false;
+    app->was_dead = false;
     return true;
 }
 

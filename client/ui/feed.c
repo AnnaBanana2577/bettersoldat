@@ -35,47 +35,95 @@ static Team flag_team(ThingStyle style)
     return style == THING_ALPHA_FLAG ? TEAM_ALPHA : style == THING_BRAVO_FLAG ? TEAM_BRAVO : TEAM_NONE;
 }
 
-// A line at the bottom of the kill console; the oldest goes when it is full.
+// The oldest line of the kill console goes (ScrollConsole).
+static void kill_scroll(Feed *f)
+{
+    if (f->kill_count == 0) return;
+    memmove(f->kills, f->kills + 1, sizeof f->kills - sizeof f->kills[0]);
+    f->kill_count--;
+}
+
+// A line at the bottom of the kill console (ConsoleNum); the oldest goes when it is full.
 static void kill_line(Feed *f, const char *text, Rgba color, WeaponId weapon, bool icon)
 {
-    if (f->kill_count == HUD_KILL_LINES) {
-        memmove(f->kills, f->kills + 1, sizeof f->kills - sizeof f->kills[0]);
-        memmove(f->kill_ticks, f->kill_ticks + 1, sizeof f->kill_ticks - sizeof f->kill_ticks[0]);
-        f->kill_count--;
-    }
-    HudKillLine *l = &f->kills[f->kill_count];
+    if (f->kill_count == HUD_KILL_LINES) kill_scroll(f);
+    HudKillLine *l = &f->kills[f->kill_count++];
     snprintf(l->text, sizeof l->text, "%s", text);
     l->color = color;
     l->weapon = weapon;
     l->has_icon = icon;
-    f->kill_ticks[f->kill_count++] = FEED_KILL_TICKS;
+    f->scroll_tick = -FEED_NEW_MESSAGE_WAIT;
 }
 
 // A big message on `layer`, replacing what was there.
-static void big_text(Feed *f, int layer, const char *text, Rgba color, float scale, float x, float y)
+static void big_text(Feed *f, int layer, const char *text, Rgba color, float scale, float x, float y, int delay)
 {
     HudBigMessage *m = &f->big[layer];
     snprintf(m->text, sizeof m->text, "%s", text);
     m->color = color;
     m->scale = scale;
-    m->delay = FEED_BIG_TICKS;
+    m->delay = delay;
     m->x = x;
     m->y = y;
+    m->centered = false;
 }
 
-// A name's colour in the texts: its team's, or white with no teams.
-static Rgba name_color(const Game *g, int player, bool team_game)
+// The original's BigMessage: on layer 1, at full size or narrower to fit, in the
+// middle, low on the screen.
+static void big_message(Feed *f, const char *text, Rgba color, int delay)
 {
-    return team_game ? team_color(g->world.soldiers[player].team) : (Rgba){0xFF, 0xFF, 0xFF, 0xFF};
+    big_text(f, 1, text, color, 1.0f / 4.8f, 0, 420, delay);
+    f->big[1].centered = true;
 }
 
-// The kill console: the killer over its weapon's icon, the victim under; a suicide is the
-// victim alone, with what did it.
-static void kill(Feed *f, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], bool team_game, const EventKill *k)
+// The kill console's colours (the original's *_K_ and *_D_MESSAGE_COLOR): the killer's
+// line by its team, the victim's by its; with no teams the killer green and the victim
+// dark red; a suicide the spectator's gold.
+static Rgba killer_color(Team team)
 {
-    if (k->killer != k->target) kill_line(f, names[k->killer], name_color(g, k->killer, team_game), k->weapon, true);
-    kill_line(f, names[k->target], k->killer == k->target ? HUD_COLOR_DEATH : name_color(g, k->target, team_game), k->weapon,
-              k->killer == k->target);
+    switch (team) {
+    case TEAM_ALPHA: return (Rgba){0xFF, 0xE3, 0xE3, 0xEB};
+    case TEAM_BRAVO: return (Rgba){0xD3, 0xE3, 0xFF, 0xEB};
+    case TEAM_CHARLIE: return (Rgba){0xFF, 0xFF, 0xE3, 0xEB};
+    case TEAM_DELTA: return (Rgba){0xD3, 0xFF, 0xE3, 0xEB};
+    default: return (Rgba){0x52, 0xD1, 0x19, 0xEE};
+    }
+}
+
+static Rgba victim_color(Team team)
+{
+    switch (team) {
+    case TEAM_ALPHA: return (Rgba){0xDA, 0xB0, 0xB0, 0xEB};
+    case TEAM_BRAVO: return (Rgba){0xA0, 0xB0, 0xDA, 0xEB};
+    case TEAM_CHARLIE: return (Rgba){0xD0, 0xD0, 0xB0, 0xEB};
+    case TEAM_DELTA: return (Rgba){0xA0, 0xD0, 0xBA, 0xEB};
+    default: return (Rgba){0x80, 0x13, 0x04, 0xEE};
+    }
+}
+
+// The kill console (NetworkClientSprite.pas's death): the killer with its tally over
+// its weapon's icon, the victim under; a suicide is the one line, in gold. And the big
+// words for me: whom I killed, who killed me.
+static void kill(Feed *f, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], const EventKill *k, int me)
+{
+    char text[HUD_TEXT];
+    Team killer_team = g->world.soldiers[k->killer].team, victim_team = g->world.soldiers[k->target].team;
+    snprintf(text, sizeof text, "%s (%d)", names[k->killer], k->kills);
+    if (k->killer != k->target) {
+        kill_line(f, text, killer_color(killer_team), k->weapon, true);
+        kill_line(f, names[k->target], victim_color(victim_team), k->weapon, false);
+    } else {
+        kill_line(f, text, (Rgba){0xD3, 0xB7, 0x27, 0xEB}, k->weapon, true);
+    }
+    if (k->killer == me && k->target == me) {
+        big_message(f, "You killed yourself", (Rgba){0xC5, 0x30, 0x25, 0xFF}, FEED_KILL_MESSAGE_TICKS);
+    } else if (k->target == me) {
+        snprintf(text, sizeof text, "Killed by %s", names[k->killer]);
+        big_message(f, text, (Rgba){0xC5, 0x30, 0x25, 0xFF}, FEED_KILL_MESSAGE_TICKS);
+    } else if (k->killer == me) {
+        snprintf(text, sizeof text, "You killed %s", names[k->target]);
+        big_message(f, text, (Rgba){0xEA, 0x35, 0x30, 0xFF}, FEED_KILL_MESSAGE_TICKS);
+    }
 }
 
 // The match's end: the team that won, or with no teams the player with the most kills.
@@ -94,20 +142,18 @@ static void match_end(Feed *f, Console *con, const Game *g, const char names[MAX
         if (best >= 0) snprintf(text, sizeof text, "%s Wins!", names[best]);
         else snprintf(text, sizeof text, "Draw!");
     }
-    big_text(f, 1, text, color, 0.1f, 80, 200);
+    big_message(f, text, color, FEED_CAPTURE_MESSAGE_TICKS);
     console_print_color(con, HUD_COLOR_GAME, "%s\n", text);
 }
 
-void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], bool team_game)
+void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], bool team_game, int me)
 {
-    // the lines age
-    int kept = 0;
-    for (int i = 0; i < f->kill_count; i++) {
-        if (--f->kill_ticks[i] <= 0) continue;
-        f->kills[kept] = f->kills[i];
-        f->kill_ticks[kept++] = f->kill_ticks[i];
+    (void)team_game;
+    // the kill console scrolls once, a while after the last kill (UpdateFrame.pas)
+    if (++f->scroll_tick == FEED_SCROLL_TICKS) {
+        kill_scroll(f);
+        if (f->kill_count > 0 && !f->kills[f->kill_count - 1].has_icon) kill_scroll(f);
     }
-    f->kill_count = kept;
     for (int i = 0; i < HUD_BIG_MESSAGES; i++)
         if (f->big[i].delay > 0) f->big[i].delay--;
 
@@ -115,11 +161,11 @@ void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYER
         const Event *e = &g->events.items[i];
         char text[HUD_TEXT];
         switch (e->type) {
-        case EVENT_KILL: kill(f, g, names, team_game, &e->kill); break;
+        case EVENT_KILL: kill(f, g, names, &e->kill, me); break;
         case EVENT_FLAG_SCORE: {
             Team flag = flag_team(e->flag_score.flag);
             snprintf(text, sizeof text, "%s Flag Captured!", team_name(flag));
-            big_text(f, 0, text, (Rgba){0xD3, 0xCA, 0x34, 0xFF}, 0.0625f, 80, 240);
+            big_text(f, 0, text, (Rgba){0xD3, 0xCA, 0x34, 0xFF}, 0.0625f, 80, 240, FEED_CAPTURE_MESSAGE_TICKS);
             console_print_color(con, HUD_COLOR_GAME, "%s captured the %s flag\n", names[e->flag_score.player], team_name(flag));
             break;
         }

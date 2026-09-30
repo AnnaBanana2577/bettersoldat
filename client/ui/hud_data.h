@@ -69,7 +69,8 @@ typedef struct HudBigMessage {
     Rgba color;
     float scale;
     int delay;
-    float x, y; // in the interface's units
+    float x, y;    // in the interface's units
+    bool centered; // x is the drawer's to find, and the scale shrinks to fit the width
 } HudBigMessage;
 
 typedef struct HudPlayer {

@@ -9,19 +9,24 @@
 #include "game/game.h"
 #include "ui/hud_data.h"
 
-#define FEED_KILL_TICKS 300 // a kill console line's life
-#define FEED_BIG_TICKS 270  // a big message's (the original's delay)
+// The kill console scrolls as the original's (Console.pas): a line's arrival holds it
+// for a moment, then the oldest line goes once (two, when the newest is a victim's),
+// and the rest stay until the next kill; a full console drops its oldest as one comes.
+#define FEED_SCROLL_TICKS 240
+#define FEED_NEW_MESSAGE_WAIT 70
+#define FEED_KILL_MESSAGE_TICKS (4 * 60)    // KILLMESSAGEWAIT
+#define FEED_CAPTURE_MESSAGE_TICKS (6 * 60) // CAPTUREMESSAGEWAIT
 
 typedef struct Feed {
     HudKillLine kills[HUD_KILL_LINES]; // newest last
-    int kill_ticks[HUD_KILL_LINES];    // left for each
     int kill_count;
+    int scroll_tick;
     HudBigMessage big[HUD_BIG_MESSAGES]; // by layer: 0 the flags', 1 the match's
 } Feed;
 
-// After a tick: the lines age, and the tick's events add theirs. `names` are the
-// players' for the lines; `team_game` colours the names by team.
-void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], bool team_game);
+// After a tick: the kill console scrolls when it is time, and the tick's events add
+// theirs. `names` are the players' for the lines; `me` gets the big words about myself.
+void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYERS][HUD_NAME], bool team_game, int me);
 
 // Into the HUD, each frame.
 void feed_fill(const Feed *f, HudData *d);
