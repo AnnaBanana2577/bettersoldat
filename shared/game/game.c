@@ -58,6 +58,7 @@ void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], c
     bullets_update(ctx, w, last, events);
     wounds_apply(ctx, w, last, events);
     things_update(ctx, w, last, events);
+    soldiers_receive(ctx, w, last, events);
     w->tick++;
 }
 

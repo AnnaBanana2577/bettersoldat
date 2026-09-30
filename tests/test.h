@@ -65,5 +65,6 @@ bool same_world(const World *a, const World *b);
 void combat_tests(void);
 void thing_tests(void);
 void corpse_tests(void);
+void events_tests(void);
 void console_tests(void);
 void color_tests(void);

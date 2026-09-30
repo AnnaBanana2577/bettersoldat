@@ -75,17 +75,22 @@ void kit_take(const Context *ctx, World *w, int index, uint8_t soldier, Events *
     if (!kit_wanted(w, style, s)) return;
 
     event_emit(events, (Event){.type = EVENT_KIT_PICKUP, .kit_pickup = {.player = soldier, .thing = (uint8_t)index, .kit = style, .pos = t->pos[0]}});
+    if (style == THING_MEDICAL_KIT) s->medikit_cooldown = w->rules.medikit_cooldown;
+    // the map's kits come up again at another of their spawn points; a bonus goes
+    if (style == THING_MEDICAL_KIT || style == THING_GRENADE_KIT) thing_respawn(ctx, w, index);
+    else thing_kill(t);
+}
+
+void kit_give(const Context *ctx, const World *w, Soldier *s, ThingStyle style)
+{
     switch (style) {
     case THING_MEDICAL_KIT:
         s->health = DEFAULT_HEALTH;
-        s->medikit_cooldown = w->rules.medikit_cooldown;
-        thing_respawn(ctx, w, index); // up again at another of its spawn points
-        return;
+        break;
     case THING_GRENADE_KIT:
         s->grenade_type = WEAPON_FRAG;
         s->grenades = w->rules.max_grenades;
-        thing_respawn(ctx, w, index);
-        return;
+        break;
     case THING_FLAMER_KIT:
         s->secondary = weapon_state(ctx, s->weapon.id); // the gun in hand, fresh, to come back to
         s->weapon = weapon_state(ctx, WEAPON_FLAMER);
@@ -113,7 +118,6 @@ void kit_take(const Context *ctx, World *w, int index, uint8_t soldier, Events *
     default:
         break;
     }
-    thing_kill(t);
 }
 
 void bonuses_spawn(const Context *ctx, World *w, const MatchSettings *settings, uint32_t tick)

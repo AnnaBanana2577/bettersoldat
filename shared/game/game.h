@@ -122,9 +122,10 @@ void world_init(World *w, uint64_t seed);
 
 // One tick of everything in the world, as passes in the order the server and the
 // clients run them (the original's UpdateFrame): every active soldier on its command,
-// then the corpses, the bullets, the wounds where the world has authority, the things;
-// then the tick advances. The passes talk only through events (see Pass): `last` is
-// the tick before's, for what was asked of a pass after it had run.
+// then the corpses, the bullets, the wounds where the world has authority, the things,
+// and the soldiers taking what the things gave; then the tick advances. The passes
+// talk only through events (see Pass): `last` is the tick before's, for what was asked
+// of a pass after it had run.
 void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], const Events *last, Events *events);
 
 // --- Match -------------------------------------------------------------------------

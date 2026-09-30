@@ -61,6 +61,10 @@ Hit suicide_hit(const World *w, uint8_t index);
 // from off the map, the spawn protection, the bonus.
 void soldier_served_tick(const Context *ctx, World *w, uint8_t index, Events *events);
 
+// The receipts pass: the soldiers take what the things gave them since it last ran
+// (a kit's gift, a gun into the hands), told or heard of.
+void soldiers_receive(const Context *ctx, World *w, const Events *last, Events *events);
+
 // The three halves of a soldier as the wire carries them: what its own client decides,
 // what the server decides, and the rest.
 void soldier_copy_owned(const Anims *anims, Soldier *dst, const Soldier *src);
@@ -303,7 +307,11 @@ void kits_spawn(const Context *ctx, World *w, ThingStyle style, int amount);
 
 // Whether the kit is worth taking to this soldier, and what it gives.
 bool kit_wanted(const World *w, ThingStyle style, const Soldier *s);
+// The taking, in the things pass: the pickup told (EVENT_KIT_PICKUP), the kit gone or
+// up elsewhere, the soldier's medikit cooldown started.
 void kit_take(const Context *ctx, World *w, int index, uint8_t soldier, Events *events);
+// What the kit gives, in the soldiers' receipts pass, from the pickup told.
+void kit_give(const Context *ctx, const World *w, Soldier *s, ThingStyle style);
 
 // The bonus kits that turn up now and then, on the server's schedule.
 void bonuses_spawn(const Context *ctx, World *w, const MatchSettings *settings, uint32_t tick);
@@ -319,7 +327,10 @@ void thrown_knife_land(const Context *ctx, World *w, const EventKnifeLand *e);
 
 // Whether a soldier may take the gun, and the taking.
 bool dropped_gun_wanted(const Thing *t, const Soldier *s);
+// The taking, in the things pass: the pickup told (EVENT_WEAPON_PICKUP), the gun gone.
 void dropped_gun_take(const Context *ctx, World *w, int index, uint8_t soldier, Events *events);
+// The gun into the hands, in the soldiers' receipts pass, from the pickup told.
+void dropped_gun_give(const Context *ctx, Soldier *s, WeaponId weapon, int32_t ammo);
 
 // --- parachute.c -------------------------------------------------------------------
 

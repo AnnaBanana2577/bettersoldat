@@ -160,6 +160,7 @@ int main(void)
     combat_tests();
     thing_tests();
     corpse_tests();
+    events_tests();
     console_tests();
     color_tests();
     printf("%d checks, %d failed\n", checks, failures);

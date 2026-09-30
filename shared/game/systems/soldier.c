@@ -55,6 +55,20 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
     anim_set(ctx->anims, &s->body, ANIM_STAND, 1);
 }
 
+void soldiers_receive(const Context *ctx, World *w, const Events *last, Events *events)
+{
+    EventCursor pending = events_pending(last, events, PASS_RECEIPTS);
+    for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
+        switch (e->type) {
+        case EVENT_KIT_PICKUP: kit_give(ctx, w, &w->soldiers[e->kit_pickup.player], e->kit_pickup.kit); break;
+        case EVENT_WEAPON_PICKUP:
+            dropped_gun_give(ctx, &w->soldiers[e->weapon_pickup.player], e->weapon_pickup.weapon, e->weapon_pickup.ammo);
+            break;
+        default: break;
+        }
+    }
+}
+
 void soldier_respawn(const Context *ctx, World *w, uint8_t index, Events *events)
 {
     Soldier *s = &w->soldiers[index];
@@ -148,8 +162,6 @@ void soldier_served_tick(const Context *ctx, World *w, uint8_t index, Events *ev
     Soldier *s = &w->soldiers[index];
     if (!s->active) return;
 
-    if (s->flag_grab_cooldown > 0) s->flag_grab_cooldown--;
-    if (s->medikit_cooldown > 0) s->medikit_cooldown--;
     if (s->dead) {
         // CheckSkeletonOutOfBounds: a corpse that slid off the map is placed again at once;
         // otherwise the count runs out, checked before it is counted down

@@ -585,8 +585,20 @@ static void things_on_respawn(const Context *ctx, World *w, uint8_t soldier)
     parachute_deploy(ctx, w, soldier);
 }
 
+// The things' counters on the soldiers: a flag just thrown, a medikit just taken.
+static void things_cooldowns(World *w)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        Soldier *s = &w->soldiers[i];
+        if (!s->active) continue;
+        if (s->flag_grab_cooldown > 0) s->flag_grab_cooldown--;
+        if (s->medikit_cooldown > 0) s->medikit_cooldown--;
+    }
+}
+
 void things_update(const Context *ctx, World *w, const Events *last, Events *events)
 {
+    things_cooldowns(w);
     EventCursor pending = events_pending(last, events, PASS_THINGS);
     for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
         switch (e->type) {

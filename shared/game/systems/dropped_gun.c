@@ -43,14 +43,19 @@ void dropped_gun_take(const Context *ctx, World *w, int index, uint8_t soldier, 
         .type = EVENT_WEAPON_PICKUP,
         .weapon_pickup = {.player = soldier, .thing = (uint8_t)index, .weapon = t->weapon, .ammo = t->ammo, .pos = t->pos[0]},
     });
-    if (t->weapon == WEAPON_BOW || t->weapon == WEAPON_BOW2) {
-        // the bow, and its flaming twin behind it; the thing goes once it is held
+    // the bow's thing goes once the bow is held; a gun goes now
+    if (t->weapon != WEAPON_BOW && t->weapon != WEAPON_BOW2) thing_kill(t);
+}
+
+void dropped_gun_give(const Context *ctx, Soldier *s, WeaponId weapon, int32_t ammo)
+{
+    if (weapon == WEAPON_BOW || weapon == WEAPON_BOW2) {
+        // the bow, and its flaming twin behind it
         s->weapon = weapon_state(ctx, WEAPON_BOW);
         s->secondary = weapon_state(ctx, WEAPON_BOW2);
         s->weapon.ammo = 1;
         return;
     }
-    s->weapon = weapon_state(ctx, t->weapon);
-    s->weapon.ammo = t->ammo;
-    thing_kill(t);
+    s->weapon = weapon_state(ctx, weapon);
+    s->weapon.ammo = ammo;
 }
