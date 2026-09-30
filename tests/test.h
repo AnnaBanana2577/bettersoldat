@@ -66,5 +66,6 @@ void combat_tests(void);
 void thing_tests(void);
 void corpse_tests(void);
 void events_tests(void);
+void network_tests(void);
 void console_tests(void);
 void color_tests(void);

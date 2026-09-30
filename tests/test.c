@@ -161,6 +161,7 @@ int main(void)
     thing_tests();
     corpse_tests();
     events_tests();
+    network_tests();
     console_tests();
     color_tests();
     printf("%d checks, %d failed\n", checks, failures);
