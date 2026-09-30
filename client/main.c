@@ -878,10 +878,6 @@ static void tick(App *app)
     app->camera_keys = cmds[app->me].buttons;
     if (me->active && (me->dead || spectator)) {
         if (!limbo && (pressed & (BUTTON_FIRE | BUTTON_JUMP | BUTTON_JET))) camera_next(app, (pressed & BUTTON_JET) != 0);
-        if (app->free_camera) {
-            Vec2 off = vec2_sub(app->input.cursor, vec2_scale(app->input.view, 0.5f));
-            if (fabsf(off.x) > 10.0f || fabsf(off.y) > 10.0f) app->camera.pos = vec2_add(app->camera.pos, vec2_scale(off, 1.0f / SPECTATORAIMDIST));
-        }
     } else {
         app->camera_follow = -1;
         app->free_camera = false;
@@ -1375,7 +1371,14 @@ int main(int argc, char *argv[])
             Vec2 target = app.frame.focus;
             if (app.camera_follow >= 0 && app.frame.soldiers[app.camera_follow].active) target = app.frame.soldiers[app.camera_follow].pos;
             const RenderSoldier *watched = &app.frame.soldiers[app.camera_follow >= 0 ? app.camera_follow : app.me];
-            if (!app.free_camera) camera_follow(&app.camera, target, cursor(&app), watched->aim_dist, since_frame);
+            if (!app.free_camera) {
+                camera_follow(&app.camera, target, cursor(&app), watched->aim_dist, since_frame);
+            } else { // the cursor pushes the free camera, per frame at the tick's rate so it glides
+                Vec2 off = vec2_sub(app.input.cursor, vec2_scale(app.input.view, 0.5f));
+                if (fabsf(off.x) > 10.0f || fabsf(off.y) > 10.0f) {
+                    app.camera.pos = vec2_add(app.camera.pos, vec2_scale(off, (float)since_frame * TICK_RATE / SPECTATORAIMDIST));
+                }
+            }
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);
             if (!app.mainmenu.shown) {
