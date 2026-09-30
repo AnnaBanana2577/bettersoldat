@@ -1,29 +1,51 @@
 #pragma once
 
-// What happens to the entities, one file per system. Each takes the static Context and
+// What happens to the entities: the systems, one file each, run as the passes of a
+// tick in the order world_step gives them (game.h). Each takes the static Context and
 // the World it acts on; nothing here keeps state of its own.
 //
-//   soldier.c            the soldier's tick in order; spawning; the server's half
+// The systems talk only through events. A pass writes its own entities and reads any;
+// what it wants of another's it emits, and the owner's pass does it when it runs: a
+// shot (EVENT_SHOT) becomes a bullet in the bullet pass, a gun let go of
+// (EVENT_WEAPON_DROP) is laid down by the things pass, a kit's gift (EVENT_KIT_PICKUP)
+// is taken by the soldier in the receipts pass. A pass consumes every event since it
+// last ran (events_pending): this tick's before it began, and the last tick's after it
+// ran, so what a later pass asks of an earlier one happens next tick, as in the
+// original's frame. The same events are what the client shows and what the wire
+// carries; a shot heard from another machine is a shot like any other.
+//
+// Some of a soldier's fields are another system's on it, written by that system's pass
+// alone: what it holds and mans and the heat it has run up (held, stat, use_time) and
+// the things' counters on it (flag_grab_cooldown, medikit_cooldown) are the things';
+// its health, its death and its tally are the wounds'.
+//
+// the soldiers' pass, one soldier at a time in the original's order, and the receipts
+//   soldier.c            the soldier's tick in order; spawning; the server's half; the receipts
 //   movement.c           the control state machines: input -> animation -> forces
 //   soldier_collision.c  the soldier against the map; what special polys do
 //   pose.c               the skeleton pose from the animations and the aim
 //   antics.c             the idle antics
 //   combat.c             the weapon in hand: firing, reloads, changing, throwing
 //   weapons.c            the weapons table and its defaults
-//   damage.c             the one place health changes
-//   bullet.c             the bullet pool: spawning, the tick, the flight
+// the corpses' pass
+//   ragdoll.c            the corpses
+// the bullets' pass
+//   bullet.c             the bullet pool: the shots made, the tick, the flight
 //   bullet_collision.c   what a bullet meets: the map, colliders, soldiers, things
 //   explosion.c          grenades, rockets and clusters going off
+// the wounds' pass
+//   damage.c             the one place health changes
+// the things' pass
 //   thing.c              the thing pool: creating, the physics, respawning, the pickups
 //   flag.c               the flags: carried, thrown, returned, captured
 //   kit.c                the medical, grenade and bonus kits
 //   dropped_gun.c        guns thrown or let go of, and the knives that land
 //   parachute.c          the parachute of a high spawn
 //   stat_gun.c           the stationary gun
-//   ragdoll.c            the corpses
+// and beside the passes
 //   spawn.c              where a team is placed
-//   event.c              the tick's events
-//   history.c            the server's rewind of the soldiers
+//   event.c              the tick's events, and the passes' mail
+//   history.c            where everyone was over the last second
 //   rand.c               the game's own randomness
 
 #include "game/game.h"

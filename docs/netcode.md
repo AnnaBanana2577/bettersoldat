@@ -19,16 +19,20 @@ own event list.
 
 ## The simulation's contract
 
-shared/game is Context, World and Commands in, World and Events out (game.h), plus one
-way in for a decision made elsewhere: `event_apply`, the simulation applying a fact it
-did not produce. Nothing in it knows about sparks, sounds, jet flames or packets. Three
-consumers sit outside it:
+shared/game is Context, World and Commands in, World and Events out (game.h). Inside
+it, the systems run as passes in a fixed order and talk only through events: a pass
+consumes every event since it last ran and writes its own entities alone (see
+systems.h). So a decision made elsewhere needs no way in of its own: the wire puts what
+it heard into the tick's events before the passes run, and the owner's pass does it as
+it would its own. A shot from another machine is a shot like any other. Nothing in the
+simulation knows about sparks, sounds, jet flames or packets. Three consumers sit
+outside it:
 
 - **Effects** (client/) reads the tick's events and the state: blood, sparks, wall
   dust, the muzzle flash from a fire event, the jet flame from `jetting`. A sink.
 - **The renderer** reads state only.
 - **The wire** (shared/network) carries the subset of events that are decisions, and
-  feeds them into the far side's simulation through `event_apply`.
+  puts the far side's into the tick's events.
 
 Events split by who may decide them, and a table in shared/network says which is which;
 a test holds that every event type is classified.
@@ -37,10 +41,14 @@ a test holds that every event type is classified.
   hit, grenade bounce, cluster split, blood, explosion, and Hit itself. Every machine
   flies the same bullet from the same seed and produces these for itself. Hit is the
   simulation proposing a wound; only the server turns it into damage.
-- **The owner's decisions, in its client state:** the bullet spawn (the shot, with its
-  seed) and the weapon throw.
+- **The owner's decisions, in its client state:** the shot (EVENT_SHOT, numbered so the
+  same bullet comes out everywhere), the weapon throw (EVENT_WEAPON_DROP) and the flag
+  throw (EVENT_FLAG_THROW).
 - **The server's decisions, in its snapshot:** damage, kill, respawn, flag grab, return
   and score, kit and weapon pickup, the match's end, a new round.
+- **Neither, and never sent:** what one system asks of another within a machine, such
+  as a bullet's knock on a flag (EVENT_THING_KNOCK) or a landed knife (EVENT_KNIFE_LAND);
+  every machine produces these for itself.
 
 ## The two streams
 
@@ -135,8 +143,11 @@ commit that changes the netcode says what it measured, on what line.
    collisions, explosions, things, flags, kits, dropped guns, the parachute and the
    stationary gun, the corpses, with their tests. One system per commit. Netcode
    without them carries nothing.
-2. `event_apply`, and the test that applying every event a server tick produced to a
-   client world in the same state gives the same world.
+2. The systems as passes that talk only through events, so the wire has a way in that
+   is the simulation's own. Built: bullets are made from shots, wounds land in a pass
+   of their own, the things lay down what left a hand, knock what was struck, hold
+   what is held, and the soldiers take what the things gave. The passes' mail has its
+   test; the scenes held throughout.
 3. shared/network: the buffer, the netfields, the message table, the round-trip and
    refusal tests.
 4. The join: Hello through the first snapshot, the headless server hosting, a headless
