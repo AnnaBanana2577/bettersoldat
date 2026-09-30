@@ -8,6 +8,9 @@ void tick_snapshot_capture(TickSnapshot *snap, const World *w)
 {
     snap->tick = w->tick;
     memcpy(snap->soldiers, w->soldiers, sizeof(snap->soldiers));
+    memcpy(snap->ragdolls, w->ragdolls, sizeof(snap->ragdolls));
+    memcpy(snap->bullets, w->bullets, sizeof(snap->bullets));
+    memcpy(snap->things, w->things, sizeof(snap->things));
 }
 
 // Whether the soldier moved continuously between the two ticks, so blending the two
@@ -34,15 +37,26 @@ static Rgba team_shirt(Team team)
     }
 }
 
-static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, const Soldier *to, float alpha, bool team_game, Vec2 offset)
+// A corpse's pose: the ragdoll's points, between its last two ticks.
+static Pose corpse_pose(const Ragdoll *from, const Ragdoll *to, float alpha)
+{
+    Ragdoll between = *to;
+    if (from->active)
+        for (int k = 0; k < RAGDOLL_POINTS; k++) between.pos[k] = lerp(from->pos[k], to->pos[k], alpha);
+    return ragdoll_pose(&between);
+}
+
+static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, const Soldier *to, const Ragdoll *body_from,
+                                   const Ragdoll *body_to, float alpha, bool team_game, Vec2 offset)
 {
     RenderSoldier out = {.active = to->active};
     if (!to->active) return out;
 
     out.pos = vec2_add(continuous(from, to) ? lerp(from->pos, to->pos, alpha) : to->pos, offset);
-    // The dead hold their last pose until the corpses (ragdoll.odin) are ported and
-    // take over.
-    out.pose = soldier_pose(ctx->anims, to, out.pos);
+    // a dead soldier is drawn as its body, once the ragdoll has started; until then it
+    // holds its last pose
+    out.corpse = to->dead && body_to->active;
+    out.pose = out.corpse ? corpse_pose(body_from, body_to, alpha) : soldier_pose(ctx->anims, to, out.pos);
 
     out.dead = to->dead;
     out.team = to->team;
@@ -71,7 +85,10 @@ void build_render_state(RenderState *out, const Context *ctx, const TickSnapshot
     out->alpha = clampf(alpha, 0.0f, 1.0f);
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Vec2 offset = offsets ? offsets[i] : vec2(0, 0);
-        out->soldiers[i] = soldier_state(ctx, &from->soldiers[i], &to->soldiers[i], out->alpha, team_game, offset);
+        out->soldiers[i] = soldier_state(ctx, &from->soldiers[i], &to->soldiers[i], &from->ragdolls[i], &to->ragdolls[i],
+                                         out->alpha, team_game, offset);
     }
     out->focus = out->soldiers[me].pos;
+    out->bullets = to->bullets;
+    out->things = to->things;
 }

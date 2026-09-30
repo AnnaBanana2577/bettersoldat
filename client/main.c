@@ -563,6 +563,7 @@ static void tick(App *app)
     }
     cmds[app->me] = input_command(&app->input, ++app->seq);
     game_tick(app->game, cmds);
+    render_tick(&app->render, &app->game->ctx, &app->game->world, &app->game->events);
     if (online) client_net_tick(&app->net, app->game);
     input_clear(&app->input);
     snapshot_tick(app);
@@ -972,7 +973,7 @@ int main(int argc, char *argv[])
             camera_follow(&app.camera, app.frame.focus, cursor(&app), since_frame);
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);
-            render_draw(&app.render, &app.frame, &app.camera, app.render_options);
+            render_draw(&app.render, &app.frame, &app.camera, app.render_options, app.time);
             hud_data_build(&app);
             interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
                            &app.camera, app.input.cursor, app.camera.viewport);

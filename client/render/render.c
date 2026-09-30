@@ -6,20 +6,31 @@ void render_init(Render *r, const char *base, const Context *ctx)
 {
     *r = (Render){.bones = &ctx->skeletons->gostek};
     gostek_load(&r->gostek, base);
+    bullet_art_load(&r->bullet_art, base);
+    things_art_load(&r->things_art, base);
+    sparks_load(&r->sparks, base);
     map_view_load(&r->map_view, base, ctx->map);
 }
 
 void render_destroy(Render *r)
 {
     map_view_unload(&r->map_view);
+    sparks_unload(&r->sparks);
+    things_art_unload(&r->things_art);
+    bullet_art_unload(&r->bullet_art);
     gostek_unload(&r->gostek);
+}
+
+void render_tick(Render *r, const Context *ctx, const World *w, const Events *events)
+{
+    sparks_tick(&r->sparks, ctx, w, events);
 }
 
 static void draw_soldiers(const Render *r, const RenderState *state)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const RenderSoldier *s = &state->soldiers[i];
-        if (s->active) gostek_draw(&r->gostek, s, false);
+        if (s->active) gostek_draw(&r->gostek, s, s->corpse);
     }
 }
 
@@ -100,7 +111,7 @@ static void draw_map_debug(const Map *map, const GameCamera *camera)
     }
 }
 
-void render_draw(const Render *r, const RenderState *state, const GameCamera *camera, RenderOptions options)
+void render_draw(const Render *r, const RenderState *state, const GameCamera *camera, RenderOptions options, double seconds)
 {
     const MapView *v = &r->map_view;
     if (!v->map) {
@@ -114,10 +125,13 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
     map_draw_background(v->map, camera);
     map_draw_background_polys(v);
     map_draw_scenery(v, 0);
+    things_draw(&r->things_art, state->things, state->soldiers, state->alpha, seconds);
     draw_soldiers(r, state);
+    bullets_draw(&r->bullet_art, state->bullets, state->alpha, seconds);
     map_draw_scenery(v, 1);
     map_draw_terrain(v);
     map_draw_scenery(v, 2);
+    sparks_draw(&r->sparks);
 
     if (options.wireframe) map_draw_wireframe(v->map, camera);
     if (options.debug) {
