@@ -26,7 +26,7 @@ target("shared")
 
 -- The game client: SDL2 for the window and input, OpenGL 2.1 for the drawing, and
 -- (later) audio.
---   xmake run client -assets <opensoldat base dir> -map <name>
+--   xmake run client +assets <opensoldat base dir> +map <name>
 target("client")
     set_kind("binary")
     add_deps("shared")

@@ -1,23 +1,85 @@
 #include "input/input.h"
 
-typedef struct Bind {
-    SDL_Scancode key;
-    Button button;
-} Bind;
+#include <stdio.h>
+#include <string.h>
 
-// Soldat's defaults, by physical key as the original binds; binds from the config come
-// later.
-static const Bind BINDS[] = {
-    {SDL_SCANCODE_A, BUTTON_LEFT},   {SDL_SCANCODE_D, BUTTON_RIGHT},    {SDL_SCANCODE_W, BUTTON_JUMP},
-    {SDL_SCANCODE_S, BUTTON_CROUCH}, {SDL_SCANCODE_X, BUTTON_PRONE},    {SDL_SCANCODE_SPACE, BUTTON_JET},
-    {SDL_SCANCODE_E, BUTTON_THROW},  {SDL_SCANCODE_R, BUTTON_RELOAD},   {SDL_SCANCODE_Q, BUTTON_CHANGE},
-    {SDL_SCANCODE_F, BUTTON_DROP},   {SDL_SCANCODE_K, BUTTON_SUICIDE},
+static const struct {
+    const char *name;
+    Button button;
+} BUTTONS[] = {
+    {"left", BUTTON_LEFT},       {"right", BUTTON_RIGHT},   {"jump", BUTTON_JUMP},   {"crouch", BUTTON_CROUCH},
+    {"prone", BUTTON_PRONE},     {"jet", BUTTON_JET},       {"fire", BUTTON_FIRE},   {"throw", BUTTON_THROW},
+    {"reload", BUTTON_RELOAD},   {"change", BUTTON_CHANGE}, {"drop", BUTTON_DROP},   {"suicide", BUTTON_SUICIDE},
+    {"flagthrow", BUTTON_FLAG_THROW},
 };
 
-void input_init(Input *in, Vec2 view)
+#define BUTTON_COUNT (int)(sizeof BUTTONS / sizeof BUTTONS[0])
+
+// The keys with names that aren't their letter, digit or F-number.
+static const struct {
+    SDL_Scancode key;
+    const char *name;
+} KEYS[] = {
+    {SDL_SCANCODE_SPACE, "space"},         {SDL_SCANCODE_ESCAPE, "escape"},       {SDL_SCANCODE_RETURN, "enter"},
+    {SDL_SCANCODE_KP_ENTER, "kp_enter"},   {SDL_SCANCODE_TAB, "tab"},             {SDL_SCANCODE_BACKSPACE, "backspace"},
+    {SDL_SCANCODE_GRAVE, "grave"},         {SDL_SCANCODE_UP, "uparrow"},          {SDL_SCANCODE_DOWN, "downarrow"},
+    {SDL_SCANCODE_LEFT, "leftarrow"},      {SDL_SCANCODE_RIGHT, "rightarrow"},    {SDL_SCANCODE_LSHIFT, "shift"},
+    {SDL_SCANCODE_RSHIFT, "rshift"},       {SDL_SCANCODE_LCTRL, "ctrl"},          {SDL_SCANCODE_RCTRL, "rctrl"},
+    {SDL_SCANCODE_LALT, "alt"},            {SDL_SCANCODE_RALT, "ralt"},           {SDL_SCANCODE_INSERT, "ins"},
+    {SDL_SCANCODE_DELETE, "del"},          {SDL_SCANCODE_HOME, "home"},           {SDL_SCANCODE_END, "end"},
+    {SDL_SCANCODE_PAGEUP, "pgup"},         {SDL_SCANCODE_PAGEDOWN, "pgdn"},       {SDL_SCANCODE_CAPSLOCK, "capslock"},
+    {SDL_SCANCODE_MINUS, "minus"},         {SDL_SCANCODE_EQUALS, "equals"},       {SDL_SCANCODE_LEFTBRACKET, "leftbracket"},
+    {SDL_SCANCODE_RIGHTBRACKET, "rightbracket"}, {SDL_SCANCODE_BACKSLASH, "backslash"}, {SDL_SCANCODE_SEMICOLON, "semicolon"},
+    {SDL_SCANCODE_APOSTROPHE, "apostrophe"}, {SDL_SCANCODE_COMMA, "comma"},       {SDL_SCANCODE_PERIOD, "period"},
+    {SDL_SCANCODE_SLASH, "slash"},
+};
+
+static const char *DEFAULT_BINDS = "bind a +left; bind d +right; bind w +jump; bind s +crouch; bind x +prone;"
+                                   "bind space +jet; bind mouse1 +fire; bind mouse2 +throw; bind e +throw;"
+                                   "bind r +reload; bind q +change; bind f +drop; bind k +suicide";
+
+// "+name" presses a button, "-name" releases it.
+static void button_command(Console *con, int argc, char **argv, void *user)
 {
-    *in = (Input){.view = view, .cursor = vec2_scale(view, 0.5f), .sensitivity = 1.0f};
-    SDL_SetRelativeMouseMode(SDL_TRUE); // the original's StartInput
+    (void)con, (void)argc;
+    Input *in = user;
+    int i = 0;
+    while (i < BUTTON_COUNT && strcmp(BUTTONS[i].name, argv[0] + 1) != 0) i++;
+    if (i == BUTTON_COUNT) return;
+
+    Button button = BUTTONS[i].button;
+    int bit = 0;
+    while (!(button >> bit & 1)) bit++;
+
+    if (argv[0][0] == '+') {
+        if (in->down[bit]++ == 0) {
+            in->held |= (Buttons)button;
+            in->pressed |= (Buttons)(button & BUTTONS_ONE_SHOT);
+        }
+    } else if (in->down[bit] > 0 && --in->down[bit] == 0) {
+        in->held &= (Buttons)~button;
+    }
+}
+
+void input_init(Input *in, Console *con)
+{
+    *in = (Input){.sensitivity = 1.0f};
+    for (int i = 0; i < BUTTON_COUNT; i++) {
+        char name[CONSOLE_NAME_SIZE];
+        snprintf(name, sizeof name, "+%s", BUTTONS[i].name);
+        console_add_command(con, name, button_command, in, NULL);
+        name[0] = '-';
+        console_add_command(con, name, button_command, in, NULL);
+    }
+}
+
+void input_default_binds(Console *con) { console_execute(con, DEFAULT_BINDS); }
+
+void input_start(Input *in, Vec2 view)
+{
+    in->view = view;
+    in->cursor = vec2_scale(view, 0.5f);
+    SDL_SetRelativeMouseMode(SDL_TRUE);
 }
 
 void input_resize(Input *in, Vec2 view)
@@ -33,22 +95,68 @@ void input_mouse_motion(Input *in, const SDL_MouseMotionEvent *motion)
     in->cursor.y = clampf(in->cursor.y + (float)motion->yrel * in->sensitivity, 0.0f, in->view.y);
 }
 
-void input_sample(Input *in, Vec2 aim)
+// The name of a key, by its place on the keyboard; NULL for one with no name.
+static const char *key_name(SDL_Scancode key, char *buf, size_t size)
 {
-    const Uint8 *keys = SDL_GetKeyboardState(NULL);
-    Buttons held = 0;
-    for (size_t i = 0; i < sizeof(BINDS) / sizeof(BINDS[0]); i++) {
-        if (keys[BINDS[i].key]) held |= (Buttons)BINDS[i].button;
+    if (key >= SDL_SCANCODE_A && key <= SDL_SCANCODE_Z) {
+        snprintf(buf, size, "%c", 'a' + (key - SDL_SCANCODE_A));
+        return buf;
     }
-    Uint32 mouse = SDL_GetMouseState(NULL, NULL);
-    if (mouse & SDL_BUTTON(SDL_BUTTON_LEFT)) held |= BUTTON_FIRE;
-    if (mouse & SDL_BUTTON(SDL_BUTTON_RIGHT)) held |= BUTTON_THROW;
-
-    // a one-shot button counts from the frame it goes down until a tick consumes it
-    in->pressed |= (Buttons)(held & ~in->held & BUTTONS_ONE_SHOT);
-    in->held = held;
-    in->aim = aim;
+    if (key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_0) {
+        snprintf(buf, size, "%c", key == SDL_SCANCODE_0 ? '0' : '1' + (key - SDL_SCANCODE_1));
+        return buf;
+    }
+    if (key >= SDL_SCANCODE_F1 && key <= SDL_SCANCODE_F12) {
+        snprintf(buf, size, "f%d", 1 + (key - SDL_SCANCODE_F1));
+        return buf;
+    }
+    for (size_t i = 0; i < sizeof KEYS / sizeof KEYS[0]; i++)
+        if (KEYS[i].key == key) return KEYS[i].name;
+    return NULL;
 }
+
+// mouse1 left, mouse2 right, mouse3 middle, then the side buttons: Quake's order, not
+// SDL's.
+static int mouse_number(Uint8 button)
+{
+    switch (button) {
+    case SDL_BUTTON_LEFT: return 1;
+    case SDL_BUTTON_RIGHT: return 2;
+    case SDL_BUTTON_MIDDLE: return 3;
+    default: return button;
+    }
+}
+
+bool input_event(Console *con, const SDL_Event *e)
+{
+    char buf[16];
+    switch (e->type) {
+    case SDL_KEYDOWN:
+    case SDL_KEYUP: {
+        if (e->key.repeat) return true;
+        const char *name = key_name(e->key.keysym.scancode, buf, sizeof buf);
+        if (name) console_key(con, name, e->type == SDL_KEYDOWN);
+        return true;
+    }
+    case SDL_MOUSEBUTTONDOWN:
+    case SDL_MOUSEBUTTONUP:
+        snprintf(buf, sizeof buf, "mouse%d", mouse_number(e->button.button));
+        console_key(con, buf, e->type == SDL_MOUSEBUTTONDOWN);
+        return true;
+    case SDL_MOUSEWHEEL: {
+        // The wheel has no keys to hold: each notch is a press and a release.
+        const char *name = e->wheel.y > 0 ? "mwheelup" : e->wheel.y < 0 ? "mwheeldown" : NULL;
+        if (name) {
+            console_key(con, name, true);
+            console_key(con, name, false);
+        }
+        return true;
+    }
+    default: return false;
+    }
+}
+
+void input_sample(Input *in, Vec2 aim) { in->aim = aim; }
 
 Command input_command(const Input *in, uint32_t seq)
 {
