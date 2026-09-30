@@ -7,8 +7,7 @@
 
 Vec2 camera_view_size(const GameCamera *c)
 {
-    float h = GAME_HEIGHT * c->zoom;
-    return (Vec2){h * c->viewport.width / c->viewport.height, h};
+    return (Vec2){GAME_HEIGHT * c->viewport.width / c->viewport.height, GAME_HEIGHT};
 }
 
 void camera_follow(GameCamera *c, Vec2 target, Vec2 cursor, double dt)
@@ -22,8 +21,8 @@ void camera_follow(GameCamera *c, Vec2 target, Vec2 cursor, double dt)
     float factor = 2.0f * 640.0f / game_w - 1.0f; // the original's wide-screen term
     float ticks = (float)dt * TICK_RATE;
     float k = 1.0f - powf(1.0f - CAMERA_SPEED, ticks);
-    c->pos.x += (target.x - c->pos.x) * k + c->zoom * off.x / CAMERA_AIM_DIST * factor * ticks;
-    c->pos.y += (target.y - c->pos.y) * k + c->zoom * off.y / CAMERA_AIM_DIST * ticks;
+    c->pos.x += (target.x - c->pos.x) * k + off.x / CAMERA_AIM_DIST * factor * ticks;
+    c->pos.y += (target.y - c->pos.y) * k + off.y / CAMERA_AIM_DIST * ticks;
 }
 
 Vec2 screen_to_world(const GameCamera *c, Vec2 p)
@@ -48,7 +47,7 @@ Vec2 world_to_screen(const GameCamera *c, Vec2 p)
 
 float pixels_per_unit(const GameCamera *c)
 {
-    return c->viewport.height / (GAME_HEIGHT * c->zoom);
+    return c->viewport.height / GAME_HEIGHT;
 }
 
 Mat3 camera_transform(const GameCamera *c)
@@ -56,13 +55,4 @@ Mat3 camera_transform(const GameCamera *c)
     Vec2 view = camera_view_size(c);
     float dx = c->pos.x - view.x / 2, dy = c->pos.y - view.y / 2;
     return mat3_ortho(dx, dx + view.x, dy, dy + view.y);
-}
-
-void camera_zoom_at(GameCamera *c, float factor, Vec2 screen)
-{
-    // A smaller zoom shows less of the world, so the factor is inverted.
-    Vec2 before = screen_to_world(c, screen);
-    c->zoom = clampf(c->zoom / factor, CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM);
-    Vec2 after = screen_to_world(c, screen);
-    c->pos = vec2_add(c->pos, vec2_sub(before, after));
 }

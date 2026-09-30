@@ -1,19 +1,19 @@
 #pragma once
 
-// The view: where it looks, how far it is zoomed, and the conversions between the screen
-// and the world. The app owns one; input and render read it. Ported from soldat-odin's
+// The view: where it looks, and the conversions between the screen and the world. The
+// app owns one; input and render read it. Ported from soldat-odin's
 // client/render/camera.odin.
 //
-// A camera carries the rectangle it draws into, in window pixels, so every conversion is
-// in terms of that rather than the window. The app sets it each frame from the window's
+// The view is always GAME_HEIGHT units tall, as the original's is, so every player sees
+// the same amount of the world whatever their window: there is no zoom. A camera
+// carries the rectangle it draws into, in window pixels, so every conversion is in
+// terms of that rather than the window. The app sets it each frame from the window's
 // size (or a part of it, for an editor's panes).
 
 #include "gfx/gfx.h"
 #include "utils/utils.h"
 
 #define GAME_HEIGHT 480.0f // the original's view: 480 units tall, the width follows the window
-#define CAMERA_MIN_ZOOM 0.05f
-#define CAMERA_MAX_ZOOM 40.0f
 
 typedef struct Rect {
     float x, y, width, height;
@@ -21,7 +21,6 @@ typedef struct Rect {
 
 typedef struct GameCamera {
     Vec2 pos;
-    float zoom;    // the view's height in GAME_HEIGHT units: 1 is the original's view
     Rect viewport; // where on screen it draws, in pixels
 } GameCamera;
 
@@ -39,6 +38,3 @@ float pixels_per_unit(const GameCamera *c);
 // The transform from the world to the viewport, for gfx_transform: the original's
 // GfxMat3Ortho over the rectangle the camera shows.
 Mat3 camera_transform(const GameCamera *c);
-
-// Zoom about a point on screen, so whatever is under it stays under it.
-void camera_zoom_at(GameCamera *c, float factor, Vec2 screen);

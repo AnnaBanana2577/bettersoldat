@@ -177,7 +177,7 @@ static float deg_to_rad(float deg)
 static Vec2 world_to_interface(const Frame *f, Vec2 p)
 {
     const GameCamera *c = f->camera;
-    return (Vec2){(p.x - c->pos.x) / c->zoom + f->game_width / 2, (p.y - c->pos.y) / c->zoom + GAME_HEIGHT / 2};
+    return (Vec2){p.x - c->pos.x + f->game_width / 2, p.y - c->pos.y + GAME_HEIGHT / 2};
 }
 
 // A sprite's part `rect` (in its image's pixels) at x, y, scaled and rotated about its
@@ -908,7 +908,7 @@ static void draw_player_name(const Frame *f, const HudData *d, const RenderState
     const HudPlayer *p = &d->players[i];
     const RenderSoldier *s = &state->soldiers[i];
     const RenderSoldier *me = &state->soldiers[d->me];
-    float dy = ((only_offscreen ? -10 : 5) + 15) / maxf(1.0f, f->camera->zoom);
+    float dy = (only_offscreen ? -10.0f : 5.0f) + 15.0f;
     float w = text_width(p->name), h = text_height(p->name);
     Vec2 at = world_to_interface(f, s->pose.p[7 - 1]);
     float x = at.x, y = at.y + dy;
