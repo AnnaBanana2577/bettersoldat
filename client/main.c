@@ -691,6 +691,13 @@ static void apply_window_mode(App *app)
 {
     int mode = clampi(app->fullscreen->integer, 0, 2);
     Uint32 flags = mode == 1 ? SDL_WINDOW_FULLSCREEN : mode == 2 ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
+    // full screen is the display's own resolution, whatever the window's size was: no
+    // mode switch, and the picture matches the screen; the borderless window is that by nature
+    if (mode == 1) {
+        SDL_DisplayMode desktop;
+        int display = SDL_GetWindowDisplayIndex(app->window);
+        if (display >= 0 && SDL_GetDesktopDisplayMode(display, &desktop) == 0) SDL_SetWindowDisplayMode(app->window, &desktop);
+    }
     if (SDL_SetWindowFullscreen(app->window, flags) != 0) fprintf(stderr, "window mode %d: %s\n", mode, SDL_GetError());
     if (mode == 0) {
         SDL_SetWindowSize(app->window, app->width->integer, app->height->integer);
@@ -1370,11 +1377,13 @@ int main(int argc, char *argv[])
             if (!app.free_camera) camera_follow(&app.camera, target, cursor(&app), since_frame);
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);
-            render_draw(&app.render, &app.frame, &app.camera, app.render_options, app.time);
-            hud_data_build(&app);
-            interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
-                           &app.camera, app.input.cursor, app.camera.viewport);
-            if (app.mainmenu.shown) {
+            if (!app.mainmenu.shown) {
+                render_draw(&app.render, &app.frame, &app.camera, app.render_options, app.time);
+                hud_data_build(&app);
+                interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
+                               &app.camera, app.input.cursor, app.camera.viewport);
+            } else { // the menu on its own background: the game is not watched from here
+                gfx_clear((Rgba){0, 0, 0, 255});
                 Rect r = app.camera.viewport;
                 mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, app.game->ctx.anims, &app.game->ctx.weapons,
                               app.input.cursor, GAME_HEIGHT * r.width / r.height, GAME_HEIGHT / r.height, app.time,

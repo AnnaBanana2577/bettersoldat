@@ -454,7 +454,7 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
     case SDL_KEYDOWN:
         if (e->key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
             if (m->page != MAIN_HOME) m->page = MAIN_HOME;
-            else mainmenu_show(m, false);
+            else if (m->joined) mainmenu_show(m, false); // nothing to go back to otherwise
         }
         return true;
     default: return false;
@@ -467,6 +467,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
 {
     if (!m->shown) return;
     m->time = time;
+    m->joined = joined;
     Ui ui = {.m = m, .con = con, .hud = hud, .cursor = cursor, .game_width = game_width, .pixel = pixel, .click = m->clicked};
     m->clicked = false;
 
@@ -476,7 +477,12 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     text_align(TEXT_TOP);
     text_scale(1.0f);
 
-    rect(0, 0, game_width, GAME_HEIGHT_UNITS, (Rgba){0, 0, 0, 120});
+    { // the background: a gradient, dusk at the top to night below
+        Rgba top = {28, 34, 52, 255}, bottom = {6, 7, 12, 255};
+        GfxVertex v[4] = {gfx_vertex(0, 0, 0, 0, top), gfx_vertex(game_width, 0, 0, 0, top),
+                          gfx_vertex(game_width, GAME_HEIGHT_UNITS, 0, 0, bottom), gfx_vertex(0, GAME_HEIGHT_UNITS, 0, 0, bottom)};
+        gfx_draw_quad(gfx_white(), v);
+    }
     interface_draw_box(hud, 20, 20, game_width - 40, GAME_HEIGHT_UNITS - 40, BOX);
 
     text_style_scaled(FONT_BIG, 1.0f);
@@ -495,8 +501,10 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
         y += BUTTON_H + 6;
     }
     y += 10;
-    if (button(&ui, LEFT, y, 200, joined ? "Resume" : "Practice")) mainmenu_show(m, false);
-    y += BUTTON_H + 6;
+    if (joined) {
+        if (button(&ui, LEFT, y, 200, "Resume")) mainmenu_show(m, false);
+        y += BUTTON_H + 6;
+    }
     if (button(&ui, LEFT, y, 200, "Quit")) snprintf(m->command, sizeof m->command, "quit");
 
     switch (m->page) {
@@ -505,7 +513,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     case MAIN_CONTROLS: page_controls(&ui); break;
     case MAIN_OPTIONS: page_options(&ui); break;
     default:
-        label(PAGE_X, 120, "Join a server, or practice alone on the map behind. Escape returns here from the game.", DIM);
+        label(PAGE_X, 120, "Join a server to play. Escape returns here from the game.", DIM);
         break;
     }
     if (ui.click) unfocus(m); // a click on nothing takes the focus away

@@ -31,6 +31,7 @@ typedef struct MainMenu {
     bool clicked;                       // a left click since the last draw, at the cursor
     char command[256];                  // for the app to run; empty for none
     double time;                        // seconds, for the caret's blink
+    bool joined;                        // a server has us: Resume, and Escape, go back to it
 } MainMenu;
 
 void mainmenu_show(MainMenu *m, bool shown);
