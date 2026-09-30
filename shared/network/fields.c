@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "game/game.h"
 #include "network/network.h"
 
 // A count that never nears its width: 16 bits signed for the tick counters.
@@ -80,3 +81,41 @@ const NetField SOLDIER_SERVED_FIELDS[] = {
     NETFIELD_ENUM(Soldier, look.chain_style, 2),
 };
 const int SOLDIER_SERVED_COUNT = sizeof SOLDIER_SERVED_FIELDS / sizeof SOLDIER_SERVED_FIELDS[0];
+
+const NetField THING_FIELDS[] = {
+    NETFIELD_ENUM(Thing, style, THING_STYLE_COUNT - 1),
+    NETFIELD_ENUM(Thing, weapon, WEAPON_COUNT - 1),
+    NETFIELD(Thing, ammo, NET_I, COUNTER),
+    NETFIELD(Thing, flip, NET_BOOL, 0),
+    NETFIELD_ENUM(Thing, holder, MAX_PLAYERS),
+    NETFIELD_ENUM(Thing, owner, MAX_PLAYERS),
+    NETFIELD(Thing, timeout, NET_I, COUNTER),
+    NETFIELD(Thing, is_static, NET_BOOL, 0),
+    NETFIELD_ENUM(Thing, points, 4),
+    NETFIELD(Thing, pos[0], NET_VEC2, 0),
+    NETFIELD(Thing, pos[1], NET_VEC2, 0),
+    NETFIELD(Thing, pos[2], NET_VEC2, 0),
+    NETFIELD(Thing, pos[3], NET_VEC2, 0),
+    NETFIELD(Thing, old_pos[0], NET_VEC2, 0),
+    NETFIELD(Thing, old_pos[1], NET_VEC2, 0),
+    NETFIELD(Thing, old_pos[2], NET_VEC2, 0),
+    NETFIELD(Thing, old_pos[3], NET_VEC2, 0),
+    NETFIELD(Thing, cut, NET_U, 8),
+    NETFIELD(Thing, in_base, NET_BOOL, 0),
+    NETFIELD(Thing, interest, NET_I, COUNTER),
+    NETFIELD(Thing, last_spawn, NET_U, 8),
+};
+const int THING_COUNT = sizeof THING_FIELDS / sizeof THING_FIELDS[0];
+
+const NetField MATCH_FIELDS[] = {
+    NETFIELD_ENUM(Match, state, MATCH_PAUSED),
+    NETFIELD(Match, scores[0], NET_I, COUNTER),
+    NETFIELD(Match, scores[1], NET_I, COUNTER),
+    NETFIELD(Match, scores[2], NET_I, COUNTER),
+    NETFIELD(Match, scores[3], NET_I, COUNTER),
+    NETFIELD(Match, scores[4], NET_I, COUNTER),
+    NETFIELD(Match, scores[5], NET_I, COUNTER),
+    NETFIELD(Match, time_left, NET_I, 32),
+    NETFIELD(Match, counter, NET_I, COUNTER),
+};
+const int MATCH_COUNT = sizeof MATCH_FIELDS / sizeof MATCH_FIELDS[0];

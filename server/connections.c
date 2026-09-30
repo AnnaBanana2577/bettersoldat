@@ -215,10 +215,12 @@ void connections_commands(const Connections *c, const Game *g, Command cmds[MAX_
 void connections_snapshots(Connections *c, const Game *g)
 {
     wire_collect(&c->events, &g->events, g->world.tick - 1, -1); // the tick just run
+    char names[MAX_PLAYERS][NET_NAME_SIZE];
+    for (int i = 0; i < MAX_PLAYERS; i++) snprintf(names[i], NET_NAME_SIZE, "%s", c->items[i].joined ? c->items[i].name : "");
     uint8_t buf[NET_MTU];
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (!c->items[i].joined) continue;
-        size_t n = server_stream_snapshot(&c->streams[i], g, i, &c->events, buf, sizeof buf);
+        size_t n = server_stream_snapshot(&c->streams[i], g, i, &c->events, names, buf, sizeof buf);
         if (n) net_send(c->items[i].peer, MSG_SNAPSHOT, buf, n);
     }
 }

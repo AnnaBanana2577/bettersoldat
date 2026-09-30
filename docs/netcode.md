@@ -175,4 +175,12 @@ commit that changes the netcode says what it measured, on what line.
    the loopback: a client's shots made on the server and numbered as its own, a bot's
    shots made on the client with its count in step, the server's wounds heard by the
    wounded.
-7. Things, flags, kits, the match, rounds, chat.
+7. Things, flags, kits, the match, rounds, chat. Built in part: the things ride the
+   snapshot as the soldiers do, a word per slot and a delta against what the client
+   received, out of the history ring which keeps them too; a client takes what a thing
+   is and whose always, and where its points are only when its own disagree by more
+   than ten units, never while held, as the original does. The match rides whole, small
+   as it is, and a client's match is the server's alone: match_run is the authority's.
+   A soldier that goes whole brings its player's name, so the roster needs no message.
+   Held-back things and soldiers go farthest first. Chat was built with the join. Still
+   to do: rounds and the next map, votes, and blending new word in.

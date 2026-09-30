@@ -417,8 +417,10 @@ const Event *events_next(EventCursor *c); // NULL once they are all seen
 // The soldiers as they stand, filed under the world's tick.
 void history_record(History *h, const World *w);
 
-// The soldiers as they stood at `tick`, or NULL if the ring no longer (or never) has it.
+// The soldiers, and the things, as they stood at `tick`, or NULL if the ring no longer
+// (or never) has it.
 const Soldier *history_at(const World *w, uint32_t tick);
+const Thing *history_things_at(const World *w, uint32_t tick);
 
 // The soldiers a bullet with this lag meets: the frame that many ticks before the
 // present, or the present itself where there is no history to rewind.

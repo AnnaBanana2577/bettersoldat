@@ -595,7 +595,9 @@ static void hud_data_build(App *app)
         HudPlayer *p = &d->players[i];
         p->active = s->active;
         if (!s->active) continue;
+        const char *heard = app->net.stream.names[i]; // the server's roster, once heard
         if (i == app->me) snprintf(p->name, sizeof(p->name), "%s", app->player_name->value);
+        else if (heard[0]) snprintf(p->name, sizeof(p->name), "%s", heard);
         else if (!p->name[0]) snprintf(p->name, sizeof(p->name), "Player %d", i + 1);
         p->team = s->team;
         p->dead = s->dead;

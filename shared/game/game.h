@@ -136,7 +136,8 @@ void match_init(Match *m, MatchSettings settings);
 
 // The match's tick, after the world's: what the server keeps of every soldier (the
 // respawns, the spawn protection, the bonuses), the captures scored, the bonus kits
-// that turn up, the clock, the end of the round.
+// that turn up, the clock, the end of the round. Only where the world has authority;
+// a client's match comes down the wire.
 void match_run(const Context *ctx, World *w, Match *m, Events *events);
 
 // The round has ended and its scores have stood long enough: time for the next.

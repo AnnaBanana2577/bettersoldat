@@ -109,6 +109,7 @@ static void match_end(Match *m, Events *events)
 
 void match_run(const Context *ctx, World *w, Match *m, Events *events)
 {
+    if (!w->authority) return; // the match is the server's: a client hears it in the snapshots
     for (int i = 0; i < MAX_PLAYERS; i++) soldier_served_tick(ctx, w, (uint8_t)i, events);
 
     // a capture scores for the carrier's team

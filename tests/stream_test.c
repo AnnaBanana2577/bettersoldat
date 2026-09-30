@@ -12,6 +12,7 @@
 #define PORT 40024
 #define ROUNDS 400 // of 10 ms
 #define BOT 1      // the soldier the server plays itself
+#define THING_TOLERANCE_TEST 10.0f // the client keeps its own things within this of the server's
 
 typedef struct StreamClient {
     NetLink link;
@@ -176,7 +177,28 @@ void stream_tests(void)
 
     // the deltas
     CHECK(c.state_bytes > 0 && c.state_bytes < 60, "a tick's client state is small (%zu bytes)", c.state_bytes);
-    CHECK(c.snapshot_bytes > 0 && c.snapshot_bytes < 160, "and so is a snapshot of two soldiers (%zu bytes)", c.snapshot_bytes);
+    CHECK(c.snapshot_bytes > 0 && c.snapshot_bytes < 200, "and so is a snapshot of two soldiers and the map's things (%zu bytes)",
+          c.snapshot_bytes);
+
+    // the things, the match and the roster came with the snapshots
+    int things_there = 0, things_here = 0, things_agree = 0;
+    float thing_off = 0.0f;
+    for (int i = 0; i < MAX_THINGS; i++) {
+        const Thing *there = &gs->world.things[i], *here = &c.game->world.things[i];
+        things_there += there->style != THING_NONE;
+        things_here += here->style != THING_NONE;
+        if (there->style != THING_NONE && there->style == here->style) {
+            things_agree++;
+            float d = vec2_length(vec2_sub(there->pos[0], here->pos[0]));
+            if (d > thing_off) thing_off = d;
+        }
+    }
+    CHECK(things_there > 0 && things_here == things_there && things_agree == things_there,
+          "the map's things are here as they are there (%d there, %d here, %d agree)", things_there, things_here, things_agree);
+    CHECK(thing_off <= THING_TOLERANCE_TEST, "and lie within the tolerance of where the server has them (%.1f at most)", thing_off);
+    CHECK(c.game->match.time_left > 0 && gs->match.time_left - c.game->match.time_left <= 2 && c.game->match.state == gs->match.state,
+          "the match's clock is the server's, a tick behind at most (%d there, %d here)", gs->match.time_left, c.game->match.time_left);
+    CHECK(strcmp(c.stream.names[0], "Mover") == 0, "my name came with my soldier (%s)", c.stream.names[0]);
 
     // the spawn protection wears off, then shots: mine to the server, the bot's to me, as
     // events; a few quiet ticks after each so the last packet lands before the count

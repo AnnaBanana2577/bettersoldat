@@ -76,6 +76,14 @@ void netfields_serialize(NetBuf *b, const NetField *fields, int count, void *sta
     }
 }
 
+void netfields_copy(const NetField *fields, int count, void *dst, const void *src)
+{
+    for (int i = 0; i < count; i++) {
+        const NetField *f = &fields[i];
+        memcpy((uint8_t *)dst + f->offset, (const uint8_t *)src + f->offset, f->size);
+    }
+}
+
 bool netfields_equal(const NetField *fields, int count, const void *a, const void *b)
 {
     for (int i = 0; i < count; i++) {

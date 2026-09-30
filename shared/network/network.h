@@ -94,10 +94,11 @@ int net_bits_for(uint32_t max);
     ((m) < 2u ? 1 : (m) < 4u ? 2 : (m) < 8u ? 3 : (m) < 16u ? 4 : (m) < 32u ? 5 : (m) < 64u ? 6 : (m) < 128u ? 7 :  \
      (m) < 256u ? 8 : (m) < 512u ? 9 : (m) < 1024u ? 10 : (m) < 4096u ? 12 : (m) < 65536u ? 16 : 32)
 
-#define NET_SIZEOF(type, member) sizeof(((type *)0)->member)
-#define NETFIELD(type, member, kind, bits) {#member, offsetof(type, member), NET_SIZEOF(type, member), kind, bits, 0}
+#define NET_OFFSET(type, member) ((uint16_t)offsetof(type, member))
+#define NET_SIZEOF(type, member) ((uint8_t)sizeof(((type *)0)->member))
+#define NETFIELD(type, member, kind, bits) {#member, NET_OFFSET(type, member), NET_SIZEOF(type, member), kind, bits, 0}
 #define NETFIELD_ENUM(type, member, max) \
-    {#member, offsetof(type, member), NET_SIZEOF(type, member), NET_U, NET_BITS_FOR((uint32_t)(max)), (uint32_t)(max)}
+    {#member, NET_OFFSET(type, member), NET_SIZEOF(type, member), NET_U, NET_BITS_FOR((uint32_t)(max)), (uint32_t)(max)}
 
 // The struct `state` on the wire: every field, or, with a `base`, one bit per field
 // and only the fields that differ from it. Reading with a base takes the unchanged
@@ -106,6 +107,8 @@ void netfields_serialize(NetBuf *b, const NetField *fields, int count, void *sta
 
 // Whether two structs agree on every field of the table.
 bool netfields_equal(const NetField *fields, int count, const void *a, const void *b);
+// Every field of the table from `src` into `dst`; the rest of `dst` left alone.
+void netfields_copy(const NetField *fields, int count, void *dst, const void *src);
 
 // The soldier's halves (soldier_copy_owned, soldier_copy_served). A received owned half
 // is read into a scratch Soldier and copied in with soldier_copy_owned, which sets the
@@ -114,6 +117,15 @@ extern const NetField SOLDIER_OWNED_FIELDS[];
 extern const int SOLDIER_OWNED_COUNT;
 extern const NetField SOLDIER_SERVED_FIELDS[];
 extern const int SOLDIER_SERVED_COUNT;
+
+// A thing as the wire carries it: what it is, whose, where its points are; not its
+// forces, its landing counts or its background state, which are each machine's own.
+extern const NetField THING_FIELDS[];
+extern const int THING_COUNT;
+
+// The match: the scores, the clock, the state.
+extern const NetField MATCH_FIELDS[];
+extern const int MATCH_COUNT;
 
 // --- the messages ------------------------------------------------------------------
 

@@ -58,15 +58,29 @@ typedef struct MsgSnapshot {
     uint32_t base;             // the snapshot it is a delta against, 0 for whole
     uint32_t client_ack;       // the newest client state (its seq) the server has from this client
     uint32_t client_event_ack; // the newest of the client's events the server has applied
-    uint8_t word[MAX_PLAYERS];
+    Match match;
+    uint8_t word[MAX_PLAYERS]; // SnapWord
     Soldier soldiers[MAX_PLAYERS];
+    char names[MAX_PLAYERS][NET_NAME_SIZE]; // sent with a soldier that goes whole
+    uint8_t thing_word[MAX_THINGS];
+    Thing things[MAX_THINGS];
     // then the server's events since the client's acknowledgement (wire.h)
 } MsgSnapshot;
 
-// The header and the soldiers; `base` is the base snapshot's soldiers and `base_word`
-// its words, both NULL for whole; a slot the base did not carry (not SNAP_STATE) goes
-// whole. The events follow, written and read with wire_write and wire_read.
-void msg_snapshot(NetBuf *b, MsgSnapshot *m, const Soldier *base, const uint8_t *base_word);
+// What a snapshot is a delta against: the soldiers and things of the acknowledged
+// snapshot and the words it carried; all NULL for whole. A slot the base did not carry
+// (not SNAP_STATE) goes whole, and a soldier that goes whole brings its name.
+typedef struct SnapBase {
+    const Soldier *soldiers;
+    const uint8_t *word;
+    const Thing *things;
+    const uint8_t *thing_word;
+    const Match *match;
+} SnapBase;
+
+// The header, the match, the soldiers with their names, the things. The events follow,
+// written and read with wire_write and wire_read.
+void msg_snapshot(NetBuf *b, MsgSnapshot *m, const SnapBase *base);
 
 // The command a soldier heard of steps on: its last keys and aim, one-shot buttons
 // cleared, or no keys at all once `quiet`.
@@ -81,6 +95,8 @@ typedef struct ServerStream {
     uint32_t newest_tick; // the server tick it came in
     uint32_t ack;         // the newest snapshot the client has
     uint8_t sent_word[STREAM_RING][MAX_PLAYERS]; // what each snapshot sent carried, by tick
+    uint8_t sent_thing_word[STREAM_RING][MAX_THINGS];
+    Match sent_match[STREAM_RING];
     uint32_t sent_tick[STREAM_RING];
     uint32_t event_ack;  // the newest of the server's events the client has applied
     uint32_t event_last; // the newest of the client's events applied here
@@ -95,10 +111,11 @@ void server_stream_init(ServerStream *s);
 bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *data, size_t size);
 
 // The snapshot for the player in `slot`, into `buf`, with the events of `events` it
-// has not acknowledged: the bytes, or 0 if nothing could fit. Soldiers are held back
-// farthest first until it fits. The world's history must be recorded (World.history)
-// for the deltas; without it every snapshot is whole.
-size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, const WireQueue *events, uint8_t *buf, size_t size);
+// has not acknowledged and the players' `names`: the bytes, or 0 if nothing could fit.
+// Soldiers and things are held back farthest first until it fits. The world's history
+// must be recorded (World.history) for the deltas; without it every snapshot is whole.
+size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, const WireQueue *events,
+                              const char (*names)[NET_NAME_SIZE], uint8_t *buf, size_t size);
 
 // Nothing heard for STREAM_RELEASE_TICKS.
 bool server_stream_quiet(const ServerStream *s, uint32_t tick);
@@ -107,8 +124,12 @@ bool server_stream_quiet(const ServerStream *s, uint32_t tick);
 
 typedef struct ClientStream {
     Soldier (*snaps)[MAX_PLAYERS]; // the snapshots received, by tick: STREAM_RING of them, on the heap
+    Thing (*snap_things)[MAX_THINGS];
     uint8_t snap_word[STREAM_RING][MAX_PLAYERS];
+    uint8_t snap_thing_word[STREAM_RING][MAX_THINGS];
+    Match snap_match[STREAM_RING];
     uint32_t snap_tick[STREAM_RING];
+    char names[MAX_PLAYERS][NET_NAME_SIZE]; // the players', as heard
     Soldier own[STREAM_RING]; // the states sent, by seq
     uint32_t own_seq[STREAM_RING];
     uint32_t seq;        // the last state sent

@@ -1,5 +1,6 @@
 // The two streams, both ends.
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,20 +18,33 @@ void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base)
     netfields_serialize(b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m->owned, base);
 }
 
-void msg_snapshot(NetBuf *b, MsgSnapshot *m, const Soldier *base, const uint8_t *base_word)
+static const SnapBase NO_BASE = {0};
+
+void msg_snapshot(NetBuf *b, MsgSnapshot *m, const SnapBase *base)
 {
+    if (!base) base = &NO_BASE;
     net_u32(b, &m->tick);
     net_u32(b, &m->base);
     net_u32(b, &m->client_ack);
     net_u32(b, &m->client_event_ack);
+    netfields_serialize(b, MATCH_FIELDS, MATCH_COUNT, &m->match, base->match);
     for (int i = 0; i < MAX_PLAYERS; i++) {
         uint32_t word = m->word[i];
         net_range(b, &word, SNAP_SAME);
         m->word[i] = (uint8_t)word;
         if (word != SNAP_STATE) continue;
-        const Soldier *against = base && base_word && base_word[i] == SNAP_STATE ? &base[i] : NULL;
+        const Soldier *against = base->soldiers && base->word[i] == SNAP_STATE ? &base->soldiers[i] : NULL;
         netfields_serialize(b, SOLDIER_SERVED_FIELDS, SOLDIER_SERVED_COUNT, &m->soldiers[i], against);
         netfields_serialize(b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m->soldiers[i], against);
+        if (!against) net_string(b, m->names[i], NET_NAME_SIZE); // a soldier going whole brings its name
+    }
+    for (int i = 0; i < MAX_THINGS; i++) {
+        uint32_t word = m->thing_word[i];
+        net_range(b, &word, SNAP_SAME);
+        m->thing_word[i] = (uint8_t)word;
+        if (word != SNAP_STATE) continue;
+        const Thing *against = base->things && base->thing_word[i] == SNAP_STATE ? &base->things[i] : NULL;
+        netfields_serialize(b, THING_FIELDS, THING_COUNT, &m->things[i], against);
     }
 }
 
@@ -105,29 +119,34 @@ bool server_stream_quiet(const ServerStream *s, uint32_t tick)
 
 // The snapshot as `m` says, against its base, with the events pending for `slot`; the
 // bytes or 0 with the buffer overflowed.
-static size_t snapshot_bytes(MsgSnapshot *m, const Soldier *base, const uint8_t *base_word, const WireQueue *events,
-                             uint32_t event_ack, int slot, uint8_t *buf, size_t size)
+static size_t snapshot_bytes(MsgSnapshot *m, const SnapBase *base, const WireQueue *events, uint32_t event_ack, int slot,
+                             uint8_t *buf, size_t size)
 {
     NetBuf b = netbuf_writer(buf, size);
     MsgKind kind = MSG_SNAPSHOT;
     msg_kind(&b, &kind);
-    msg_snapshot(&b, m, base, base_word);
+    msg_snapshot(&b, m, base);
     wire_write(&b, events, event_ack, slot);
     return netbuf_ok(&b) ? netbuf_bytes(&b) : 0;
 }
 
-size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, const WireQueue *events, uint8_t *buf, size_t size)
+size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, const WireQueue *events,
+                              const char (*names)[NET_NAME_SIZE], uint8_t *buf, size_t size)
 {
     const World *w = &g->world;
-    MsgSnapshot m = {.tick = w->tick, .client_ack = s->newest, .client_event_ack = s->event_last};
+    MsgSnapshot m = {.tick = w->tick, .client_ack = s->newest, .client_event_ack = s->event_last, .match = g->match};
 
     // the base: the snapshot the client has, if young enough and still in the history
-    const Soldier *base = NULL;
-    const uint8_t *base_word = NULL;
+    SnapBase base = {0};
+    const SnapBase *against = NULL;
     if (s->ack && w->tick - s->ack <= STREAM_WHOLE_AFTER && s->sent_tick[s->ack % STREAM_RING] == s->ack) {
-        base = history_at(w, s->ack);
-        if (base) {
-            base_word = s->sent_word[s->ack % STREAM_RING];
+        base.soldiers = history_at(w, s->ack);
+        base.things = history_things_at(w, s->ack);
+        if (base.soldiers && base.things) {
+            base.word = s->sent_word[s->ack % STREAM_RING];
+            base.thing_word = s->sent_thing_word[s->ack % STREAM_RING];
+            base.match = &s->sent_match[s->ack % STREAM_RING];
+            against = &base;
             m.base = s->ack;
         }
     }
@@ -135,24 +154,38 @@ size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, const Wi
     for (int i = 0; i < MAX_PLAYERS; i++) {
         m.word[i] = w->soldiers[i].active ? SNAP_STATE : SNAP_GONE;
         m.soldiers[i] = w->soldiers[i];
+        snprintf(m.names[i], NET_NAME_SIZE, "%s", names ? names[i] : "");
+    }
+    for (int i = 0; i < MAX_THINGS; i++) {
+        m.thing_word[i] = w->things[i].style != THING_NONE ? SNAP_STATE : SNAP_GONE;
+        m.things[i] = w->things[i];
     }
 
-    // hold back the farthest soldiers, never the receiver's own, until it fits
+    // hold back the farthest soldier or thing, never the receiver's own soldier, until
+    // it fits; what is held back goes next time, whole if need be
     Vec2 here = w->soldiers[slot].pos;
     size_t n;
-    while ((n = snapshot_bytes(&m, base, base_word, events, s->event_ack, slot, buf, size)) == 0) {
-        int farthest = -1;
+    while ((n = snapshot_bytes(&m, against, events, s->event_ack, slot, buf, size)) == 0) {
+        int soldier = -1, thing = -1;
         float far = -1.0f;
         for (int i = 0; i < MAX_PLAYERS; i++) {
             if (i == slot || m.word[i] != SNAP_STATE) continue;
             float d = vec2_length(vec2_sub(w->soldiers[i].pos, here));
-            if (d > far) far = d, farthest = i;
+            if (d > far) far = d, soldier = i, thing = -1;
         }
-        if (farthest < 0) return 0; // not even alone
-        m.word[farthest] = SNAP_SAME;
+        for (int i = 0; i < MAX_THINGS; i++) {
+            if (m.thing_word[i] != SNAP_STATE) continue;
+            float d = vec2_length(vec2_sub(w->things[i].pos[0], here));
+            if (d > far) far = d, thing = i, soldier = -1;
+        }
+        if (thing >= 0) m.thing_word[thing] = SNAP_SAME;
+        else if (soldier >= 0) m.word[soldier] = SNAP_SAME;
+        else return 0; // not even alone
     }
 
     memcpy(s->sent_word[w->tick % STREAM_RING], m.word, sizeof m.word);
+    memcpy(s->sent_thing_word[w->tick % STREAM_RING], m.thing_word, sizeof m.thing_word);
+    s->sent_match[w->tick % STREAM_RING] = g->match;
     s->sent_tick[w->tick % STREAM_RING] = w->tick;
     return n;
 }
@@ -163,22 +196,50 @@ bool client_stream_init(ClientStream *c)
 {
     memset(c, 0, sizeof *c);
     c->snaps = calloc(STREAM_RING, sizeof *c->snaps);
-    return c->snaps != NULL;
+    c->snap_things = calloc(STREAM_RING, sizeof *c->snap_things);
+    return c->snaps != NULL && c->snap_things != NULL;
 }
 
 void client_stream_free(ClientStream *c)
 {
     free(c->snaps);
+    free(c->snap_things);
     c->snaps = NULL;
+    c->snap_things = NULL;
 }
 
 void client_stream_reset(ClientStream *c)
 {
     Soldier(*snaps)[MAX_PLAYERS] = c->snaps;
+    Thing(*things)[MAX_THINGS] = c->snap_things;
     memset(c, 0, sizeof *c);
     c->snaps = snaps;
+    c->snap_things = things;
     if (snaps) memset(snaps, 0, STREAM_RING * sizeof *snaps);
+    if (things) memset(things, 0, STREAM_RING * sizeof *things);
     wire_queue_init(&c->out);
+}
+
+#define THING_TOLERANCE 10.0f // a thing's points are taken only when they disagree by more than this
+
+// A thing as heard, onto the client's: what it is and whose, always; where its points
+// are, only when they disagree with the client's own by more than a little, and never
+// while it is held, since a held thing rides its holder here. A thing that appeared or
+// changed kind is taken whole.
+static void thing_apply(Thing *t, const Thing *heard)
+{
+    bool fresh = t->style != heard->style || t->points != heard->points;
+    Thing was = *t;
+    netfields_copy(THING_FIELDS, THING_COUNT, t, heard);
+    if (fresh) return;
+    bool keep = heard->holder != 0 || (vec2_length(vec2_sub(was.pos[0], heard->pos[0])) <= THING_TOLERANCE &&
+                                       vec2_length(vec2_sub(was.pos[1], heard->pos[1])) <= THING_TOLERANCE);
+    if (keep) {
+        for (int k = 0; k < 4; k++) {
+            t->pos[k] = was.pos[k];
+            t->old_pos[k] = was.old_pos[k];
+        }
+    }
 }
 
 bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, size_t size)
@@ -195,32 +256,41 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
         c->dropped++;
         return false;
     }
-    const Soldier *base = NULL;
-    const uint8_t *base_word = NULL;
+    SnapBase base = {0};
+    const SnapBase *against = NULL;
     if (m.base) {
         if (c->snap_tick[m.base % STREAM_RING] != m.base) {
             c->dropped++;
             return false;
         }
-        base = c->snaps[m.base % STREAM_RING];
-        base_word = c->snap_word[m.base % STREAM_RING];
+        int k = (int)(m.base % STREAM_RING);
+        base = (SnapBase){.soldiers = c->snaps[k], .word = c->snap_word[k], .things = c->snap_things[k],
+                          .thing_word = c->snap_thing_word[k], .match = &c->snap_match[k]};
+        against = &base;
     }
-    // the soldiers start from the base, where it carried them, so the delta lands on it
+    // the soldiers and things start from the base, where it carried them, so the delta
+    // lands on it; the match from the base's match
     memset(m.soldiers, 0, sizeof m.soldiers);
-    if (base) {
+    memset(m.things, 0, sizeof m.things);
+    memset(&m.match, 0, sizeof m.match);
+    if (against) {
         for (int i = 0; i < MAX_PLAYERS; i++)
-            if (base_word[i] == SNAP_STATE) m.soldiers[i] = base[i];
+            if (base.word[i] == SNAP_STATE) m.soldiers[i] = base.soldiers[i];
+        for (int i = 0; i < MAX_THINGS; i++)
+            if (base.thing_word[i] == SNAP_STATE) m.things[i] = base.things[i];
+        m.match = *base.match;
     }
     // re-read from the top: the routine reads the header again, into the same values
     b = netbuf_reader(data, size);
     msg_kind(&b, &kind);
-    msg_snapshot(&b, &m, base, base_word);
+    msg_snapshot(&b, &m, against);
     if (!netbuf_ok(&b)) {
         c->dropped++;
         return false;
     }
 
     World *w = &g->world;
+    netfields_copy(MATCH_FIELDS, MATCH_COUNT, &g->match, &m.match); // the match is the server's
     // the world's tick keeps to the server's: a snapshot is of its tick, and arrives
     // about as far after it as my states take to get there, so now is its tick. Off by
     // a little the ticks drift back; off by more they snap.
@@ -253,14 +323,23 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
                 soldier_copy_owned(g->ctx.anims, s, heard);
             }
             c->last_word[i] = m.tick;
+            if (m.names[i][0]) snprintf(c->names[i], NET_NAME_SIZE, "%s", m.names[i]);
             break;
         }
         default: break; // SNAP_SAME: keep stepping it
         }
     }
+    for (int i = 0; i < MAX_THINGS; i++) {
+        Thing *t = &w->things[i];
+        if (m.thing_word[i] == SNAP_GONE && t->style != THING_NONE) thing_kill(t);
+        else if (m.thing_word[i] == SNAP_STATE) thing_apply(t, &m.things[i]);
+    }
 
     memcpy(c->snaps[m.tick % STREAM_RING], m.soldiers, sizeof m.soldiers);
     memcpy(c->snap_word[m.tick % STREAM_RING], m.word, sizeof m.word);
+    memcpy(c->snap_things[m.tick % STREAM_RING], m.things, sizeof m.things);
+    memcpy(c->snap_thing_word[m.tick % STREAM_RING], m.thing_word, sizeof m.thing_word);
+    c->snap_match[m.tick % STREAM_RING] = m.match;
     c->snap_tick[m.tick % STREAM_RING] = m.tick;
     c->newest = m.tick;
     if (m.client_ack > c->server_ack) c->server_ack = m.client_ack;

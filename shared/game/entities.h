@@ -498,6 +498,7 @@ typedef struct Events {
 
 typedef struct History {
     Soldier frames[HISTORY_TICKS][MAX_PLAYERS]; // by tick modulo the ring
+    Thing things[HISTORY_TICKS][MAX_THINGS];    // and the things, for the snapshots' deltas
     uint32_t tick; // the newest frame's
     uint32_t count;
 } History;
