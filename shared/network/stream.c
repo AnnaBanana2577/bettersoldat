@@ -124,16 +124,18 @@ bool server_stream_quiet(const ServerStream *s, uint32_t tick)
     return s->newest == 0 || tick - s->newest_tick > STREAM_RELEASE_TICKS;
 }
 
-// The snapshot as `m` says, against its base, with the events pending for `slot`; the
-// bytes or 0 with the buffer overflowed.
+// The snapshot as `m` says, against its base, with up to `event_max` of the events
+// pending for `slot`; the bytes, or 0 with the buffer overflowed, `*bad` set instead if
+// a value would not fit its width (which no holding back can mend).
 static size_t snapshot_bytes(MsgSnapshot *m, const SnapBase *base, const WireQueue *events, uint32_t event_ack, int slot,
-                             uint8_t *buf, size_t size)
+                             int event_max, uint8_t *buf, size_t size, bool *bad)
 {
     NetBuf b = netbuf_writer(buf, size);
     MsgKind kind = MSG_SNAPSHOT;
     msg_kind(&b, &kind);
     msg_snapshot(&b, m, base);
-    wire_write(&b, events, event_ack, slot);
+    wire_write(&b, events, event_ack, slot, event_max);
+    *bad = b.bad;
     return netbuf_ok(&b) ? netbuf_bytes(&b) : 0;
 }
 
@@ -168,11 +170,22 @@ size_t server_stream_snapshot(ServerStream *s, const Game *g, int slot, const Wi
         m.things[i] = w->things[i];
     }
 
-    // hold back the farthest soldier or thing, never the receiver's own soldier, until
-    // it fits; what is held back goes next time, whole if need be
+    // until it fits: fewer events first (they go next time regardless), then the
+    // farthest soldier or thing held back, never the receiver's own soldier; what is held
+    // back goes next time, whole if need be
     Vec2 here = w->soldiers[slot].pos;
+    int event_max = WIRE_PER_PACKET;
     size_t n;
-    while ((n = snapshot_bytes(&m, against, events, s->event_ack, slot, buf, size)) == 0) {
+    bool bad;
+    while ((n = snapshot_bytes(&m, against, events, s->event_ack, slot, event_max, buf, size, &bad)) == 0) {
+        if (bad) { // a width too small somewhere: nothing to hold back would mend it, and a guess would cull
+            s->unwritable++;
+            return 0;
+        }
+        if (event_max > 0) {
+            event_max /= 2;
+            continue;
+        }
         int soldier = -1, thing = -1;
         float far = -1.0f;
         for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -339,9 +352,12 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
             if (m.names[i][0]) snprintf(c->names[i], NET_NAME_SIZE, "%s", m.names[i]);
             break;
         }
-        default: break; // SNAP_SAME: keep stepping it
+        default: // SNAP_SAME: keep stepping it
+            if (s->active) c->held_back++;
+            break;
         }
     }
+    if (size > c->largest) c->largest = size;
     for (int i = 0; i < MAX_THINGS; i++) {
         Thing *t = &w->things[i];
         if (m.thing_word[i] == SNAP_GONE && t->style != THING_NONE) thing_kill(t);
@@ -379,7 +395,7 @@ size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, siz
     MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .owned = *me};
     msg_kind(&b, &kind);
     msg_client_state(&b, &m, base);
-    wire_write(&b, &c->out, c->event_ack, -1);
+    wire_write(&b, &c->out, c->event_ack, -1, WIRE_PER_PACKET);
     if (!netbuf_ok(&b)) return 0;
 
     c->own[seq % STREAM_RING] = *me;

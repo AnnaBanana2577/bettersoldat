@@ -218,11 +218,14 @@ void wire_collect(WireQueue *q, const Events *events, uint32_t tick, int only_ow
     }
 }
 
-void wire_write(NetBuf *b, const WireQueue *q, uint32_t ack, int receiver)
+uint32_t wire_queue_present(const WireQueue *q) { return q->next - 1; }
+
+void wire_write(NetBuf *b, const WireQueue *q, uint32_t ack, int receiver, int max)
 {
+    if (max > WIRE_PER_PACKET) max = WIRE_PER_PACKET;
     uint32_t start = ack + 1 > q->first ? ack + 1 : q->first;
     uint32_t count = 0;
-    for (uint32_t seq = start; seq < q->next && count < WIRE_PER_PACKET; seq++) {
+    for (uint32_t seq = start; seq < q->next && count < (uint32_t)max; seq++) {
         if (q->from[seq % WIRE_QUEUE] != receiver) count++;
     }
     net_range(b, &count, WIRE_PER_PACKET);

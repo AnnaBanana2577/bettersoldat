@@ -104,6 +104,7 @@ typedef struct ServerStream {
     uint32_t event_ack;  // the newest of the server's events the client has applied
     uint32_t event_last; // the newest of the client's events applied here
     uint32_t dropped;    // client states that couldn't be read, or failed a check
+    uint32_t unwritable; // snapshots not sent because a value would not fit its width: a bug, not a size
 } ServerStream;
 
 // Fresh for `round`: nothing received, nothing sent, so the first snapshot goes whole.
@@ -146,6 +147,8 @@ typedef struct ClientStream {
     uint16_t round;      // the round I am in (MsgMap); snapshots of another are dropped
     uint32_t dropped;    // snapshots that couldn't be read
     uint32_t stale;      // snapshots of another round
+    uint32_t held_back;  // times a soldier I know was held back from a snapshot (SNAP_SAME)
+    size_t largest;      // the largest snapshot heard, in bytes
 } ClientStream;
 
 bool client_stream_init(ClientStream *c); // allocates the ring; false if it couldn't

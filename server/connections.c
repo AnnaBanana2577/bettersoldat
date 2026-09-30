@@ -145,6 +145,7 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     snprintf(conn->name, sizeof conn->name, "%s", m.name[0] ? m.name : "Player");
     peer->data = conn;
     server_stream_init(&c->streams[slot], c->round);
+    c->streams[slot].event_ack = wire_queue_present(&c->events); // what happened before it came is nobody's news
     place(c, g, slot);
 
     uint8_t buf[NET_MTU];

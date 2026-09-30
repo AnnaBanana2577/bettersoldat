@@ -21,7 +21,7 @@ const NetField SOLDIER_OWNED_FIELDS[] = {
     NETFIELD(Soldier, direction, NET_I, 2),
     NETFIELD_ENUM(Soldier, stance, STANCE_PRONE),
     NETFIELD(Soldier, on_ground, NET_BOOL, 0),
-    NETFIELD(Soldier, jets, NET_I, COUNTER),
+    NETFIELD(Soldier, jets, NET_I, 32), // a map's fuel can be anything
     NETFIELD_ENUM(Soldier, legs.id, ANIM_COUNT - 1),
     NETFIELD(Soldier, legs.frame, NET_I, 8),
     NETFIELD_ENUM(Soldier, body.id, ANIM_COUNT - 1),
@@ -89,7 +89,7 @@ const NetField THING_FIELDS[] = {
     NETFIELD(Thing, flip, NET_BOOL, 0),
     NETFIELD_ENUM(Thing, holder, MAX_PLAYERS),
     NETFIELD_ENUM(Thing, owner, MAX_PLAYERS),
-    NETFIELD(Thing, timeout, NET_I, COUNTER),
+    NETFIELD(Thing, timeout, NET_I, 32), // a map's kit lies for hours
     NETFIELD(Thing, is_static, NET_BOOL, 0),
     NETFIELD_ENUM(Thing, points, 4),
     NETFIELD(Thing, pos[0], NET_VEC2, 0),

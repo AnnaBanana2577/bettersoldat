@@ -81,7 +81,7 @@ void wire_tests(void)
     g->world.tick = 55;
     uint8_t packet[NET_MTU];
     w = netbuf_writer(packet, sizeof packet);
-    wire_write(&w, &q, 0, 3); // to slot 3, the shooter
+    wire_write(&w, &q, 0, 3, WIRE_PER_PACKET); // to slot 3, the shooter
     uint32_t last = 0;
     NetBuf r = netbuf_reader(packet, netbuf_bytes(&w));
     wire_read(&r, g, &last, -1);
@@ -90,7 +90,7 @@ void wire_tests(void)
 
     events_clear(&g->incoming);
     w = netbuf_writer(packet, sizeof packet);
-    wire_write(&w, &q, 0, 7); // to someone else
+    wire_write(&w, &q, 0, 7, WIRE_PER_PACKET); // to someone else
     last = 0;
     r = netbuf_reader(packet, netbuf_bytes(&w));
     wire_read(&r, g, &last, -1);
@@ -101,22 +101,32 @@ void wire_tests(void)
 
     events_clear(&g->incoming);
     w = netbuf_writer(packet, sizeof packet);
-    wire_write(&w, &q, 2, 7); // everything acknowledged
+    wire_write(&w, &q, 2, 7, WIRE_PER_PACKET); // everything acknowledged
     r = netbuf_reader(packet, netbuf_bytes(&w));
     wire_read(&r, g, &last, -1);
     CHECK(netbuf_done(&r) && g->incoming.count == 0 && netbuf_bytes(&w) == 1, "nothing pending costs a byte");
 
     events_clear(&g->incoming);
     w = netbuf_writer(packet, sizeof packet);
-    wire_write(&w, &q, 0, 7);
+    wire_write(&w, &q, 0, 7, WIRE_PER_PACKET);
     r = netbuf_reader(packet, netbuf_bytes(&w));
     wire_read(&r, g, &last, -1);
     CHECK(g->incoming.count == 0, "what was applied once is not applied again (last %u)", last);
 
+    // fewer at a time, when a packet is short of room
+    w = netbuf_writer(packet, sizeof packet);
+    wire_write(&w, &q, 0, 7, 1);
+    last = 0;
+    events_clear(&g->incoming);
+    r = netbuf_reader(packet, netbuf_bytes(&w));
+    wire_read(&r, g, &last, -1);
+    CHECK(g->incoming.count == 1 && last == 1, "asked for one, one goes, and the rest next time (last %u)", last);
+    CHECK(wire_queue_present(&q) == 2, "a newcomer starts acknowledged up to the present (%u)", wire_queue_present(&q));
+
     // a server reading a client: that client's own decisions alone
     events_clear(&g->incoming);
     w = netbuf_writer(packet, sizeof packet);
-    wire_write(&w, &q, 0, 7);
+    wire_write(&w, &q, 0, 7, WIRE_PER_PACKET);
     last = 0;
     r = netbuf_reader(packet, netbuf_bytes(&w));
     wire_read(&r, g, &last, 5); // as if slot 5 had sent these

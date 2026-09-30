@@ -238,9 +238,38 @@ void stream_tests(void)
     int heard_before = c.bot_shots;
     play(&conns, gs, &c, 12, 0, BUTTON_FIRE);
     play(&conns, gs, &c, 5, 0, 0);
+    {
+        // every part of a snapshot of a played world writes: which would not, if one
+        // wouldn't. A width too small stalls the stream, which once looked like culling.
+        uint8_t big[8192];
+        NetBuf b = netbuf_writer(big, sizeof big);
+        for (int i = 0; i < MAX_PLAYERS && netbuf_ok(&b); i++) {
+            if (!gs->world.soldiers[i].active) continue;
+            netfields_serialize(&b, SOLDIER_SERVED_FIELDS, SOLDIER_SERVED_COUNT, &gs->world.soldiers[i], NULL);
+            CHECK(netbuf_ok(&b), "soldier %d's served half fits its widths", i);
+            netfields_serialize(&b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &gs->world.soldiers[i], NULL);
+            CHECK(netbuf_ok(&b), "soldier %d's owned half fits its widths (jets %d, frames %d/%d, ammo %d/%d, counts %d/%d)", i,
+                  gs->world.soldiers[i].jets, gs->world.soldiers[i].legs.frame, gs->world.soldiers[i].body.frame,
+                  gs->world.soldiers[i].weapon.ammo, gs->world.soldiers[i].secondary.ammo, gs->world.soldiers[i].weapon.fire_count,
+                  gs->world.soldiers[i].weapon.reload_count);
+        }
+        for (int i = 0; i < MAX_THINGS && netbuf_ok(&b); i++) {
+            if (gs->world.things[i].style == THING_NONE) continue;
+            netfields_serialize(&b, THING_FIELDS, THING_COUNT, &gs->world.things[i], NULL);
+            CHECK(netbuf_ok(&b), "thing %d (style %d) fits its widths (timeout %d, interest %d, ammo %d)", i, gs->world.things[i].style,
+                  gs->world.things[i].timeout, gs->world.things[i].interest, gs->world.things[i].ammo);
+        }
+        netfields_serialize(&b, MATCH_FIELDS, MATCH_COUNT, &gs->match, NULL);
+        CHECK(netbuf_ok(&b), "the match fits its widths");
+        wire_write(&b, &conns.events, 0, 0, WIRE_PER_PACKET);
+        CHECK(netbuf_ok(&b), "the pending events write (%u..%u)", conns.events.first, conns.events.next);
+        CHECK(conns.streams[0].unwritable == 0, "and no snapshot went unwritten (%u did)", conns.streams[0].unwritable);
+    }
     CHECK(c.bot_shots > heard_before && c.game->world.soldiers[BOT].shot_count == gs->world.soldiers[BOT].shot_count,
-          "the bot's shots are heard here and made, its count in step (%d made, %u/%u)", c.bot_shots,
-          c.game->world.soldiers[BOT].shot_count, gs->world.soldiers[BOT].shot_count);
+          "the bot's shots are heard here and made, its count in step (%d made, %u/%u; queue %u..%u, server thinks acked %u, client "
+          "applied %u)",
+          c.bot_shots, c.game->world.soldiers[BOT].shot_count, gs->world.soldiers[BOT].shot_count, conns.events.first,
+          conns.events.next, conns.streams[0].event_ack, c.stream.event_last);
 
     // wounds: the bot fires at me for a while; the server rules and I hear
     float health_before = mine->health;
@@ -258,7 +287,7 @@ void stream_tests(void)
     MsgClientState old = {.seq = 1, .owned = *mine};
     msg_kind(&b, &kind);
     msg_client_state(&b, &old, NULL);
-    wire_write(&b, &c.stream.out, c.stream.event_ack, -1);
+    wire_write(&b, &c.stream.out, c.stream.event_ack, -1, WIRE_PER_PACKET);
     net_send(c.link.peer, MSG_CLIENT_STATE, buf, netbuf_bytes(&b));
     net_flush(&c.link);
     play(&conns, gs, &c, 5, 0, 0);
@@ -284,15 +313,41 @@ void stream_tests(void)
               fabsf(second_here->pos.x - second_there->pos.x) < 30.0f,
           "its soldier is placed on both ends (%d/%d active, life %u/%u)", second_there->active, second_here ? second_here->active : 0,
           second_there->life, second_here ? second_here->life : 0);
-    for (int round = 0; round < 10; round++) {
+    // five seconds of both running about and shooting: nobody is ever without word, and
+    // nobody's picture of the other ever jumps farther in a tick than a soldier can move
+    // (a new life is a placing, which is a jump by design, and is left out)
+    float jump_on_c = 0.0f, jump_on_d = 0.0f;
+    size_t steady = 0; // the largest snapshot once the join's whole ones are past
+    const Soldier *c_sees = &c.game->world.soldiers[2], *d_sees = &d.game->world.soldiers[0];
+    Vec2 was_on_c = c_sees->pos, was_on_d = d_sees->pos;
+    uint8_t life_on_c = c_sees->life, life_on_d = d_sees->life;
+    uint32_t held_before = c.stream.held_back + d.stream.held_back;
+    for (int round = 0; round < 300; round++) {
+        Buttons c_keys = (round / 40) % 2 ? BUTTON_RIGHT | BUTTON_FIRE : BUTTON_LEFT | BUTTON_JUMP;
+        Buttons d_keys = (round / 30) % 2 ? BUTTON_LEFT | BUTTON_FIRE : BUTTON_RIGHT | BUTTON_JET;
         connections_poll(&conns, gs);
         server_tick(&conns, gs, 0);
         client_pump(&c);
-        client_tick(&c, 0);
+        client_tick(&c, c_keys);
         client_pump(&d);
-        client_tick(&d, BUTTON_LEFT);
+        client_tick(&d, d_keys);
+        if (round > 5 && c_sees->life == life_on_c) jump_on_c = fmaxf(jump_on_c, vec2_length(vec2_sub(c_sees->pos, was_on_c)));
+        if (round > 5 && d_sees->life == life_on_d) jump_on_d = fmaxf(jump_on_d, vec2_length(vec2_sub(d_sees->pos, was_on_d)));
+        if (round > 60 && c.snapshot_bytes > steady) steady = c.snapshot_bytes;
+        if (round > 60 && d.snapshot_bytes > steady) steady = d.snapshot_bytes;
+        was_on_c = c_sees->pos;
+        was_on_d = d_sees->pos;
+        life_on_c = c_sees->life;
+        life_on_d = d_sees->life;
         enet_host_service(server.host, NULL, 10);
     }
+    CHECK(c.stream.held_back + d.stream.held_back == held_before, "no soldier was held back from any snapshot (%u times)",
+          c.stream.held_back + d.stream.held_back - held_before);
+    CHECK(jump_on_c < 2.0f * MAX_VELOCITY && jump_on_d < 2.0f * MAX_VELOCITY,
+          "neither client's picture of the other jumps more than a soldier can move in a tick (%.1f, %.1f at most)", jump_on_c,
+          jump_on_d);
+    CHECK(steady < NET_MTU / 3, "and the steady snapshots stay far from the datagram's size (%zu bytes at largest, %zu the join's)",
+          steady, c.stream.largest);
     const Soldier *second_seen = &c.game->world.soldiers[2];
     CHECK(second_seen->active && second_seen->remote && fabsf(second_seen->pos.x - second_there->pos.x) < 30.0f &&
               strcmp(c.stream.names[2], "Mover") == 0,

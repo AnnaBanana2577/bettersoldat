@@ -49,10 +49,15 @@ void wire_queue_init(WireQueue *q);
 // heard too, remembering from whom).
 void wire_collect(WireQueue *q, const Events *events, uint32_t tick, int only_owner);
 
-// The pending events for a receiver: those past `ack`, up to WIRE_PER_PACKET, skipping
-// what was heard from `receiver` itself (its own decisions come back to it as state,
-// not as events). Writes count, then each with its seq and tick.
-void wire_write(NetBuf *b, const WireQueue *q, uint32_t ack, int receiver);
+// The pending events for a receiver: those past `ack`, up to `max` (WIRE_PER_PACKET at
+// most), skipping what was heard from `receiver` itself (its own decisions come back
+// to it as state, not as events). Writes count, then each with its seq and tick. What
+// doesn't go now goes next time.
+void wire_write(NetBuf *b, const WireQueue *q, uint32_t ack, int receiver, int max);
+
+// The acknowledgement a newcomer starts with: everything so far counts as heard, since
+// what happened before it came is nobody's news.
+uint32_t wire_queue_present(const WireQueue *q);
 
 // Reads what wire_write wrote and applies each event not yet applied (by `*last`, which
 // advances) into the game's mailbox; a shot's advance is the game's tick minus the
