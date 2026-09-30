@@ -15,7 +15,8 @@ typedef struct ClientNet {
     ClientNetState state;
     ClientStream stream;
     char name[NET_NAME_SIZE];
-    Soldier choices;        // my look and weapons, kept current by the app; the Hello says them
+    PlayerLook look;             // mine, as the app keeps it current: the Hello says it
+    WeaponId primary, secondary; // the loadout of my first placing, likewise
     int slot;               // mine on the server, once welcomed; -1 before
     uint32_t tick;          // the server's, as of the welcome
     uint16_t round;         // the round being played, as of the last Map

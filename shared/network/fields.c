@@ -82,19 +82,23 @@ const NetField SOLDIER_SERVED_FIELDS[] = {
 };
 const int SOLDIER_SERVED_COUNT = sizeof SOLDIER_SERVED_FIELDS / sizeof SOLDIER_SERVED_FIELDS[0];
 
-const NetField SOLDIER_CHOICES_FIELDS[] = {
-    NETFIELD(Soldier, look.shirt, NET_RGBA, 0),
-    NETFIELD(Soldier, look.pants, NET_RGBA, 0),
-    NETFIELD(Soldier, look.skin, NET_RGBA, 0),
-    NETFIELD(Soldier, look.hair, NET_RGBA, 0),
-    NETFIELD(Soldier, look.jet, NET_RGBA, 0),
-    NETFIELD_ENUM(Soldier, look.hair_style, 4),
-    NETFIELD_ENUM(Soldier, look.head_style, 2),
-    NETFIELD_ENUM(Soldier, look.chain_style, 2),
+const NetField PLAYER_LOOK_FIELDS[] = {
+    NETFIELD(PlayerLook, shirt, NET_RGBA, 0),
+    NETFIELD(PlayerLook, pants, NET_RGBA, 0),
+    NETFIELD(PlayerLook, skin, NET_RGBA, 0),
+    NETFIELD(PlayerLook, hair, NET_RGBA, 0),
+    NETFIELD(PlayerLook, jet, NET_RGBA, 0),
+    NETFIELD_ENUM(PlayerLook, hair_style, 4),
+    NETFIELD_ENUM(PlayerLook, head_style, 2),
+    NETFIELD_ENUM(PlayerLook, chain_style, 2),
+};
+const int PLAYER_LOOK_COUNT = sizeof PLAYER_LOOK_FIELDS / sizeof PLAYER_LOOK_FIELDS[0];
+
+const NetField SOLDIER_LOADOUT_FIELDS[] = {
     NETFIELD_ENUM(Soldier, primary_choice, WEAPON_COUNT - 1),
     NETFIELD_ENUM(Soldier, secondary_choice, WEAPON_COUNT - 1),
 };
-const int SOLDIER_CHOICES_COUNT = sizeof SOLDIER_CHOICES_FIELDS / sizeof SOLDIER_CHOICES_FIELDS[0];
+const int SOLDIER_LOADOUT_COUNT = sizeof SOLDIER_LOADOUT_FIELDS / sizeof SOLDIER_LOADOUT_FIELDS[0];
 
 const NetField THING_FIELDS[] = {
     NETFIELD_ENUM(Thing, style, THING_STYLE_COUNT - 1),

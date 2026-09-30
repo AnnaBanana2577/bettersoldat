@@ -217,8 +217,8 @@ static void messages(void)
     NetBuf w = netbuf_writer(data, sizeof data);
     MsgKind kind = MSG_HELLO;
     MsgHello hello = {.version = NET_VERSION, .name = "Major Pain"};
-    hello.choices.look.hair_style = 3;
-    hello.choices.primary_choice = WEAPON_BARRETT;
+    hello.look.hair_style = 3;
+    hello.primary = WEAPON_BARRETT;
     msg_kind(&w, &kind);
     msg_hello(&w, &hello);
     NetBuf r = netbuf_reader(data, netbuf_bytes(&w));
@@ -228,7 +228,7 @@ static void messages(void)
     msg_hello(&r, &got);
     CHECK(got_kind == MSG_HELLO && got.version == NET_VERSION && strcmp(got.name, hello.name) == 0 && netbuf_done(&r),
           "a Hello round trips, kind first");
-    CHECK(got.choices.look.hair_style == 3 && got.choices.primary_choice == WEAPON_BARRETT, "with the player's choices");
+    CHECK(got.look.hair_style == 3 && got.primary == WEAPON_BARRETT, "with the player's look and loadout");
     CHECK(MSG_RELIABLE[MSG_HELLO] && MSG_RELIABLE[MSG_CHAT] && !MSG_RELIABLE[MSG_SNAPSHOT] && !MSG_RELIABLE[MSG_CLIENT_STATE],
           "news is reliable and state is not, by the table");
 

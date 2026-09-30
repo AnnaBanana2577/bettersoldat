@@ -18,7 +18,7 @@ void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base)
     net_u32(b, &m->ack);
     net_u32(b, &m->event_ack);
     netfields_serialize(b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m->owned, base);
-    netfields_serialize(b, SOLDIER_CHOICES_FIELDS, SOLDIER_CHOICES_COUNT, &m->owned, base);
+    netfields_serialize(b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &m->owned, base);
 }
 
 static const SnapBase NO_BASE = {0};
@@ -94,7 +94,7 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     }
     m.owned = base ? *base : (Soldier){0};
     netfields_serialize(&b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m.owned, base);
-    netfields_serialize(&b, SOLDIER_CHOICES_FIELDS, SOLDIER_CHOICES_COUNT, &m.owned, base);
+    netfields_serialize(&b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &m.owned, base);
     if (!netbuf_ok(&b) || soldier_out_of_bounds(&g->ctx, m.owned.pos)) {
         s->dropped++;
         return false;
@@ -117,10 +117,9 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     if (m.event_ack > s->event_ack) s->event_ack = m.event_ack;
 
     // the owner's word, unless the soldier is dead here and the client hasn't heard;
-    // its choices always, a weapon that isn't a primary or a secondary put right
+    // its loadout always, a weapon that isn't a primary or a secondary put right
     Soldier *soldier = &g->world.soldiers[slot];
     if (soldier->active && !soldier->dead) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
-    soldier->look = m.owned.look;
     soldier->primary_choice = weapon_is_primary(m.owned.primary_choice) ? m.owned.primary_choice : WEAPON_EAGLE;
     soldier->secondary_choice = weapon_is_secondary(m.owned.secondary_choice) ? m.owned.secondary_choice : WEAPON_KNIFE;
     return true;
@@ -350,7 +349,7 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
             bool placed = heard->life != s->life;
             Vec2 before = s->pos;
             if (i == me) {
-                // the server's word of me, but my choices are mine
+                // the server's word of me, but my look and loadout are mine
                 PlayerLook look = s->look;
                 WeaponId primary = s->primary_choice, secondary = s->secondary_choice;
                 soldier_copy_served(s, heard);

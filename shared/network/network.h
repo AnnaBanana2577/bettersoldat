@@ -118,12 +118,14 @@ extern const int SOLDIER_OWNED_COUNT;
 extern const NetField SOLDIER_SERVED_FIELDS[];
 extern const int SOLDIER_SERVED_COUNT;
 
-// The player's choices about its soldier, in the served half because the server
-// relays them to everyone, but the client's to make: its look, and the weapons of its
-// next spawn. They ride the client state, and the client keeps its own over the
-// server's word of them.
-extern const NetField SOLDIER_CHOICES_FIELDS[];
-extern const int SOLDIER_CHOICES_COUNT;
+// What is the player's to choose about its soldier, though the served half carries it:
+// its look, said once in the Hello, as a look is for a game (the original's way), and
+// the weapons of its next spawn, which ride the client state as they change with
+// every pick in the menu. The server takes both as said.
+extern const NetField PLAYER_LOOK_FIELDS[];
+extern const int PLAYER_LOOK_COUNT;
+extern const NetField SOLDIER_LOADOUT_FIELDS[];
+extern const int SOLDIER_LOADOUT_COUNT;
 
 // A thing as the wire carries it: what it is, whose, where its points are; not its
 // forces, its landing counts or its background state, which are each machine's own.
@@ -156,7 +158,8 @@ extern const bool MSG_RELIABLE[MSG_COUNT];
 typedef struct MsgHello {
     uint16_t version;
     char name[NET_NAME_SIZE];
-    Soldier choices; // its look and weapons (SOLDIER_CHOICES_FIELDS), for its first placing
+    PlayerLook look;             // how the player dresses its soldier, for the game
+    WeaponId primary, secondary; // the loadout of its first placing
 } MsgHello;
 
 typedef struct MsgWelcome {

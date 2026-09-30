@@ -147,9 +147,9 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     server_stream_init(&c->streams[slot], c->round);
     c->streams[slot].event_ack = wire_queue_present(&c->events); // what happened before it came is nobody's news
     Soldier *s = &g->world.soldiers[slot];
-    s->look = m.choices.look;
-    s->primary_choice = m.choices.primary_choice;
-    s->secondary_choice = m.choices.secondary_choice;
+    s->look = m.look;
+    s->primary_choice = m.primary;
+    s->secondary_choice = m.secondary;
     place(c, g, slot);
 
     uint8_t buf[NET_MTU];

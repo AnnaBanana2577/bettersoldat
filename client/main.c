@@ -366,7 +366,9 @@ static void apply_cvars(App *app)
     me->look = look_from_cvars(app);
     me->primary_choice = (WeaponId)clampi(app->primary->integer, WEAPON_EAGLE, WEAPON_MINIGUN);
     me->secondary_choice = (WeaponId)(WEAPON_COLT + clampi(app->secondary->integer, 0, WEAPON_LAW - WEAPON_COLT));
-    app->net.choices = *me; // what the Hello says of me
+    app->net.look = me->look; // what the Hello says of me
+    app->net.primary = me->primary_choice;
+    app->net.secondary = me->secondary_choice;
 }
 
 // The world: with me in it, dressed and armed as the cvars say, when `local`; empty,

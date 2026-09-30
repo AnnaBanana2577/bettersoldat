@@ -191,8 +191,9 @@ commit that changes the netcode says what it measured, on what line.
    everyone hears the Map, a reliable message with the round's number, which is also
    how a joining client hears of its first round: joining and a new round are one path.
    Both streams are stamped with the round, and another round's are dropped, so packets
-   that cross the change do no harm. A player's choices, its look and the weapons of
-   its next spawn, are the served half's but its own to make: they ride the Hello, for
-   the first placing, and the client state after, and the server takes them as said;
-   a client keeps its own over the server's word of them. The team's shirt goes on
+   that cross the change do no harm. A player's look and the weapons of its next spawn
+   are the served half's but its own to choose: the look rides the Hello once, a look
+   being for a game as in the original, and the loadout the Hello and then the client
+   state, as the menu changes it; the server takes them as said, and a client keeps its
+   own over the server's word of them. The team's shirt goes on
    where the gostek is drawn. Still to do: votes.

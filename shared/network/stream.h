@@ -40,7 +40,7 @@ typedef struct MsgClientState {
     uint32_t base;      // the state it is a delta against, 0 for whole
     uint32_t ack;       // the newest snapshot (its tick) the client has, 0 for none
     uint32_t event_ack; // the newest of the server's events the client has applied
-    Soldier owned;      // the owned half, and the choices, ride in a Soldier
+    Soldier owned;      // the owned half, and the loadout choice, ride in a Soldier
     // then the client's own decisions since the server's acknowledgement (wire.h)
 } MsgClientState;
 

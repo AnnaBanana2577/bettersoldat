@@ -54,7 +54,8 @@ static void client_pump(StreamClient *c)
     NetEvent e;
     while (c->link.host && net_poll(&c->link, &e, 0) != NET_EVENT_NONE) {
         if (e.kind == NET_EVENT_CONNECT) {
-            MsgHello hello = {.version = NET_VERSION, .name = "Mover"};
+            MsgHello hello = {.version = NET_VERSION, .name = "Mover", .primary = WEAPON_EAGLE, .secondary = WEAPON_KNIFE};
+            hello.look = (PlayerLook){.shirt = {9, 8, 7, 255}, .hair_style = 3, .head_style = 2, .chain_style = 1};
             client_send(c, MSG_HELLO, route_hello, &hello);
         } else if (e.kind == NET_EVENT_MESSAGE && e.msg == MSG_WELCOME) {
             NetBuf b = netbuf_reader(e.data, e.size);
@@ -349,8 +350,9 @@ void stream_tests(void)
     CHECK(steady < NET_MTU / 3, "and the steady snapshots stay far from the datagram's size (%zu bytes at largest, %zu the join's)",
           steady, c.stream.largest);
 
-    // the second client's look and weapon choices reached the first through the server
-    d.game->world.soldiers[2].look = (PlayerLook){.shirt = {9, 8, 7, 255}, .hair_style = 3, .head_style = 2, .chain_style = 1};
+    // the second client's look, said in its Hello, reached the first through the server, and
+    // its weapon choices, made after, reach the server through its state
+    d.game->world.soldiers[2].look.shirt.r = 1; // changed after the join: the others don't hear
     d.game->world.soldiers[2].primary_choice = WEAPON_BARRETT;
     d.game->world.soldiers[2].secondary_choice = WEAPON_LAW;
     for (int round = 0; round < 6; round++) {
@@ -364,11 +366,11 @@ void stream_tests(void)
     }
     const PlayerLook *seen_look = &c.game->world.soldiers[2].look;
     CHECK(seen_look->shirt.r == 9 && seen_look->hair_style == 3 && seen_look->head_style == 2 && seen_look->chain_style == 1,
-          "a player's look reaches the others through the server (shirt %u, hair %u, head %u, chain %u)", seen_look->shirt.r,
+          "a player's look, from its Hello, reaches the others (shirt %u, hair %u, head %u, chain %u)", seen_look->shirt.r,
           seen_look->hair_style, seen_look->head_style, seen_look->chain_style);
     CHECK(gs->world.soldiers[2].primary_choice == WEAPON_BARRETT && gs->world.soldiers[2].secondary_choice == WEAPON_LAW,
           "and its weapon choices reach the server for its next spawn");
-    CHECK(d.game->world.soldiers[2].look.shirt.r == 9 && d.game->world.soldiers[2].primary_choice == WEAPON_BARRETT,
+    CHECK(d.game->world.soldiers[2].look.shirt.r == 1 && d.game->world.soldiers[2].primary_choice == WEAPON_BARRETT,
           "while the client keeps its own over the server's word of them");
 
     // a correction of another player goes to the picture and is smoothed away

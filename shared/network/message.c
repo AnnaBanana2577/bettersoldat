@@ -26,7 +26,12 @@ void msg_hello(NetBuf *b, MsgHello *m)
 {
     net_u16(b, &m->version);
     net_string(b, m->name, sizeof m->name);
-    netfields_serialize(b, SOLDIER_CHOICES_FIELDS, SOLDIER_CHOICES_COUNT, &m->choices, NULL);
+    netfields_serialize(b, PLAYER_LOOK_FIELDS, PLAYER_LOOK_COUNT, &m->look, NULL);
+    uint32_t primary = m->primary, secondary = m->secondary;
+    net_range(b, &primary, WEAPON_COUNT - 1);
+    net_range(b, &secondary, WEAPON_COUNT - 1);
+    m->primary = (WeaponId)primary;
+    m->secondary = (WeaponId)secondary;
 }
 
 void msg_welcome(NetBuf *b, MsgWelcome *m)
