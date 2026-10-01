@@ -1059,12 +1059,13 @@ static void tick(App *app)
         app->team_asked = true;
     }
 
-    // Watching (Control.pas, "change camera when dead"): as I die or join as a
-    // spectator the camera goes to a teammate, if one is up. Then, with no weapons menu
-    // open, fire follows the next player and jet the one before, among those alive I
-    // may watch (my team's in a team game); jump, or the freecam command, is the free
-    // camera, which the cursor pushes; and fire with nobody to follow is that too.
-    // Alive, the camera is mine again.
+    // Watching (LocalInput.pas, "change camera when dead"): as I die the camera stays on
+    // my body, as the original's CameraFollowSprite stays on mine; joining as a spectator,
+    // with no body, it goes to the first player up. Then, with no weapons menu open, fire
+    // follows the next player and jet the one before, among those alive I may watch (my
+    // team's in a team game); jump, or the freecam command, is the free camera, which the
+    // cursor pushes; and fire with nobody to follow is that too. Alive, the camera is
+    // mine again.
     Buttons pressed = (Buttons)(cmds[app->me].buttons & ~app->camera_keys);
     app->camera_keys = cmds[app->me].buttons;
     bool watching = me->active && (me->dead || spectator);
@@ -1072,7 +1073,7 @@ static void tick(App *app)
         if (!app->was_watching) {
             app->camera_follow = -1;
             app->free_camera = false;
-            camera_next(app, false);
+            if (spectator && !camera_next(app, false)) camera_free(app);
         } else if (!limbo) {
             if (pressed & BUTTON_JUMP) camera_free(app);
             else if ((pressed & (BUTTON_FIRE | BUTTON_JET)) && !camera_next(app, (pressed & BUTTON_JET) != 0)) camera_free(app);
