@@ -1500,6 +1500,10 @@ static bool world_reload(App *app, const char *map)
     app->team_asked = false;
     app->camera_follow = -1;
     app->free_camera = false;
+    // the scoreboard the round's end put up, and the stats, go with the old round (the
+    // original's map change: FragsMenuShow and StatsMenuShow off)
+    app->hud_data.frags_menu = false;
+    app->hud_data.stats_menu = false;
     return true;
 }
 
