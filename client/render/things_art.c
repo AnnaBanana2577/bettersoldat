@@ -105,24 +105,31 @@ static void draw_if(Sprite s, Vec2 at, Vec2 center, Vec2 scale, float angle, Rgb
     if (s.tex.handle) draw_sprite(s, at, center, scale, angle, color);
 }
 
-static void draw_flag(const ThingsArt *a, const Thing *t, const Vec2 p[4], double seconds)
+// The pole's half-way point, where the cloth's lifted corner hangs and the glow sits.
+static Vec2 pole_half(const Vec2 p[4]) { return vec2_add(p[0], vec2_scale(vec2_sub(p[1], p[0]), 0.5f)); }
+
+// The flag's sprites (TThing.Render): the handle along the pole, from the base toward
+// the tip, and the pulsing glow in base.
+static void draw_flag_pole(const ThingsArt *a, const Thing *t, const Vec2 p[4], double seconds)
 {
-    // the handle along the pole, from the base toward the tip
     draw_if(a->handle, p[0], vec2(0, 0), vec2(1, 1), angle_to(p[0], p[1]), RGBA_WHITE);
-    // the cloth hangs from the upper half of the pole: p2 the tip, half the lifted
-    // handle corner, p4 and p3 the free edge, with the original's UV assignment
-    Vec2 half = vec2_add(p[0], vec2_scale(vec2_sub(p[1], p[0]), 0.5f));
-    const Rgba *tint = t->style == THING_ALPHA_FLAG ? ALPHA_TINT : BRAVO_TINT;
-    if (a->cloth.tex.handle) {
-        Vec2 corners[4] = {p[1], half, p[3], p[2]};
-        Vec2 uv[4] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
-        Rgba colors[4] = {tint[0], tint[1], tint[0], tint[2]};
-        draw_quad(a->cloth.tex, corners, uv, colors);
-    }
     if (t->in_base) {
         float glow = fabsf(5.0f + 20.0f * sinf(5.1f * (float)seconds));
-        draw_if(a->glow, vec2_sub(half, vec2(12.5f, 12.5f)), vec2(0, 0), vec2(1, 1), 0, (Rgba){255, 255, 255, alpha8(glow)});
+        draw_if(a->glow, vec2_sub(pole_half(p), vec2(12.5f, 12.5f)), vec2(0, 0), vec2(1, 1), 0, (Rgba){255, 255, 255, alpha8(glow)});
     }
+}
+
+// The cloth (TThing.PolygonsRender) hangs from the upper half of the pole: p2 the tip,
+// half the lifted handle corner, p4 and p3 the free edge, with the original's UV
+// assignment.
+static void draw_flag_cloth(const ThingsArt *a, const Thing *t, const Vec2 p[4])
+{
+    if (!a->cloth.tex.handle) return;
+    const Rgba *tint = t->style == THING_ALPHA_FLAG ? ALPHA_TINT : BRAVO_TINT;
+    Vec2 corners[4] = {p[1], pole_half(p), p[3], p[2]};
+    Vec2 uv[4] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
+    Rgba colors[4] = {tint[0], tint[1], tint[0], tint[2]};
+    draw_quad(a->cloth.tex, corners, uv, colors);
 }
 
 // Three ropes from the harness to the canopy corners, then the canopy in the owner's
@@ -146,7 +153,7 @@ static void draw_parachute(const ThingsArt *a, const Thing *t, const Vec2 p[4], 
     draw_if(a->para[0], p[0], vec2(0, 0), vec2(span, span), angle_to(p[0], p[1]), color);
 }
 
-void things_draw(const ThingsArt *a, const Thing *things, const RenderSoldier *soldiers, float alpha, double seconds)
+void things_draw(const ThingsArt *a, ThingsPass pass, const Thing *things, const RenderSoldier *soldiers, float alpha, double seconds)
 {
     if (!a->loaded) return;
     for (int i = 0; i < MAX_THINGS; i++) {
@@ -159,9 +166,22 @@ void things_draw(const ThingsArt *a, const Thing *things, const RenderSoldier *s
         if ((flag || t->style == THING_WEAPON) && t->timeout < 300 && t->timeout % 6 < 3) continue;
         Vec2 p[4];
         for (int k = 0; k < 4; k++) p[k] = vec2_add(t->old_pos[k], vec2_scale(vec2_sub(t->pos[k], t->old_pos[k]), alpha));
+        if (pass == THINGS_QUADS) {
+            if (flag) draw_flag_cloth(a, t, p);
+            else if (thing_is_kit(t->style)) {
+                // kit.po numbers its corners bottom first, so the box is drawn upright from the top pair
+                Sprite kit = a->kits[t->style];
+                if (kit.tex.handle == 0) continue;
+                Vec2 corners[4] = {p[2], p[3], p[0], p[1]};
+                Vec2 uv[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+                Rgba colors[4] = {RGBA_WHITE, RGBA_WHITE, RGBA_WHITE, RGBA_WHITE};
+                draw_quad(kit.tex, corners, uv, colors);
+            }
+            continue;
+        }
         switch (t->style) {
         case THING_ALPHA_FLAG:
-        case THING_BRAVO_FLAG: draw_flag(a, t, p, seconds); break;
+        case THING_BRAVO_FLAG: draw_flag_pole(a, t, p, seconds); break;
         case THING_WEAPON: {
             Sprite art = a->guns[t->weapon][t->flip ? 1 : 0];
             if (art.tex.handle == 0) art = a->guns[t->weapon][0];
@@ -177,16 +197,7 @@ void things_draw(const ThingsArt *a, const Thing *things, const RenderSoldier *s
             draw_if(gun, vec2_sub(p[0], vec2(0, 13)), vec2(5, 4), vec2(1, 1), -angle_to(p[3], p[0]), tint);
             break;
         }
-        default: {
-            // kit.po numbers its corners bottom first, so the box is drawn upright from the top pair
-            Sprite kit = a->kits[t->style];
-            if (kit.tex.handle == 0) break;
-            Vec2 corners[4] = {p[2], p[3], p[0], p[1]};
-            Vec2 uv[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
-            Rgba colors[4] = {RGBA_WHITE, RGBA_WHITE, RGBA_WHITE, RGBA_WHITE};
-            draw_quad(kit.tex, corners, uv, colors);
-            break;
-        }
+        default: break; // a kit is a quad, drawn in the other pass
         }
     }
 }

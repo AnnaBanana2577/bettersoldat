@@ -39,7 +39,8 @@ void render_destroy(Render *r);
 void render_tick(Render *r, const Context *ctx, const World *w, const Events *events);
 
 // The world's part of the frame, in the original's layer order: the sky, the
-// background polys, scenery behind, the things, everyone alive and dead, the bullets,
-// scenery in front of them, the terrain, scenery in front of the players, the sparks.
-// Sets the transform to the camera's. `seconds` drives what pulses and wobbles.
+// background polys, scenery behind, the bullets, everyone alive and dead, the things'
+// sprites, the sparks, scenery in the middle, the things' quads (cloth and kits), the
+// terrain, scenery in front. Sets the transform to the camera's. `seconds` drives what
+// pulses and wobbles.
 void render_draw(const Render *r, const RenderState *state, const GameCamera *camera, RenderOptions options, double seconds);

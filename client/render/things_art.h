@@ -27,7 +27,13 @@ typedef struct ThingsArt {
 void things_art_load(ThingsArt *a, const char *base);
 void things_art_unload(ThingsArt *a);
 
-// Every thing, its points `alpha` of the way from its last tick to this one; a thing
-// about to go blinks. `soldiers` lend a parachute its owner's shirt. `seconds` drives
-// the in-base glow. Under the camera's transform.
-void things_draw(const ThingsArt *a, const Thing *things, const RenderSoldier *soldiers, float alpha, double seconds);
+// The things are drawn in two passes at two depths, as the original's TThing.Render and
+// TThing.PolygonsRender are: the sprites (the flag's pole and glow, the dropped guns,
+// the parachute, the stat gun) just in front of the soldiers, and the quads (the flags'
+// cloth, the kits) in front of the sparks and the middle scenery too.
+typedef enum ThingsPass { THINGS_SPRITES, THINGS_QUADS } ThingsPass;
+
+// One pass over every thing, its points `alpha` of the way from its last tick to this
+// one; a thing about to go blinks. `soldiers` lend a parachute its owner's shirt.
+// `seconds` drives the in-base glow. Under the camera's transform.
+void things_draw(const ThingsArt *a, ThingsPass pass, const Thing *things, const RenderSoldier *soldiers, float alpha, double seconds);
