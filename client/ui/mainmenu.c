@@ -687,7 +687,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
 
     text_style_scaled(FONT_BIG, 1.0f);
     text_color(TEXT);
-    text_draw("bettersoldat", LEFT, 36);
+    text_draw("SoldatReloaded", LEFT, 36);
 
     // the home column
     float y = 120;

@@ -1,3 +1,3 @@
-# BetterSoldat
+# SoldatReloaded
 
 Soldat, but better.

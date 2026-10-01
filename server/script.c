@@ -11,7 +11,7 @@
 
 #include "game/systems/systems.h"
 
-#define REGISTRY_KEY "bettersoldat.script"
+#define REGISTRY_KEY "soldatreloaded.script"
 #define HTTP_URL_SIZE 2048
 #define HTTP_RESPONSE_MAX (4 * 1024 * 1024) // past this an answer is cut
 #define HTTP_DEFAULT_TIMEOUT 15L            // seconds
@@ -97,7 +97,7 @@ static void http_perform(HttpJob *job)
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
         curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "bettersoldat-server");
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "soldatreloaded-server");
         curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error);
         CURLcode code = curl_easy_perform(curl);
         if (code != CURLE_OK && !error[0]) snprintf(error, sizeof error, "%s", curl_easy_strerror(code));

@@ -9,7 +9,7 @@
 //
 // It runs from the directory that holds config.cfg and assets/, as the client does.
 //
-//   bettersoldat-server [+map <name>] [+sv_port <port>] [+<cvar> <value>] [+<command> <args>...]
+//   soldatreloaded-server [+map <name>] [+sv_port <port>] [+<cvar> <value>] [+<command> <args>...]
 
 #include <signal.h>
 #include <stdio.h>
@@ -206,7 +206,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->maps = cvar_register(con, "sv_maps", "", 0, "the maps in rotation, space-separated; empty plays the map again");
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
     sv->ip = cvar_register(con, "sv_ip", "", 0, "the address to listen on; empty for every one");
-    sv->hostname = cvar_register(con, "sv_hostname", "bettersoldat server", 0, "the server's name, on the scoreboard");
+    sv->hostname = cvar_register(con, "sv_hostname", "SoldatReloaded server", 0, "the server's name, on the scoreboard");
     sv->password = cvar_register(con, "sv_password", "", 0, "the password to join; empty for none. Read live, so a script may set it");
     sv->gamemode = cvar_register(con, "sv_gamemode", "0", 0, "0 the map's own, 1 deathmatch, 2 capture the flag");
     sv->timelimit = cvar_register(con, "sv_timelimit", "15", 0, "minutes a round lasts");

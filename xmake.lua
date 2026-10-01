@@ -1,4 +1,4 @@
--- bettersoldat: the client, the server, the simulation they share, and the tests.
+-- SoldatReloaded: the client, the server, the simulation they share, and the tests.
 --
 --   xmake                the client and the server
 --   xmake run client     from the project directory, where config.cfg and assets/ are
@@ -10,7 +10,7 @@
 -- runs from. That is the project directory under xmake run (set_rundir) and the
 -- package's own directory once unpacked, so nothing is passed on the command line.
 
-set_project("bettersoldat")
+set_project("soldatreloaded")
 set_version("0.3.2")
 
 add_rules("mode.debug", "mode.release")
@@ -55,7 +55,7 @@ target("shared")
 --   xmake run client [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 target("client")
     set_kind("binary")
-    set_basename("bettersoldat")
+    set_basename("soldatreloaded")
     add_deps("shared")
     add_files("client/**.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c")
     add_includedirs("client", "server")
@@ -63,7 +63,7 @@ target("client")
     -- the escape menu shows the version xmake.lua sets
     on_load(function (target)
         import("core.project.project")
-        target:add("defines", 'BETTERSOLDAT_VERSION="' .. project.version() .. '"')
+        target:add("defines", 'SOLDATRELOADED_VERSION="' .. project.version() .. '"')
     end)
     if is_plat("windows") then
         -- SDL2main provides main; with none in our objects the linker can't infer the subsystem
@@ -76,7 +76,7 @@ target("client")
 --   xmake run server [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 target("server")
     set_kind("binary")
-    set_basename("bettersoldat-server")
+    set_basename("soldatreloaded-server")
     add_deps("shared")
     add_files("server/**.c")
     add_includedirs("server")
@@ -122,7 +122,7 @@ task("dist")
 
         local plat, arch = config.plat(), config.arch()
         local distdir = path.join(config.buildir(), "dist")
-        local stem = ("bettersoldat-%s-%s-%s"):format(project.version(), plat, arch)
+        local stem = ("soldatreloaded-%s-%s-%s"):format(project.version(), plat, arch)
         local client, server = project.target("client"), project.target("server")
 
         -- the art and the sound: the client's alone

@@ -142,7 +142,7 @@ ENet's intercept before ENet reads it, so nothing on the line changes for a peer
 request is padded to at least the length of any answer, so a forged source address
 gains its victim nothing, and it carries a nonce the answer echoes.
 
-The lobby (the bettersoldat-lobby repository) is the list of servers. A server that
+The lobby (the soldatreloaded-lobby repository) is the list of servers. A server that
 wants listing says so over HTTP with its port. The lobby takes the address from the
 connection, never from what the server says, and asks the server the query before it
 lists it, so a server nobody can reach is never on the list. It drops a server that
