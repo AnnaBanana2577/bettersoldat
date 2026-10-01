@@ -4,6 +4,54 @@
 
 #include "network/transport.h"
 
+// The links answering queries. ENet's intercept is told only the host, so the host is
+// looked up here; a client hosting Local Play has two links, and nothing has more.
+#define NET_ANSWERING 4
+
+typedef struct Answering {
+    ENetHost *host;
+    NetQueryAnswer answer;
+    void *user;
+} Answering;
+
+static Answering answering[NET_ANSWERING];
+
+// Every datagram the host receives, before ENet reads it: a query is answered and kept
+// from ENet, and so is anything else with a query's front; the rest goes on.
+static int ENET_CALLBACK intercept(ENetHost *host, ENetEvent *event)
+{
+    (void)event;
+    if (!query_is_query(host->receivedData, host->receivedDataLength)) return 0;
+    uint32_t nonce;
+    if (!query_read_request(host->receivedData, host->receivedDataLength, &nonce)) return 1;
+    for (int i = 0; i < NET_ANSWERING; i++) {
+        if (answering[i].host != host) continue;
+        ServerInfo info = {0};
+        answering[i].answer(answering[i].user, &info);
+        uint8_t reply[QUERY_REPLY_MAX];
+        ENetBuffer buffer = {.data = reply, .dataLength = query_write_reply(reply, sizeof reply, nonce, &info)};
+        if (buffer.dataLength) enet_socket_send(host->socket, &host->receivedAddress, &buffer, 1);
+        break;
+    }
+    return 1;
+}
+
+bool net_answer_queries(NetLink *l, NetQueryAnswer answer, void *user)
+{
+    if (!l->host) return false;
+    for (int i = 0; i < NET_ANSWERING; i++)
+        if (answering[i].host == l->host) answering[i] = (Answering){0};
+    l->host->intercept = NULL;
+    if (!answer) return true;
+    for (int i = 0; i < NET_ANSWERING; i++) {
+        if (answering[i].host) continue;
+        answering[i] = (Answering){.host = l->host, .answer = answer, .user = user};
+        l->host->intercept = intercept;
+        return true;
+    }
+    return false;
+}
+
 bool net_init(void) { return enet_initialize() == 0; }
 
 void net_shutdown(void) { enet_deinitialize(); }
@@ -48,6 +96,7 @@ void net_close(NetLink *l)
     for (int i = 0; i < 10 && enet_host_service(l->host, &e, 10) >= 0; i++) {
         if (e.type == ENET_EVENT_TYPE_RECEIVE) enet_packet_destroy(e.packet);
     }
+    net_answer_queries(l, NULL, NULL);
     enet_host_destroy(l->host);
     *l = (NetLink){0};
 }

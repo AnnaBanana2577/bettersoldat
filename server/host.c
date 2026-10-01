@@ -24,6 +24,21 @@ static MatchSettings match_settings(const Host *h, const Map *map)
 
 const char *host_map(const Host *h) { return h->connections.map; }
 
+// What a query is told (query.h): the game being played and who is in it.
+static void answer_query(void *user, ServerInfo *info)
+{
+    const Host *h = user;
+    const Connections *c = &h->connections;
+    *info = (ServerInfo){.protocol = NET_VERSION, .max_players = MAX_PLAYERS, .mode = (uint8_t)h->game->match.settings.mode,
+                         .password = c->password[0] != '\0'};
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (c->items[i].bot) info->bots++;
+        else if (c->items[i].joined) info->players++;
+    }
+    snprintf(info->hostname, sizeof info->hostname, "%s", c->hostname);
+    snprintf(info->map, sizeof info->map, "%s", c->map);
+}
+
 int host_add_bot(Host *h, Team team, const char *name)
 {
     const BotProfile *profile = NULL;
@@ -90,6 +105,7 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
     if (settings->vote_percent > 0) h->connections.vote_percent = settings->vote_percent;
     if (settings->flood_packets > 0) h->connections.flood_packets = settings->flood_packets;
     if (settings->flood_warnings > 0) h->connections.flood_warnings_max = settings->flood_warnings;
+    net_answer_queries(&h->link, answer_query, h);
 
     // the server's list of maps (the original's MapsList): the rotation as given, or
     // every map under assets when there is none; the map window pages it, a vote picks from it

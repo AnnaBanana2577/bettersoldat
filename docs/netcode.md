@@ -132,6 +132,23 @@ A snapshot fits one datagram, about 1100 bytes. In the steady state deltas are a
 bytes per soldier and this never binds; for a join and after loss, soldiers out of view
 and old events are held back to the next snapshot by priority.
 
+## The query, and the lobby
+
+Beside the game, on the same port, a server answers a query: one datagram in, one out,
+outside ENet (shared/network/query.h has the bytes). A query asks what the server is
+playing, and the answer is its name, map, mode, its people and its bots, its room,
+whether it asks a password, and the wire's version. The transport catches a query in
+ENet's intercept before ENet reads it, so nothing on the line changes for a peer. A
+request is padded to at least the length of any answer, so a forged source address
+gains its victim nothing, and it carries a nonce the answer echoes.
+
+The lobby (the bettersoldat-lobby repository) is the list of servers. A server that
+wants listing says so over HTTP with its port. The lobby takes the address from the
+connection, never from what the server says, and asks the server the query before it
+lists it, so a server nobody can reach is never on the list. It drops a server that
+stops saying so. A browser fetches the list and asks each server the query itself:
+that gives the ping, and players counted now, not at the last heartbeat.
+
 ## Measured, not believed
 
 A fake link in-process, with latency, jitter and loss, runs a server and clients in

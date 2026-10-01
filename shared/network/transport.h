@@ -9,6 +9,7 @@
 // the end of their tick, so nothing waits a tick in the queue.
 
 #include "network/network.h" // the game's headers first: Windows' GDI has a Polygon of its own
+#include "network/query.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -55,3 +56,9 @@ bool net_send(ENetPeer *peer, MsgKind kind, const uint8_t *data, size_t size);
 NetEventKind net_poll(NetLink *l, NetEvent *e, uint32_t timeout_ms);
 // Sends what is queued now.
 void net_flush(NetLink *l);
+
+// A query (query.h) arriving on the link's port is answered with what `answer` fills
+// in, from whichever call into ENet receives it, and never reaches the peers. NULL
+// stops the answering, as net_close does. False if too many links answer already.
+typedef void (*NetQueryAnswer)(void *user, ServerInfo *info);
+bool net_answer_queries(NetLink *l, NetQueryAnswer answer, void *user);

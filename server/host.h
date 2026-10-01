@@ -11,6 +11,11 @@
 // the ticks owed come out one whole tick at a time, the line heard before them and
 // flushed after, and a round that ends (its limit, nextmap, a vote) begins the next on
 // the rotation. net_init must have been called once already.
+//
+// A query on the host's port (network/query.h) is answered with the game being
+// played: its name, map, mode, who is in it and whether it asks a password. A server
+// browser asks it of every server it lists, and the lobby asks it to see that a
+// server registering can be reached.
 
 #include "bots.h"
 #include "connections.h"

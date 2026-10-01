@@ -170,6 +170,7 @@ int main(void)
     bot_tests();
     round_tests();
     script_tests();
+    query_tests();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }
