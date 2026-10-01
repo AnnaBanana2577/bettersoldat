@@ -35,6 +35,17 @@ typedef struct HostSettings {
     bool quiet;                      // no lines of its own to the console but the first: a client beside it says what matters
 } HostSettings;
 
+// What a server script hangs on the host (host_set_hooks): it hears every tick once it
+// has run, with the game's events to read; the round's ending, before the next map
+// loads, with why ("limit", "nextmap" or "vote"); and the next round's start. Any may be
+// NULL. The line's own hooks (LineHooks) are set the same way.
+typedef struct HostHooks {
+    void *user;
+    void (*ticked)(void *user);
+    void (*round_ending)(void *user, const char *why);
+    void (*round_started)(void *user);
+} HostHooks;
+
 typedef struct Host {
     HostSettings settings;
     Console *console; // hears who came and went; may be NULL
@@ -47,15 +58,17 @@ typedef struct Host {
     uint64_t rng;
     double accumulator;
     bool next_round;             // asked for (nextmap): the round ends at the end of the tick
-    char chosen_map[NET_MAP_SIZE]; // the map asked for with it, else the rotation's
+    char chosen_map[NET_MAP_SIZE]; // the map asked for with it (host_change_map), else the rotation's
     // The round's end, as the original's MapChangeCounter has it: the match ended (a
     // limit, nextmap, a vote), everyone told the map coming, the world frozen with the
     // scoreboard up while the match's counter runs, then that map.
     char pending_map[NET_MAP_SIZE]; // the map the countdown leads to
     bool ending_told;               // the countdown has begun and been announced
-    char end_why[8];                // "limit", "nextmap" or "vote"
+    char end_why[8];                // "limit", "nextmap" or "vote", for the hooks
     char (*maps)[64];               // the server's list of maps: the rotation, or every map under assets
     int map_count;
+    HostHooks hooks;
+    LineHooks line_hooks;
 } Host;
 
 // Everything up on `settings`: the map loaded, the port listening, the bots in. False,
@@ -69,6 +82,13 @@ bool host_pump(Host *h, double dt);
 
 // The round ends at the end of this tick.
 void host_end_round(Host *h);
+// The round ends at the end of this tick, and `map` is played next.
+void host_change_map(Host *h, const char *map);
+// Paused, nothing moves and the clock stands; true if the state changed.
+bool host_pause(Host *h, bool paused);
+bool host_paused(const Host *h);
+// A script's ears on the host and the line; either may be NULL to take them off.
+void host_set_hooks(Host *h, const HostHooks *hooks, const LineHooks *line_hooks);
 // A bot on `team` (TEAM_NONE for the emptier side), named, or one at random: its slot,
 // or -1 when the server is full, no profile is known by that name, or there is none.
 int host_add_bot(Host *h, Team team, const char *name);

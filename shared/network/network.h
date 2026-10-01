@@ -228,6 +228,7 @@ typedef enum ChatKind {
     CHAT_CLIENT,    // who was cut off: kicked
     CHAT_GAME,      // the game's word
     CHAT_VOTE,      // a vote's
+    CHAT_SCRIPT,    // a server script's, in the script colour, or one of its own choosing
     CHAT_KINDS
 } ChatKind;
 
@@ -235,6 +236,7 @@ typedef struct MsgChat {
     uint8_t slot; // who said it; MAX_PLAYERS for the server, whose lines are of `kind`
     bool team;    // a player's, to its team alone
     uint8_t kind; // the server's (ChatKind); nothing for a player's
+    Rgba color;   // a script line's own colour, carried for CHAT_SCRIPT alone; alpha 0 for the script colour
     char text[NET_TEXT_SIZE];
 } MsgChat;
 

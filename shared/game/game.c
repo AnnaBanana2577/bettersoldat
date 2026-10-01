@@ -90,7 +90,7 @@ void match_init(Match *m, MatchSettings settings)
 WorldRules match_rules(const Match *m)
 {
     return (WorldRules){
-        .frozen = m->state == MATCH_ENDED,
+        .frozen = m->state != MATCH_PLAYING, // between rounds, and while paused
         .friendly_fire = m->settings.friendly_fire,
         .kits_collide = m->settings.kits_collide,
         .guns_collide = m->settings.guns_collide,
@@ -161,6 +161,15 @@ bool match_has_teams(const Match *m) { return m->settings.mode == MATCH_CTF; }
 bool match_over(const Match *m)
 {
     return m->state == MATCH_ENDED && m->counter <= 0;
+}
+
+bool match_pause(Match *m, bool paused)
+{
+    if (m->state == MATCH_ENDED) return false;
+    MatchState wanted = paused ? MATCH_PAUSED : MATCH_PLAYING;
+    if (m->state == wanted) return false;
+    m->state = wanted;
+    return true;
 }
 
 // ---------------------------------------------------------------------------------

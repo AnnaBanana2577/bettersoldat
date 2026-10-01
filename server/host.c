@@ -83,6 +83,7 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
         host_close(h);
         return false;
     }
+    h->connections.hooks = &h->line_hooks;
     snprintf(h->connections.maps_dir, sizeof h->connections.maps_dir, "%s/maps", settings->assets);
     snprintf(h->connections.hostname, sizeof h->connections.hostname, "%s", settings->hostname);
     if (settings->vote_percent > 0) h->connections.vote_percent = settings->vote_percent;
@@ -131,6 +132,22 @@ void host_close(Host *h)
 
 void host_end_round(Host *h) { h->next_round = true; }
 
+void host_change_map(Host *h, const char *map)
+{
+    snprintf(h->chosen_map, sizeof h->chosen_map, "%s", map ? map : "");
+    h->next_round = true;
+}
+
+bool host_pause(Host *h, bool paused) { return match_pause(&h->game->match, paused); }
+
+bool host_paused(const Host *h) { return h->game->match.state == MATCH_PAUSED; }
+
+void host_set_hooks(Host *h, const HostHooks *hooks, const LineHooks *line_hooks)
+{
+    h->hooks = hooks ? *hooks : (HostHooks){0};
+    h->line_hooks = line_hooks ? *line_hooks : (LineHooks){0};
+}
+
 void host_say(Host *h, const char *text) { connections_say(&h->connections, text); }
 
 // The next round, on the map the countdown led to.
@@ -147,9 +164,9 @@ static bool next_round(Host *h)
     return true;
 }
 
-// The round's end, after the tick: asked for (nextmap, a vote) the match is stopped
-// now, as the original's PrepareMapChange does; as the match ends, by whatever, the
-// map coming is settled (the one asked for, else the rotation's next) and told to
+// The round's end, after the tick: asked for (nextmap, a vote, a script) the match is
+// stopped now, as the original's PrepareMapChange does; as the match ends, by whatever,
+// the map coming is settled (the one asked for, else the rotation's next) and told to
 // everyone, and the scores stand while the counter runs; run out, the next round begins.
 static bool round_change(Host *h)
 {
@@ -176,8 +193,10 @@ static bool round_change(Host *h)
         h->next_round = false;
     }
     if (match_over(&g->match)) {
+        if (h->hooks.round_ending) h->hooks.round_ending(h->hooks.user, h->end_why[0] ? h->end_why : "limit");
         h->end_why[0] = '\0';
         if (!next_round(h)) return false;
+        if (h->hooks.round_started) h->hooks.round_started(h->hooks.user);
     }
     return true;
 }
@@ -194,6 +213,7 @@ bool host_pump(Host *h, double dt)
         connections_commands(&h->connections, h->game, cmds);
         bots_commands(&h->bots, h->game, names, cmds);
         game_tick(h->game, cmds);
+        if (h->hooks.ticked) h->hooks.ticked(h->hooks.user);
         bots_hear(&h->bots, h->game);
         connections_snapshots(&h->connections, h->game);
         h->accumulator -= TICK_SECONDS;

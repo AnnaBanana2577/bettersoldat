@@ -32,6 +32,11 @@ end
 -- Wayland and audio development headers, which have to be installed first.
 add_requires("libsdl2", "enet", {configs = {shared = false}})
 add_requires("stb")
+-- The server's script runs on Lua (server/script.c), and its requests go through
+-- libcurl; curl uses the system's TLS on Windows and macOS, and mbedTLS, built in,
+-- elsewhere. The client needs neither.
+add_requires("lua 5.4.x", {configs = {shared = false}})
+add_requires("libcurl", {configs = {shared = false, mbedtls = not is_plat("windows", "macosx")}})
 
 -- The simulation and the data it reads, shared by the client and the server. No
 -- rendering, audio or networking dependencies.
@@ -70,8 +75,9 @@ target("server")
     add_deps("shared")
     add_files("server/**.c")
     add_includedirs("server")
+    add_packages("lua", "libcurl")
     if not is_plat("windows") then
-        add_syslinks("pthread") -- the console's reader
+        add_syslinks("pthread") -- the console's reader, and the script's requests
     end
     set_rundir("$(projectdir)")
 
@@ -83,8 +89,12 @@ target("tests")
     set_kind("binary")
     set_default(false)
     add_deps("shared")
-    add_files("tests/*.c", "server/connections.c", "server/rounds.c", "server/bots.c")
+    add_files("tests/*.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c", "server/script.c")
     add_includedirs("tests", "server")
+    add_packages("lua", "libcurl")
+    if not is_plat("windows") then
+        add_syslinks("pthread") -- the script's requests
+    end
     set_rundir("$(projectdir)")
     add_tests("default")
 
@@ -125,6 +135,7 @@ task("dist")
             end
             os.cp("config.cfg", dir)
             os.cp("license.md", dir)
+            if os.isdir("scripts") then os.cp("scripts", dir) end -- the server's scripts, the example among them
             for _, entry in ipairs(os.filedirs("assets/*")) do
                 local base = path.filename(entry)
                 if needs(base) then

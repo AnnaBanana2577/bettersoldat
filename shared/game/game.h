@@ -164,6 +164,9 @@ bool match_over(const Match *m);
 // The server's, for `nextmap` and a map vote passed; emitted into `events`, which is
 // the mailbox (game_hear's) when called between ticks.
 void match_stop(Match *m, Events *events);
+// Paused, nobody moves and the clock stands, until resumed; a round that has ended
+// is left alone. True if the state changed.
+bool match_pause(Match *m, bool paused);
 
 // What the match decides that the world reads.
 WorldRules match_rules(const Match *m);

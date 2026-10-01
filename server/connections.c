@@ -254,6 +254,7 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     if (c->vote.kind != VOTE_NONE) tell_vote(c, peer);
     say(c->console, "%s joined as %d\n", conn->name, slot);
     if (!match_has_teams(&g->match)) announce_join(c, g, slot); // with teams, once it has chosen one
+    if (c->hooks && c->hooks->joined) c->hooks->joined(c->hooks->user, slot);
 }
 
 void connections_place(Connections *c, Game *g, int slot, Team team)
@@ -331,6 +332,7 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     else if (team == TEAM_BRAVO) announce(c, CHAT_BRAVO, "%s has left bravo team", name);
     else if (team == TEAM_SPECTATOR) announce(c, CHAT_SPECTATOR, "%s has left spectators", name);
     else announce(c, CHAT_ENTER, "%s has left the game", name);
+    if (c->hooks && c->hooks->left) c->hooks->left(c->hooks->user, slot, name);
 }
 
 static void vote_command(Connections *c, Game *g, int slot, const char *text);
@@ -347,6 +349,8 @@ static void chat(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     if (!netbuf_done(&b)) return;
 
     m.slot = (uint8_t)slot; // whatever it claimed, it is who it is
+    // a script hears it first, and may keep it
+    if (c->hooks && c->hooks->chat && c->hooks->chat(c->hooks->user, slot, m.text, m.team)) return;
     if (m.text[0] == '/') {
         vote_command(c, g, slot, m.text + 1);
         return;
@@ -634,6 +638,8 @@ static void vote_command(Connections *c, Game *g, int slot, const char *text)
     } else if (strcmp(word, "no") == 0) {
         // F11 is the voter's own business: the original's client only drops the box
     } else {
+        // a script's command, if it has one by that name
+        if (c->hooks && c->hooks->command && c->hooks->command(c->hooks->user, slot, text)) return;
         tell(c, slot, "Unknown command: /%s", word);
     }
 }
@@ -654,6 +660,26 @@ void connections_say(Connections *c, const char *text)
     uint8_t buf[NET_MTU];
     size_t n = build(buf, sizeof buf, MSG_CHAT, route_chat, &m);
     if (n) connections_broadcast(c, MSG_CHAT, buf, n);
+}
+
+void connections_say_kind(Connections *c, ChatKind kind, Rgba color, const char *text)
+{
+    MsgChat m = {.slot = MAX_PLAYERS, .kind = (uint8_t)kind, .color = color};
+    snprintf(m.text, sizeof m.text, "%s", text);
+    say(c->console, "%s\n", m.text);
+    uint8_t buf[NET_MTU];
+    size_t n = build(buf, sizeof buf, MSG_CHAT, route_chat, &m);
+    if (n) connections_broadcast(c, MSG_CHAT, buf, n);
+}
+
+void connections_say_to(Connections *c, int slot, ChatKind kind, Rgba color, const char *text)
+{
+    if (slot < 0 || slot >= MAX_PLAYERS || !c->items[slot].joined || !c->items[slot].peer) return;
+    MsgChat m = {.slot = MAX_PLAYERS, .kind = (uint8_t)kind, .color = color};
+    snprintf(m.text, sizeof m.text, "%s", text);
+    uint8_t buf[NET_MTU];
+    size_t n = build(buf, sizeof buf, MSG_CHAT, route_chat, &m);
+    if (n) net_send(c->items[slot].peer, MSG_CHAT, buf, n);
 }
 
 void connections_kick(Connections *c, int slot, const char *reason)
@@ -688,6 +714,7 @@ int connections_add_bot(Connections *c, Game *g, const char *name, PlayerLook lo
     place(c, g, slot);
     say(c->console, "%s joined as %d (bot)\n", conn->name, slot);
     announce_join(c, g, slot);
+    if (c->hooks && c->hooks->joined) c->hooks->joined(c->hooks->user, slot);
     return slot;
 }
 
@@ -707,6 +734,7 @@ void connections_remove_bot(Connections *c, Game *g, int slot)
     if (team == TEAM_ALPHA) announce(c, CHAT_ALPHA, "%s has left alpha team", name);
     else if (team == TEAM_BRAVO) announce(c, CHAT_BRAVO, "%s has left bravo team", name);
     else announce(c, CHAT_ENTER, "%s has left the game", name);
+    if (c->hooks && c->hooks->left) c->hooks->left(c->hooks->user, slot, name);
 }
 
 void connections_say_as(Connections *c, int slot, const char *text)

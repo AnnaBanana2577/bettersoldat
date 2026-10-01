@@ -75,6 +75,12 @@ void msg_chat(NetBuf *b, MsgChat *m)
     uint32_t kind = m->kind;
     net_range(b, &kind, CHAT_KINDS - 1);
     m->kind = (uint8_t)kind;
+    if (kind == CHAT_SCRIPT) { // a script may colour its line; alpha 0 is the script colour
+        net_u8(b, &m->color.r);
+        net_u8(b, &m->color.g);
+        net_u8(b, &m->color.b);
+        net_u8(b, &m->color.a);
+    }
     net_string(b, m->text, sizeof m->text);
 }
 

@@ -223,15 +223,18 @@ static Rgba chat_kind_color(ChatKind kind)
     case CHAT_CLIENT: return HUD_COLOR_CLIENT;
     case CHAT_GAME: return HUD_COLOR_GAME;
     case CHAT_VOTE: return HUD_COLOR_VOTE;
+    case CHAT_SCRIPT: return HUD_COLOR_SCRIPT;
     default: return HUD_COLOR_ENTER;
     }
 }
 
-static void chat_heard(App *app, int slot, bool team, ChatKind kind, const char *text)
+// `own` is a script line's own colour, when it chose one (alpha above 0).
+static void chat_heard(App *app, int slot, bool team, ChatKind kind, Rgba own, const char *text)
 {
     Console *con = app->console;
     if (slot == MAX_PLAYERS) {
         if (kind == CHAT_SERVER) console_print_color(con, HUD_COLOR_SERVER, "*SERVER*: %s\n", text);
+        else if (kind == CHAT_SCRIPT && own.a > 0) console_print_color(con, own, "%s\n", text);
         else console_print_color(con, chat_kind_color(kind), "%s\n", text);
         return;
     }
@@ -285,7 +288,7 @@ static void say(App *app, bool team, const char *text)
     }
     if (text[0] == '/' && client_net_joined(&app->net)) vote_said(app, text);
     if (client_net_say(&app->net, text, team)) return;
-    chat_heard(app, app->me, team, CHAT_SERVER, text);
+    chat_heard(app, app->me, team, CHAT_SERVER, (Rgba){0}, text);
 }
 
 // say <text...> / say_team <text...>: chat, as a command (the taunt binds use it).
@@ -1595,7 +1598,7 @@ int main(int argc, char *argv[])
             app.map_window_open = open;
         }
         MsgChat heard;
-        while (client_net_take_chat(&app.net, &heard)) chat_heard(&app, heard.slot, heard.team, (ChatKind)heard.kind, heard.text);
+        while (client_net_take_chat(&app.net, &heard)) chat_heard(&app, heard.slot, heard.team, (ChatKind)heard.kind, heard.color, heard.text);
         // the menu goes as a server takes us, and comes back when the line is lost
         if (app.net.state != app.net_state_seen) {
             if (app.net.state == CLIENT_NET_JOINED) mainmenu_show(&app.mainmenu, false);

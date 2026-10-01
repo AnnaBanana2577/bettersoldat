@@ -66,7 +66,19 @@ typedef struct Ban {
     char reason[NET_REASON_SIZE];
 } Ban;
 
+// What a host may hang on the line, for a server script: it hears a line of chat before
+// it is relayed and may keep it, hears a /command the line does not know, and who came
+// and went. Any of them may be NULL.
+typedef struct LineHooks {
+    void *user;
+    bool (*chat)(void *user, int slot, const char *text, bool team); // true: kept, not relayed
+    bool (*command)(void *user, int slot, const char *text);         // the text after the '/'; true: answered
+    void (*joined)(void *user, int slot);
+    void (*left)(void *user, int slot, const char *name);
+} LineHooks;
+
 typedef struct Connections {
+    const LineHooks *hooks; // may be NULL
     NetLink *link;
     Connection items[MAX_PLAYERS]; // by slot, the soldier's index
     ServerStream *streams;         // by slot, on the heap
@@ -127,6 +139,11 @@ void connections_ban(Connections *c, int slot, uint32_t ticks, const char *reaso
 
 // The server's own chat to everyone, shown as "*SERVER*: text".
 void connections_say(Connections *c, const char *text);
+// A line of `kind` to everyone, or to the one player in `slot` (a bot's slot hears
+// nothing). `color` is a script line's own (CHAT_SCRIPT); alpha 0 leaves the choice to
+// the client.
+void connections_say_kind(Connections *c, ChatKind kind, Rgba color, const char *text);
+void connections_say_to(Connections *c, int slot, ChatKind kind, Rgba color, const char *text);
 
 // A player put off the server: told why, and cut off. The slot frees as the line closes.
 void connections_kick(Connections *c, int slot, const char *reason);

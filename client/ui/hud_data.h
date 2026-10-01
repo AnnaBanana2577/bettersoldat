@@ -32,6 +32,7 @@
 #define HUD_COLOR_BRAVOJ ((Rgba){0x53, 0x53, 0xE1, 0xFF})   // BRAVOJ_MESSAGE_COLOR
 #define HUD_COLOR_DELTAJ ((Rgba){0x53, 0xDF, 0x53, 0xFF})   // DELTAJ_MESSAGE_COLOR: the spectators', too
 #define HUD_COLOR_SPECTATOR_CHAT ((Rgba){0xDF, 0x7A, 0xB0, 0xF5}) // SPECTATOR_C_MESSAGE_COLOR: a spectator's chat
+#define HUD_COLOR_SCRIPT ((Rgba){0x7F, 0xD6, 0xFF, 0xF9})   // a server script's line, when it picks no colour of its own
 
 typedef enum HudGameMode {
     HUD_MODE_DEATHMATCH,

@@ -14,11 +14,13 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "console/console.h"
 #include "game/game.h"
 #include "host.h"
+#include "script.h"
 #include "stdin_reader.h"
 
 // After the game's headers: GDI has a Polygon of its own.
@@ -41,7 +43,9 @@ typedef struct Server {
     Cvar *gamemode, *timelimit, *killlimit;
     Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat;
     Cvar *votepercent;
+    Cvar *script_path; // sv_script
     Host host;
+    Script script;
     bool quit;
 } Server;
 
@@ -136,6 +140,57 @@ static void cmd_addbot(Console *con, int argc, char **argv, void *user)
     host_add_bot(&sv->host, team, argc > 1 ? argv[1] : NULL);
 }
 
+// pause / unpause: the game stands still, nobody moving and the clock stopped, or goes
+// on; everyone is told.
+static void cmd_pause(Console *con, int argc, char **argv, void *user)
+{
+    (void)con, (void)argc;
+    Server *sv = user;
+    bool pause = strcmp(argv[0], "pause") == 0;
+    if (host_pause(&sv->host, pause)) connections_say_kind(&sv->host.connections, CHAT_GAME, (Rgba){0}, pause ? "Game paused" : "Game unpaused");
+}
+
+// The script sv_script names, if there is one. A path set by hand that isn't there is
+// said; the default's absence is nothing.
+static void script_start(Server *sv)
+{
+    const char *path = sv->script_path->value;
+    if (!path[0]) return;
+    if (!file_exists(path)) {
+        if (strcmp(path, sv->script_path->default_value) != 0) console_print(sv->console, "no script at %s\n", path);
+        return;
+    }
+    script_open(&sv->script, &sv->host, sv->console, path);
+}
+
+// script_reload: the script read again, from the start; its state is lost.
+static void cmd_script_reload(Console *con, int argc, char **argv, void *user)
+{
+    (void)con, (void)argc, (void)argv;
+    Server *sv = user;
+    script_close(&sv->script);
+    script_start(sv);
+}
+
+// lua <code...>: a line of Lua run in the script's state.
+static void cmd_lua(Console *con, int argc, char **argv, void *user)
+{
+    Server *sv = user;
+    if (!sv->script.L) {
+        console_print(con, "no script is running\n");
+        return;
+    }
+    char code[CONSOLE_TEXT_SIZE];
+    size_t n = 0;
+    code[0] = '\0';
+    for (int i = 1; i < argc && n < sizeof code - 1; i++) {
+        int w = snprintf(code + n, sizeof code - n, i > 1 ? " %s" : "%s", argv[i]);
+        if (w < 0) break;
+        n += (size_t)w;
+    }
+    script_run(&sv->script, code, "console");
+}
+
 // The console and what the server keeps in it, then config.cfg and the command line
 // over it. Nothing is saved on the way out: nothing here changes a setting.
 static bool console_open(Server *sv, int argc, char *argv[])
@@ -156,6 +211,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->bots_bravo = cvar_register(con, "bots_random_bravo", "0", 0, "bots on bravo in capture the flag");
     sv->bots_difficulty = cvar_register(con, "bots_difficulty", "100", 0, "300 stupid, 200 poor, 100 normal, 50 hard, 10 impossible");
     sv->bots_chat = cvar_register(con, "bots_chat", "1", 0, "whether the bots talk");
+    sv->script_path = cvar_register(con, "sv_script", "scripts/server.lua", 0, "the Lua script to run, if the file is there (docs/scripting.md)");
     sv->votepercent = cvar_register(con, "sv_votepercent", "60", 0, "the percentage of players whose yes passes a vote");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
@@ -163,6 +219,10 @@ static bool console_open(Server *sv, int argc, char *argv[])
     console_add_command(con, "addbot", cmd_addbot, sv, "add a bot: addbot [name]");
     console_add_command(con, "addbot1", cmd_addbot, sv, "add a bot to alpha: addbot1 [name]");
     console_add_command(con, "addbot2", cmd_addbot, sv, "add a bot to bravo: addbot2 [name]");
+    console_add_command(con, "pause", cmd_pause, sv, "stop the game where it stands");
+    console_add_command(con, "unpause", cmd_pause, sv, "let it go on");
+    console_add_command(con, "script_reload", cmd_script_reload, sv, "read the script again, from the start");
+    console_add_command(con, "lua", cmd_lua, sv, "run a line of Lua in the script: lua <code>");
 
     if (file_exists(CONFIG)) console_execute_file(con, CONFIG);
     console_execute_args(con, argc, argv);
@@ -207,6 +267,7 @@ int main(int argc, char *argv[])
         console_destroy(sv.console);
         return 1;
     }
+    script_start(&sv);
     if (!stdin_reader_start()) fprintf(stderr, "the console won't read its input\n");
     signal(SIGINT, on_interrupt);
     signal(SIGTERM, on_interrupt);
@@ -222,11 +283,13 @@ int main(int argc, char *argv[])
         char line[STDIN_LINE_SIZE];
         while (stdin_reader_take(line, sizeof line)) console_execute(sv.console, line);
         if (!host_pump(&sv.host, dt)) sv.quit = true;
+        script_pump(&sv.script); // the answers to its requests
         cvar_set(sv.console, "map", host_map(&sv.host));
         sleep_ms(SLEEP_MS);
     }
 
     console_print(sv.console, "stopping\n");
+    script_close(&sv.script); // before the host it listens to
     host_close(&sv.host);
     net_shutdown();
     console_destroy(sv.console);

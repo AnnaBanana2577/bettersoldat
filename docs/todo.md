@@ -1,6 +1,6 @@
 # Todo
 
-- [ ] Scripting
+- [x] Scripting (docs/scripting.md)
 - [ ] Demos
 - [ ] Char customization
 - [ ] Server browser
