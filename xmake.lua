@@ -11,7 +11,7 @@
 -- package's own directory once unpacked, so nothing is passed on the command line.
 
 set_project("bettersoldat")
-set_version("0.1.1")
+set_version("0.2.0")
 
 add_rules("mode.debug", "mode.release")
 set_languages("c11")
@@ -60,6 +60,11 @@ target("client")
     add_files("client/**.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c")
     add_includedirs("client", "server")
     add_packages("libsdl2", "stb")
+    -- the escape menu shows the version xmake.lua sets
+    on_load(function (target)
+        import("core.project.project")
+        target:add("defines", 'BETTERSOLDAT_VERSION="' .. project.version() .. '"')
+    end)
     if is_plat("windows") then
         -- SDL2main provides main; with none in our objects the linker can't infer the subsystem
         add_ldflags("/SUBSYSTEM:CONSOLE")
