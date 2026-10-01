@@ -111,6 +111,49 @@ static void cycler(Ui *ui, float x, float y, const char *cvar, int lo, int hi, c
     text_draw(shown, x + 85 - text_width(shown) / 2, y + 3);
 }
 
+// "< value >" over an integer cvar stepped by `step` within its range, shown as `fmt`
+// of it (one %d). Not wrapping, as a limit shouldn't.
+static void stepper(Ui *ui, float x, float y, const char *cvar, int lo, int hi, int step, const char *fmt)
+{
+    const Cvar *cv = cvar_find(ui->con, cvar);
+    int v = cv ? clampi(cv->integer, lo, hi) : lo;
+    bool left = take_click(ui, x, y, 20, ROW - 4), right = take_click(ui, x + 150, y, 20, ROW - 4);
+    if (left || right) {
+        char number[16];
+        snprintf(number, sizeof number, "%d", clampi(v + (right ? step : -step), lo, hi));
+        cvar_set(ui->con, cvar, number);
+    }
+    label(x + 4, y + 3, "<", over(ui, x, y, 20, ROW - 4) ? TEXT : DIM);
+    label(x + 154, y + 3, ">", over(ui, x + 150, y, 20, ROW - 4) ? TEXT : DIM);
+    char shown[32];
+    snprintf(shown, sizeof shown, fmt, v);
+    text_style(FONT_SMALL);
+    text_color(TEXT);
+    text_draw(shown, x + 85 - text_width(shown) / 2, y + 3);
+}
+
+// "< name >" over a cvar that takes one of `values`, each named; the arrows step along
+// them, wrapping. A value that is none of them shows as the first.
+static void choice(Ui *ui, float x, float y, const char *cvar, const int *values, const char *const *names, int count)
+{
+    const Cvar *cv = cvar_find(ui->con, cvar);
+    int at = 0;
+    for (int i = 0; i < count; i++)
+        if (cv && cv->integer == values[i]) at = i;
+    bool left = take_click(ui, x, y, 20, ROW - 4), right = take_click(ui, x + 150, y, 20, ROW - 4);
+    if (left || right) {
+        at = (at + (right ? 1 : count - 1)) % count;
+        char number[16];
+        snprintf(number, sizeof number, "%d", values[at]);
+        cvar_set(ui->con, cvar, number);
+    }
+    label(x + 4, y + 3, "<", over(ui, x, y, 20, ROW - 4) ? TEXT : DIM);
+    label(x + 154, y + 3, ">", over(ui, x + 150, y, 20, ROW - 4) ? TEXT : DIM);
+    text_style(FONT_SMALL);
+    text_color(TEXT);
+    text_draw(names[at], x + 85 - text_width(names[at]) / 2, y + 3);
+}
+
 // --- the pages ----------------------------------------------------------------------
 
 static void page_join(Ui *ui, const char *status, bool joined)
@@ -128,6 +171,143 @@ static void page_join(Ui *ui, const char *status, bool joined)
         snprintf(ui->m->command, sizeof ui->m->command, "disconnect");
     }
     if (status && status[0]) label(x, y + 40, status, DIM);
+}
+
+// --- local play ---------------------------------------------------------------------
+
+// The rotation (sv_maps) as a list of names separated by spaces or commas: whether
+// `name` is in it, and its place from 0 (-1 if not).
+static int rotation_index(const char *list, const char *name)
+{
+    int at = 0;
+    const char *p = list;
+    while (*p) {
+        while (*p == ' ' || *p == ',' || *p == '\t') p++;
+        if (!*p) break;
+        const char *start = p;
+        while (*p && *p != ' ' && *p != ',' && *p != '\t') p++;
+        if ((size_t)(p - start) == strlen(name) && strncmp(start, name, (size_t)(p - start)) == 0) return at;
+        at++;
+    }
+    return -1;
+}
+
+// `name` into the rotation if it isn't there, out of it if it is.
+static void rotation_toggle(Console *con, const char *name)
+{
+    const Cvar *cv = cvar_find(con, "sv_maps");
+    const char *list = cv ? cv->value : "";
+    char out[CONSOLE_VALUE_SIZE] = "";
+    size_t n = 0;
+    bool had = false;
+    const char *p = list;
+    while (*p) {
+        while (*p == ' ' || *p == ',' || *p == '\t') p++;
+        if (!*p) break;
+        const char *start = p;
+        while (*p && *p != ' ' && *p != ',' && *p != '\t') p++;
+        if ((size_t)(p - start) == strlen(name) && strncmp(start, name, (size_t)(p - start)) == 0) {
+            had = true;
+            continue;
+        }
+        int w = snprintf(out + n, sizeof out - n, n ? " %.*s" : "%.*s", (int)(p - start), start);
+        if (w < 0 || n + (size_t)w >= sizeof out) break;
+        n += (size_t)w;
+    }
+    if (!had) {
+        int w = snprintf(out + n, sizeof out - n, n ? " %s" : "%s", name);
+        if (w < 0 || n + (size_t)w >= sizeof out) return; // no room for another
+    }
+    cvar_set(con, "sv_maps", out);
+}
+
+#define MAP_ROW 16.0f
+#define MAP_ROWS 17 // shown at once
+
+// The maps under assets, each a row to click into the rotation or out of it, the wheel
+// paging through them; the rotation's places are numbered, as the rounds will go.
+static void map_list(Ui *ui, float x, float y, const char (*maps)[64], int count)
+{
+    MainMenu *m = ui->m;
+    float w = 220, h = MAP_ROWS * MAP_ROW;
+    if (over(ui, x, y, w, h) && m->wheel) m->map_scroll -= m->wheel * 3;
+    m->map_scroll = clampi(m->map_scroll, 0, maxi(count - MAP_ROWS, 0));
+    rect(x, y, x + w, y + h, FIELD);
+    const Cvar *cv = cvar_find(ui->con, "sv_maps");
+    const char *list = cv ? cv->value : "";
+    for (int row = 0; row < MAP_ROWS; row++) {
+        int i = m->map_scroll + row;
+        if (i >= count) break;
+        float ry = y + (float)row * MAP_ROW;
+        int at = rotation_index(list, maps[i]);
+        bool hot = over(ui, x, ry, w, MAP_ROW);
+        if (hot || at >= 0) rect(x, ry, x + w, ry + MAP_ROW, at >= 0 ? (Rgba){120, 160, 255, 70} : (Rgba){255, 255, 255, 40});
+        char place[8] = "";
+        if (at >= 0) snprintf(place, sizeof place, "%d.", at + 1);
+        label(x + 4, ry + 1, place, TEXT);
+        label(x + 26, ry + 1, maps[i], at >= 0 ? TEXT : DIM);
+        if (take_click(ui, x, ry, w, MAP_ROW)) rotation_toggle(ui->con, maps[i]);
+    }
+    if (count > MAP_ROWS) { // where in the list this is
+        float track = h - 4, knob = maxf(track * (float)MAP_ROWS / (float)count, 8);
+        float top = y + 2 + (track - knob) * (float)m->map_scroll / (float)(count - MAP_ROWS);
+        rect(x + w - 5, top, x + w - 2, top + knob, DIM);
+    }
+}
+
+static void page_local(Ui *ui, const char *status, bool hosting, const char (*maps)[64], int count)
+{
+    float x = PAGE_X, y = 90;
+    Console *con = ui->con;
+    static const int MODES[] = {0, 1, 2};
+    static const char *const MODE_NAMES[] = {"The map's own", "Deathmatch", "Capture the Flag"};
+    static const int SKILLS[] = {300, 200, 100, 50, 10};
+    static const char *const SKILL_NAMES[] = {"Stupid", "Poor", "Normal", "Hard", "Impossible"};
+    static const int ONOFF[] = {0, 1};
+    static const char *const ONOFF_NAMES[] = {"Off", "On"};
+
+    label(x, y, "Mode", DIM);
+    choice(ui, x + 110, y - 3, "sv_gamemode", MODES, MODE_NAMES, 3);
+    y += ROW;
+    label(x, y, "Time limit", DIM);
+    stepper(ui, x + 110, y - 3, "sv_timelimit", 5, 60, 5, "%d min");
+    y += ROW;
+    label(x, y, "Score limit", DIM);
+    stepper(ui, x + 110, y - 3, "sv_killlimit", 5, 100, 5, "%d");
+    y += ROW + 6;
+    label(x, y, "Bots, deathmatch", DIM);
+    stepper(ui, x + 110, y - 3, "bots_random_noteam", 0, 15, 1, "%d");
+    y += ROW;
+    label(x, y, "Bots, alpha", DIM);
+    stepper(ui, x + 110, y - 3, "bots_random_alpha", 0, 15, 1, "%d");
+    y += ROW;
+    label(x, y, "Bots, bravo", DIM);
+    stepper(ui, x + 110, y - 3, "bots_random_bravo", 0, 15, 1, "%d");
+    y += ROW;
+    label(x, y, "Bot skill", DIM);
+    choice(ui, x + 110, y - 3, "bots_difficulty", SKILLS, SKILL_NAMES, 5);
+    y += ROW;
+    label(x, y, "Bot chat", DIM);
+    choice(ui, x + 110, y - 3, "bots_chat", ONOFF, ONOFF_NAMES, 2);
+    y += ROW + 6;
+    label(x, y, "Port", DIM);
+    field(ui, x + 110, y - 3, 80, "sv_port", 5);
+    y += ROW + 10;
+
+    if (!hosting) {
+        if (button(ui, x, y, 120, "Play")) snprintf(ui->m->command, sizeof ui->m->command, "host");
+    } else if (button(ui, x, y, 120, "Stop")) {
+        snprintf(ui->m->command, sizeof ui->m->command, "disconnect");
+    }
+    if (status && status[0]) label(x, y + 36, status, DIM);
+    label(x, y + 58, "A server starts here and you join it; friends can", DIM);
+    label(x, y + 72, "join too, at your address and this port.", DIM);
+
+    float lx = x + 300;
+    label(lx, 70, "Maps in rotation (click to add or remove; the first plays first)", DIM);
+    map_list(ui, lx, 90, maps, count);
+    const Cvar *cv = cvar_find(con, "sv_maps");
+    if (!cv || !cv->value[0]) label(lx, 90 + MAP_ROWS * MAP_ROW + 6, "None chosen: the map cvar's plays, again and again.", DIM);
 }
 
 static const char *const HAIR_STYLES[] = {"Army", "Dreadlocks", "Punk", "Mr. T", "Normal"};
@@ -447,8 +627,8 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
     case SDL_MOUSEBUTTONDOWN:
         if (e->button.button == SDL_BUTTON_LEFT) m->clicked = true;
         return true;
+    case SDL_MOUSEWHEEL: m->wheel += e->wheel.y; return true;
     case SDL_MOUSEBUTTONUP:
-    case SDL_MOUSEWHEEL:
     case SDL_TEXTINPUT:
     case SDL_KEYUP: return true;
     case SDL_KEYDOWN:
@@ -463,9 +643,12 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
 
 void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Anims *anims,
                    const Weapons *weapons, Vec2 cursor, float game_width, float pixel, double time, const char *status,
-                   bool joined)
+                   bool joined, bool hosting, const char (*maps)[64], int map_count)
 {
-    if (!m->shown) return;
+    if (!m->shown) {
+        m->wheel = 0;
+        return;
+    }
     m->time = time;
     m->joined = joined;
     Ui ui = {.m = m, .con = con, .hud = hud, .cursor = cursor, .game_width = game_width, .pixel = pixel, .click = m->clicked};
@@ -491,8 +674,8 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
 
     // the home column
     float y = 120;
-    static const char *const PAGES[] = {"Join Game", "Player", "Controls", "Options"};
-    for (int i = 0; i < 4; i++) {
+    static const char *const PAGES[] = {"Join Game", "Local Play", "Player", "Controls", "Options"};
+    for (int i = 0; i < 5; i++) {
         if (button(&ui, LEFT, y, 200, PAGES[i])) {
             m->page = (MainPage)(MAIN_JOIN + i);
             m->capturing = -1;
@@ -509,14 +692,16 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
 
     switch (m->page) {
     case MAIN_JOIN: page_join(&ui, status, joined); break;
+    case MAIN_LOCAL: page_local(&ui, status, hosting, maps, map_count); break;
     case MAIN_PLAYER: page_player(&ui, gostek, anims, weapons); break;
     case MAIN_CONTROLS: page_controls(&ui); break;
     case MAIN_OPTIONS: page_options(&ui); break;
     default:
-        label(PAGE_X, 120, "Join a server to play. Escape returns here from the game.", DIM);
+        label(PAGE_X, 120, "Join a server, or play here against bots (Local Play). Escape returns here from the game.", DIM);
         break;
     }
     if (ui.click) unfocus(m); // a click on nothing takes the focus away
+    m->wheel = 0;
 
     text_shadow(0, 0, (Rgba){0});
     interface_draw_pointer(hud, cursor);

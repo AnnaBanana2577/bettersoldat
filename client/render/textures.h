@@ -19,6 +19,3 @@ void scenery_unload(GfxTexture *scenery, int count);
 // preferring .png whatever extension the map asked for, then the name as written.
 bool find_image(const char *dir, const char *name, char *path, int path_size);
 
-// The names of the files in `dir` ending in `ext` (case-insensitively), without it, at most
-// `max` of them, sorted; how many there were.
-int list_files(const char *dir, const char *ext, char (*names)[64], int max);

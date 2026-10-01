@@ -23,6 +23,7 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
     uint8_t life = s->life;
     PlayerLook look = s->look; // the player's, not the life's
     bool remote = s->remote;   // and whose keys move it is the machine's, not the life's
+    bool bot = s->bot;
     uint64_t rng = s->rng != 0 ? s->rng : seed_from_position(pos);
 
     *s = (Soldier){
@@ -30,6 +31,7 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
         .life = life,
         .look = look,
         .remote = remote,
+        .bot = bot,
         .kills = kills,
         .deaths = deaths,
         .flags = flags,
@@ -249,6 +251,7 @@ void soldier_copy_served(Soldier *dst, const Soldier *src)
     dst->look = src->look;
     dst->typing = src->typing;
     dst->ping = src->ping;
+    dst->bot = src->bot;
 }
 
 void soldier_copy_rest(Soldier *dst, const Soldier *src)

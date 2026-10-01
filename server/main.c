@@ -1,13 +1,11 @@
-// The server, headless: the console, the world, the line, and a loop that ticks it at
-// TICK_RATE until it is told to stop. It reads config.cfg and the command line, loads
-// the map, listens on sv_port, gives everyone who says Hello a soldier, ticks the world
-// with authority, and stops on `quit` or Ctrl-C. What the players' clients send about
-// their soldiers, and what they hear back, comes with the netcode's next steps.
+// The server, headless: the console around a hosted game (host.c), and a loop that
+// pumps it until it is told to stop. It reads config.cfg and the command line, loads
+// the map, listens on sv_port, gives everyone who says Hello a soldier, plays the bots
+// asked for, ticks the world with authority, and stops on `quit` or Ctrl-C.
 //
-//   console      the cvars and the commands (shared/console): config.cfg, then the
-//                command line over it
-//   connections  who is on the line, and the join (connections.c)
-//   game         the world (shared/game), ticked here with authority
+//   console  the cvars and the commands (shared/console): config.cfg, then the
+//            command line over it
+//   host     the world, the line, the players, the bots and the rounds (host.c)
 //
 // It runs from the directory that holds config.cfg and assets/, as the client does.
 //
@@ -18,10 +16,9 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include "connections.h"
 #include "console/console.h"
 #include "game/game.h"
-#include "rounds.h"
+#include "host.h"
 #include "stdin_reader.h"
 
 // After the game's headers: GDI has a Polygon of its own.
@@ -32,8 +29,7 @@
 #endif
 
 #define CONFIG "config.cfg"
-#define MAX_STALL 0.25 // a stall never turns into a burst of ticks
-#define SLEEP_MS 1     // between passes of the loop, so it never spins flat out
+#define SLEEP_MS 1 // between passes of the loop, so it never spins flat out
 
 typedef struct Server {
     Console *console; // large; on the heap
@@ -42,12 +38,10 @@ typedef struct Server {
     Cvar *maps; // the rotation
     Cvar *port;
     Cvar *hostname;
-    Game *game; // large; on the heap
-    NetLink link;
-    Connections connections;
-    double accumulator;
+    Cvar *gamemode, *timelimit, *killlimit;
+    Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat;
+    Host host;
     bool quit;
-    bool next_round; // asked for (nextmap), or the match over: at the end of the tick
 } Server;
 
 static volatile sig_atomic_t interrupted; // Ctrl-C, or a kill
@@ -121,34 +115,28 @@ static void cmd_say(Console *con, int argc, char **argv, void *user)
         if (w < 0) break;
         n += (size_t)w;
     }
-    connections_say(&sv->connections, text);
+    host_say(&sv->host, text);
 }
 
 // nextmap: the round ends now and the next begins.
 static void cmd_nextmap(Console *con, int argc, char **argv, void *user)
 {
     (void)con, (void)argc, (void)argv;
-    ((Server *)user)->next_round = true;
+    host_end_round(&((Server *)user)->host);
 }
 
-// The next round: on `chosen` if a vote chose one, else on the map after this one in
-// sv_maps (or this one again).
-static bool next_round(Server *sv, const char *chosen)
+// addbot [name] / addbot1 [name] / addbot2 [name]: a bot, on the emptier side, on
+// alpha, or on bravo; one of assets/bots at random unless named (the original's commands).
+static void cmd_addbot(Console *con, int argc, char **argv, void *user)
 {
-    char map[NET_MAP_SIZE];
-    if (chosen) snprintf(map, sizeof map, "%s", chosen);
-    else rounds_next_map(sv->maps->value, sv->map->value, map, sizeof map);
-    if (!round_start(sv->game, &sv->connections, sv->assets->value, map)) {
-        fprintf(stderr, "could not load map '%s' from '%s'\n", map, sv->assets->value);
-        return false;
-    }
-    cvar_set(sv->console, "map", map);
-    sv->next_round = false;
-    return true;
+    (void)con;
+    Server *sv = user;
+    Team team = argv[0][6] == '1' ? TEAM_ALPHA : argv[0][6] == '2' ? TEAM_BRAVO : TEAM_NONE;
+    host_add_bot(&sv->host, team, argc > 1 ? argv[1] : NULL);
 }
 
 // The console and what the server keeps in it, then config.cfg and the command line
-// over it. Nothing is saved on the way out: nothing here changes a setting yet.
+// over it. Nothing is saved on the way out: nothing here changes a setting.
 static bool console_open(Server *sv, int argc, char *argv[])
 {
     Console *con = sv->console = console_create(print_stdout, NULL);
@@ -159,31 +147,45 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->maps = cvar_register(con, "sv_maps", "", 0, "the maps in rotation, space-separated; empty plays the map again");
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
     sv->hostname = cvar_register(con, "sv_hostname", "bettersoldat server", 0, "the server's name, on the scoreboard");
+    sv->gamemode = cvar_register(con, "sv_gamemode", "0", 0, "0 the map's own, 1 deathmatch, 2 capture the flag");
+    sv->timelimit = cvar_register(con, "sv_timelimit", "15", 0, "minutes a round lasts");
+    sv->killlimit = cvar_register(con, "sv_killlimit", "10", 0, "the score that wins a round: kills, or captures in CTF");
+    sv->bots_noteam = cvar_register(con, "bots_random_noteam", "0", 0, "bots in a deathmatch");
+    sv->bots_alpha = cvar_register(con, "bots_random_alpha", "0", 0, "bots on alpha in capture the flag");
+    sv->bots_bravo = cvar_register(con, "bots_random_bravo", "0", 0, "bots on bravo in capture the flag");
+    sv->bots_difficulty = cvar_register(con, "bots_difficulty", "100", 0, "300 stupid, 200 poor, 100 normal, 50 hard, 10 impossible");
+    sv->bots_chat = cvar_register(con, "bots_chat", "1", 0, "whether the bots talk");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
     console_add_command(con, "say", cmd_say, sv, "say something to everyone, as the server");
+    console_add_command(con, "addbot", cmd_addbot, sv, "add a bot: addbot [name]");
+    console_add_command(con, "addbot1", cmd_addbot, sv, "add a bot to alpha: addbot1 [name]");
+    console_add_command(con, "addbot2", cmd_addbot, sv, "add a bot to bravo: addbot2 [name]");
 
     if (file_exists(CONFIG)) console_execute_file(con, CONFIG);
     console_execute_args(con, argc, argv);
     return true;
 }
 
-// The world, empty, with this server deciding what happens in it.
-static bool game_open(Server *sv)
+// What the cvars say the game is.
+static HostSettings settings_from_cvars(const Server *sv)
 {
-    sv->game = calloc(1, sizeof(Game));
-    if (!sv->game || !context_load(&sv->game->ctx, sv->assets->value, sv->map->value)) return false;
-    game_init(sv->game, (uint64_t)time(NULL), match_settings_for_map(sv->game->ctx.map));
-    sv->game->world.authority = true;
-    return true;
-}
-
-static void game_close(Server *sv)
-{
-    if (!sv->game) return;
-    context_destroy(&sv->game->ctx);
-    free(sv->game);
-    sv->game = NULL;
+    HostSettings s = {
+        .port = (uint16_t)sv->port->integer,
+        .mode = sv->gamemode->integer == 1 ? MATCH_DEATHMATCH : sv->gamemode->integer == 2 ? MATCH_CTF : MATCH_MODE_COUNT,
+        .time_limit = sv->timelimit->integer,
+        .score_limit = sv->killlimit->integer,
+        .bots_noteam = clampi(sv->bots_noteam->integer, 0, MAX_PLAYERS),
+        .bots_alpha = clampi(sv->bots_alpha->integer, 0, MAX_PLAYERS),
+        .bots_bravo = clampi(sv->bots_bravo->integer, 0, MAX_PLAYERS),
+        .bots_difficulty = sv->bots_difficulty->integer,
+        .bots_chat = sv->bots_chat->integer != 0,
+    };
+    snprintf(s.assets, sizeof s.assets, "%s", sv->assets->value);
+    snprintf(s.map, sizeof s.map, "%s", sv->map->value);
+    snprintf(s.maps, sizeof s.maps, "%s", sv->maps->value);
+    snprintf(s.hostname, sizeof s.hostname, "%s", sv->hostname->value);
+    return s;
 }
 
 int main(int argc, char *argv[])
@@ -191,64 +193,39 @@ int main(int argc, char *argv[])
     Server sv = {0};
 
     if (!console_open(&sv, argc, argv)) return 1;
-    if (!game_open(&sv)) {
-        fprintf(stderr, "could not load map '%s' from '%s'\n", sv.map->value, sv.assets->value);
-        game_close(&sv);
+    if (!net_init()) {
+        fprintf(stderr, "ENet wouldn't start\n");
         console_destroy(sv.console);
         return 1;
     }
-    if (!net_init() || !net_listen(&sv.link, (uint16_t)sv.port->integer, MAX_PLAYERS)) {
-        fprintf(stderr, "could not listen on port %d\n", sv.port->integer);
-        game_close(&sv);
+    HostSettings settings = settings_from_cvars(&sv);
+    if (!host_open(&sv.host, sv.console, &settings)) {
+        net_shutdown();
         console_destroy(sv.console);
         return 1;
     }
-    sv.game->world.history = calloc(1, sizeof(History)); // the snapshots' deltas are against it
-    if (!sv.game->world.history || !connections_init(&sv.connections, &sv.link, sv.console, sv.map->value)) {
-        fprintf(stderr, "out of memory\n");
-        return 1;
-    }
-    snprintf(sv.connections.maps_dir, sizeof sv.connections.maps_dir, "%s/maps", sv.assets->value);
-    snprintf(sv.connections.hostname, sizeof sv.connections.hostname, "%s", sv.hostname->value);
     if (!stdin_reader_start()) fprintf(stderr, "the console won't read its input\n");
     signal(SIGINT, on_interrupt);
     signal(SIGTERM, on_interrupt);
-    console_print(sv.console, "bettersoldat-server: %s on port %d, %d ticks a second\n", sv.map->value, sv.port->integer,
-                  TICK_RATE);
 
-    // Ticks come out of the time that has passed, one whole tick at a time, and the
-    // rest waits for the next pass. The line is heard before the ticks; each tick the
-    // players' soldiers step on their last keys, and each tick a snapshot goes to
-    // everyone; the line is flushed after.
+    // The line is heard before the ticks; each tick the players' soldiers step on their
+    // last keys and the bots on their own minds, and a snapshot goes to everyone; the
+    // line is flushed after (host_pump).
     double last = now();
     while (!sv.quit && !interrupted) {
         double t = now();
-        sv.accumulator += t - last;
+        double dt = t - last;
         last = t;
-        if (sv.accumulator > MAX_STALL) sv.accumulator = MAX_STALL;
         char line[STDIN_LINE_SIZE];
         while (stdin_reader_take(line, sizeof line)) console_execute(sv.console, line);
-        connections_poll(&sv.connections, sv.game);
-        while (sv.accumulator >= TICK_SECONDS) {
-            Command cmds[MAX_PLAYERS] = {0};
-            connections_commands(&sv.connections, sv.game, cmds);
-            game_tick(sv.game, cmds);
-            connections_snapshots(&sv.connections, sv.game);
-            sv.accumulator -= TICK_SECONDS;
-            char chosen[NET_MAP_SIZE];
-            bool voted = connections_take_vote_map(&sv.connections, chosen, sizeof chosen);
-            if ((voted || sv.next_round || match_over(&sv.game->match)) && !next_round(&sv, voted ? chosen : NULL)) sv.quit = true;
-        }
-        net_flush(&sv.link);
+        if (!host_pump(&sv.host, dt)) sv.quit = true;
+        cvar_set(sv.console, "map", host_map(&sv.host));
         sleep_ms(SLEEP_MS);
     }
 
     console_print(sv.console, "stopping\n");
-    net_close(&sv.link);
+    host_close(&sv.host);
     net_shutdown();
-    connections_free(&sv.connections);
-    free(sv.game->world.history);
-    game_close(&sv);
     console_destroy(sv.console);
     return 0;
 }

@@ -74,3 +74,12 @@ char *path_join(char *out, size_t out_size, const char *a, const char *b, const 
 // Walks a mutable text buffer line by line: returns the next line with surrounding
 // whitespace trimmed (terminated in place), or NULL at the end of the text.
 char *text_next_line(char **cursor);
+
+// The files in a directory, each by name (no path), until the visitor returns false.
+// Directories are passed over. False if the directory can't be read.
+typedef bool (*FileVisitor)(const char *name, void *user);
+bool for_each_file(const char *dir, FileVisitor fn, void *user);
+
+// The names of the files in `dir` ending in `ext` (case-insensitively), without it, at
+// most `max` of them, sorted; how many there were.
+int list_files(const char *dir, const char *ext, char (*names)[64], int max);

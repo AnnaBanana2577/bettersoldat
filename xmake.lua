@@ -45,14 +45,15 @@ target("shared")
     end
 
 -- The game client: SDL2 for the window and input, OpenGL 2.1 for the drawing, and
--- (later) audio.
+-- audio. The server's host is built in (server/host.c and what it stands on), for Local
+-- Play: the client hosts a game and joins it over the loopback.
 --   xmake run client [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 target("client")
     set_kind("binary")
     set_basename("bettersoldat")
     add_deps("shared")
-    add_files("client/**.c")
-    add_includedirs("client")
+    add_files("client/**.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c")
+    add_includedirs("client", "server")
     add_packages("libsdl2", "stb")
     if is_plat("windows") then
         -- SDL2main provides main; with none in our objects the linker can't infer the subsystem
@@ -82,7 +83,7 @@ target("tests")
     set_kind("binary")
     set_default(false)
     add_deps("shared")
-    add_files("tests/*.c", "server/connections.c", "server/rounds.c")
+    add_files("tests/*.c", "server/connections.c", "server/rounds.c", "server/bots.c")
     add_includedirs("tests", "server")
     set_rundir("$(projectdir)")
     add_tests("default")

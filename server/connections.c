@@ -191,6 +191,8 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     s->look = m.look;
     s->primary_choice = m.primary;
     s->secondary_choice = m.secondary;
+    s->kills = s->deaths = s->flags = 0; // the slot's last occupant's tally is not its
+    s->bot = false;
     place(c, g, slot);
 
     uint8_t buf[NET_MTU];
@@ -206,7 +208,6 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
 
 void connections_place(Connections *c, Game *g, int slot, Team team)
 {
-    (void)c;
     Soldier *s = &g->world.soldiers[slot];
     if (s->active && s->held) things_let_go(&g->world, slot, NULL);
     // with the weapons it chose, or the original's first loadout for a choice that isn't one
@@ -221,7 +222,7 @@ void connections_place(Connections *c, Game *g, int slot, Team team)
         soldier_spawn(&g->ctx, s, at, team, primary, secondary);
     }
     s->life++;
-    s->remote = true; // its keys move it; what it fires it tells
+    s->remote = !c->items[slot].bot; // a player's keys move it and it tells what it fires; a bot is played here
 }
 
 // The team a player is placed on: with teams, what it chose, and a spectator until it
@@ -241,6 +242,12 @@ void connections_new_round(Connections *c, Game *g, const char *map)
     snprintf(c->map, sizeof c->map, "%s", map);
     wire_queue_init(&c->events); // the old round's news is nobody's now
     for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (c->items[i].bot) {
+            Soldier *s = &g->world.soldiers[i];
+            s->kills = s->deaths = s->flags = 0; // as the players' are, made anew with the world
+            place(c, g, i);
+            continue;
+        }
         if (!c->items[i].joined) continue;
         server_stream_init(&c->streams[i], c->round);
         place(c, g, i);
@@ -351,7 +358,8 @@ void connections_snapshots(Connections *c, const Game *g)
     vote_tick(c);
     wire_collect(&c->events, &g->events, g->world.tick - 1, -1); // the tick just run
     char names[MAX_PLAYERS][NET_NAME_SIZE];
-    for (int i = 0; i < MAX_PLAYERS; i++) snprintf(names[i], NET_NAME_SIZE, "%s", c->items[i].joined ? c->items[i].name : "");
+    for (int i = 0; i < MAX_PLAYERS; i++)
+        snprintf(names[i], NET_NAME_SIZE, "%s", c->items[i].joined || c->items[i].bot ? c->items[i].name : "");
     uint8_t buf[NET_MTU];
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (!c->items[i].joined) continue;
@@ -550,4 +558,59 @@ void connections_kick(Connections *c, int slot, const char *reason)
     say(c->console, "%s kicked: %s\n", conn->name, reason);
     deny(c, conn->peer, reason);
     enet_peer_disconnect_later(conn->peer, 0); // the Denied goes first; the leave frees the slot
+}
+
+// --- bots ----------------------------------------------------------------------------
+
+int connections_add_bot(Connections *c, Game *g, const char *name, PlayerLook look, WeaponId primary, WeaponId secondary,
+                        Team team)
+{
+    int slot = free_slot(c, g);
+    if (slot < 0) return -1;
+    bool teams = match_has_teams(&g->match);
+    if (teams && team != TEAM_ALPHA && team != TEAM_BRAVO) team = team_for(g);
+    if (!teams) team = TEAM_NONE;
+
+    Connection *conn = &c->items[slot];
+    *conn = (Connection){.bot = true, .chose_team = true, .team = team};
+    snprintf(conn->name, sizeof conn->name, "%s", name && name[0] ? name : "Bot");
+    Soldier *s = &g->world.soldiers[slot];
+    s->look = look;
+    s->primary_choice = primary;
+    s->secondary_choice = secondary;
+    s->kills = s->deaths = s->flags = 0;
+    s->bot = true;
+    place(c, g, slot);
+    say(c->console, "%s joined as %d (bot)\n", conn->name, slot);
+    announce_join(c, g, slot);
+    return slot;
+}
+
+void connections_remove_bot(Connections *c, Game *g, int slot)
+{
+    Connection *conn = &c->items[slot];
+    if (!conn->bot) return;
+    Soldier *s = &g->world.soldiers[slot];
+    if (s->active && s->held) things_let_go(&g->world, slot, NULL);
+    Team team = s->team;
+    s->active = false;
+    s->bot = false;
+    char name[NET_NAME_SIZE];
+    snprintf(name, sizeof name, "%s", conn->name);
+    *conn = (Connection){0};
+    say(c->console, "%s left (bot)\n", name);
+    if (team == TEAM_ALPHA) announce(c, CHAT_ALPHA, "%s has left alpha team", name);
+    else if (team == TEAM_BRAVO) announce(c, CHAT_BRAVO, "%s has left bravo team", name);
+    else announce(c, CHAT_ENTER, "%s has left the game", name);
+}
+
+void connections_say_as(Connections *c, int slot, const char *text)
+{
+    if (slot < 0 || slot >= MAX_PLAYERS || !text || !text[0]) return;
+    MsgChat m = {.slot = (uint8_t)slot};
+    snprintf(m.text, sizeof m.text, "%s", text);
+    say(c->console, "%s: %s\n", c->items[slot].name, m.text);
+    uint8_t buf[NET_MTU];
+    size_t n = build(buf, sizeof buf, MSG_CHAT, route_chat, &m);
+    if (n) connections_broadcast(c, MSG_CHAT, buf, n);
 }

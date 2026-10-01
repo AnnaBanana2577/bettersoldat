@@ -93,6 +93,7 @@ WorldRules match_rules(const Match *m)
         .stationary_guns = m->settings.stationary_guns,
         .respawn_time = m->settings.respawn_time,
         .max_grenades = m->settings.max_grenades,
+        .flags = m->settings.mode == MATCH_CTF,
     };
 }
 
@@ -124,15 +125,29 @@ void match_run(const Context *ctx, World *w, Match *m, Events *events)
 
     m->time_left--;
     int32_t limit = m->settings.score_limit;
-    if (m->time_left <= 0 || m->scores[TEAM_ALPHA] >= limit || m->scores[TEAM_BRAVO] >= limit) match_end(m, events);
+    bool won = m->scores[TEAM_ALPHA] >= limit || m->scores[TEAM_BRAVO] >= limit;
+    if (!match_has_teams(m)) { // a deathmatch is won by one soldier's kills (the original's sv_killlimit)
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+            const Soldier *s = &w->soldiers[i];
+            if (s->active && s->team != TEAM_SPECTATOR && s->kills >= limit) won = true;
+        }
+    }
+    if (m->time_left <= 0 || won) match_end(m, events);
+}
+
+MatchMode match_mode_choose(const Map *map, MatchMode wanted)
+{
+    uint64_t rng = 1;
+    Vec2 at;
+    bool flags = thing_spawn_point(map, SPAWN_ALPHA_FLAG, &rng, &at);
+    if (wanted == MATCH_DEATHMATCH) return MATCH_DEATHMATCH;
+    return flags ? MATCH_CTF : MATCH_DEATHMATCH;
 }
 
 MatchSettings match_settings_for_map(const Map *map)
 {
     MatchSettings s = match_default_settings();
-    uint64_t rng = 1;
-    Vec2 at;
-    s.mode = thing_spawn_point(map, SPAWN_ALPHA_FLAG, &rng, &at) ? MATCH_CTF : MATCH_DEATHMATCH;
+    s.mode = match_mode_choose(map, MATCH_MODE_COUNT);
     return s;
 }
 

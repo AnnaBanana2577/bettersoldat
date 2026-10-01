@@ -23,8 +23,10 @@
 //
 // so `client +map ctf_Ash +r_screenwidth 1920 +r_screenheight 1080`, or `+hud_demo 2`
 // for the HUD full of sample data, or `+screenshot out.png` for a PNG of the 60th frame,
-// or `+connect localhost` to join a server (net/client_net.c). The world stays the local
-// sandbox until the server's state comes down the line.
+// or `+connect localhost` to join a server (net/client_net.c), or `+host` to host one
+// here on the sv_* and bots_* cvars and join it, as the menu's Local Play does (after
+// the cvars it reads: `+bots_random_noteam 3 +host`). The world stays the local sandbox
+// until the server's state comes down the line.
 //
 // The binds below are the fallback for a missing config.cfg; the file's are the ones
 // that count. Alt held is the radio menu (+radio): a call by its number, then a
@@ -56,6 +58,7 @@
 
 #include "audio/audio.h"
 #include "host.h" // the server's, built in for Local Play
+#include "rounds.h"
 #include "ui/consoles.h"
 #include "ui/feed.h"
 #include "ui/mainmenu.h"
@@ -612,10 +615,20 @@ static void cmd_host(Console *con, int argc, char **argv, void *user)
         app->host = NULL;
         return;
     }
-    char address[64];
-    snprintf(address, sizeof address, "127.0.0.1:%d", s.port);
     client_net_connect(&app->net, con, "127.0.0.1", s.port, app->player_name->value);
-    (void)address;
+}
+
+// addbot [name] / addbot1 [name] / addbot2 [name]: a bot into the game hosted here, on
+// the emptier side, on alpha, or on bravo (the original's server commands).
+static void cmd_addbot(Console *con, int argc, char **argv, void *user)
+{
+    App *app = user;
+    if (!app->host) {
+        console_print(con, "not hosting: bots join a game hosted here (Local Play, or `host`)\n");
+        return;
+    }
+    Team team = argv[0][6] == '1' ? TEAM_ALPHA : argv[0][6] == '2' ? TEAM_BRAVO : TEAM_NONE;
+    host_add_bot(app->host, team, argc > 1 ? argv[1] : NULL);
 }
 
 // +radio / -radio: the radio menu, shown while the key is held. The digits choose
@@ -768,6 +781,9 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "connect", cmd_connect, app, "join a server: connect <address[:port]>");
     console_add_command(con, "disconnect", cmd_disconnect, app, "leave the server, and stop hosting one here");
     console_add_command(con, "host", cmd_host, app, "host a game here on the sv_* and bots_* cvars, and join it");
+    console_add_command(con, "addbot", cmd_addbot, app, "a bot into the game hosted here: addbot [name]");
+    console_add_command(con, "addbot1", cmd_addbot, app, "a bot into alpha of the game hosted here: addbot1 [name]");
+    console_add_command(con, "addbot2", cmd_addbot, app, "a bot into bravo of the game hosted here: addbot2 [name]");
     input_init(&app->input, con);
 
     input_default_binds(con);

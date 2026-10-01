@@ -5,14 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOGDI // its Polygon would collide with the map's
-#include <windows.h>
-#else
-#include <dirent.h>
-#endif
-
 #define MAP_MIPMAP_BIAS -0.5f // the original's r_mipmapbias default: the texture a touch sharper
 
 static void lowercase(char *dst, const char *src, size_t size)
@@ -20,37 +12,6 @@ static void lowercase(char *dst, const char *src, size_t size)
     size_t i = 0;
     for (; src[i] && i + 1 < size; i++) dst[i] = (char)tolower((unsigned char)src[i]);
     dst[i] = '\0';
-}
-
-// Each file name in `dir`, to `fn`, until it returns false. False when the directory
-// can't be read.
-typedef bool (*FileVisitor)(const char *name, void *user);
-
-static bool for_each_file(const char *dir, FileVisitor fn, void *user)
-{
-#ifdef _WIN32
-    char pattern[512];
-    snprintf(pattern, sizeof(pattern), "%s\\*", dir);
-    WIN32_FIND_DATAA data;
-    HANDLE h = FindFirstFileA(pattern, &data);
-    if (h == INVALID_HANDLE_VALUE) return false;
-    do {
-        if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-        if (!fn(data.cFileName, user)) break;
-    } while (FindNextFileA(h, &data));
-    FindClose(h);
-    return true;
-#else
-    DIR *d = opendir(dir);
-    if (!d) return false;
-    struct dirent *e;
-    while ((e = readdir(d))) {
-        if (e->d_type == DT_DIR) continue;
-        if (!fn(e->d_name, user)) break;
-    }
-    closedir(d);
-    return true;
-#endif
 }
 
 typedef struct ImageSearch {
@@ -88,34 +49,6 @@ bool find_image(const char *dir, const char *name, char *path, int path_size)
     if (!best) return false;
     snprintf(path, (size_t)path_size, "%s/%s", dir, best);
     return true;
-}
-
-typedef struct FileList {
-    const char *ext;
-    char (*names)[64];
-    int max, count;
-} FileList;
-
-static bool list_visit(const char *name, void *user)
-{
-    FileList *l = user;
-    size_t n = strlen(name), e = strlen(l->ext);
-    if (n <= e || l->count >= l->max) return true;
-    for (size_t i = 0; i < e; i++)
-        if (tolower((unsigned char)name[n - e + i]) != tolower((unsigned char)l->ext[i])) return true;
-    snprintf(l->names[l->count], 64, "%.*s", (int)(n - e), name);
-    l->count++;
-    return true;
-}
-
-static int name_compare(const void *a, const void *b) { return strcmp(a, b); }
-
-int list_files(const char *dir, const char *ext, char (*names)[64], int max)
-{
-    FileList l = {.ext = ext, .names = names, .max = max};
-    for_each_file(dir, list_visit, &l);
-    qsort(names, (size_t)l.count, 64, name_compare);
-    return l.count;
 }
 
 GfxTexture map_texture_load(const char *base, const char *name)

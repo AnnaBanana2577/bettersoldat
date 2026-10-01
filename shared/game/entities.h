@@ -255,6 +255,7 @@ typedef struct Soldier {
     // simulation reads neither: whether the player is typing, and its round trip in ms.
     bool typing;
     uint16_t ping;
+    bool bot; // the server plays it (server/bots.c): no ping to show, and the original's "BOT" on the roster
 
     // This machine's alone, never on the wire: the soldier is heard of, not played
     // here, so its keys move it between words but fire nothing.

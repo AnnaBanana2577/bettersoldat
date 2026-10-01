@@ -153,7 +153,7 @@ static void play(Connections *conns, Game *g, StreamClient *c, int rounds, Butto
     for (int round = 0; round < rounds; round++) {
         connections_poll(conns, g);
         server_tick(conns, g, bot_buttons);
-        if (match_over(&g->match)) round_start(g, conns, "assets", "ctf_Ash");
+        if (match_over(&g->match)) round_start(g, conns, "assets", "ctf_Ash", MATCH_MODE_COUNT);
         client_pump(c);
         if (c->welcomed && c->round) client_tick(c, buttons);
         enet_host_service(conns->link->host, NULL, 10); // the wait; what arrives is dispatched next round

@@ -11,6 +11,11 @@
 // the players. A map vote passed is the server's to act on (connections_take_vote_map);
 // a kick is done here.
 //
+// A bot holds a slot too (connections_add_bot): a soldier the server plays itself, with a
+// name on the roster and no peer. It is placed with the players each round, its name
+// goes in the snapshots, and its chat is relayed as a player's (connections_say_as);
+// what it does each tick is the bots' (bots.c), not the line's.
+//
 // Systems in the server's shape: this takes the link and the game and keeps only the
 // table; the console, if given, hears who came and went.
 
@@ -24,8 +29,9 @@ typedef enum KickWhy { KICK_NONE, KICK_VOTED, KICK_CONSOLE } KickWhy;
 
 typedef struct Connection {
     KickWhy kick_why; // set before the kick; the leaving is announced by it
-    ENetPeer *peer; // NULL: the slot is free
+    ENetPeer *peer; // NULL: the slot is free, unless a bot's
     bool joined;    // Hello accepted: it has a soldier
+    bool bot;       // the server's own player: a soldier and a name, no peer
     char name[NET_NAME_SIZE];
     bool chose_team; // said /team; in a game with teams a spectator until it does
     Team team;       // what it said
@@ -93,3 +99,13 @@ void connections_say(Connections *c, const char *text);
 
 // A player put off the server: told why, and cut off. The slot frees as the line closes.
 void connections_kick(Connections *c, int slot, const char *reason);
+
+// A bot into a free slot, placed on `team` (the emptier side in a team game when it
+// isn't alpha or bravo; none otherwise) and announced: its slot, or -1 when full. The
+// soldier is the server's to play: not remote, marked a bot.
+int connections_add_bot(Connections *c, Game *g, const char *name, PlayerLook look, WeaponId primary, WeaponId secondary,
+                        Team team);
+// The bot in `slot` leaves: its soldier gone, its slot free, its leaving announced.
+void connections_remove_bot(Connections *c, Game *g, int slot);
+// A line of chat from the player in `slot` (a bot's), to everyone.
+void connections_say_as(Connections *c, int slot, const char *text);

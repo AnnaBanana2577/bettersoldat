@@ -34,7 +34,7 @@ const char *rounds_next_map(const char *list, const char *current, char *out, si
     return out;
 }
 
-bool round_start(Game *g, Connections *c, const char *assets, const char *map)
+bool round_start(Game *g, Connections *c, const char *assets, const char *map, MatchMode wanted)
 {
     History *history = g->world.history;
     MatchSettings settings = g->match.settings;
@@ -43,7 +43,7 @@ bool round_start(Game *g, Connections *c, const char *assets, const char *map)
         g->world.history = history;
         return false;
     }
-    settings.mode = match_settings_for_map(g->ctx.map).mode; // the limits stay, the mode is the map's
+    settings.mode = match_mode_choose(g->ctx.map, wanted); // the limits stay; the mode is as asked, as the map allows
     game_init(g, (uint64_t)g->world.tick + 1, settings);
     g->world.authority = true;
     g->world.history = history;

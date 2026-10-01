@@ -51,6 +51,7 @@ typedef struct WorldRules {
     int32_t max_grenades;
     int32_t medikit_cooldown; // ticks before a soldier may take a second medikit
     bool stationary_guns;     // the map's stationary guns are placed
+    bool flags;               // the flags are placed: a game of capture the flag
 } WorldRules;
 
 typedef struct World {
@@ -79,9 +80,11 @@ typedef enum MatchState { MATCH_PLAYING, MATCH_ENDED, MATCH_PAUSED } MatchState;
 #define DEFAULT_SCORE_LIMIT 10
 #define ROUND_END_TICKS (5 * TICK_RATE + 20) // the scores stand this long before the next round
 
-// What is played: a deathmatch, everyone against everyone with no team; or capture the
-// flag, alpha against bravo. A map with a flag's spawn point plays CTF. The other
-// modes of the original are still to come.
+// What is played: a deathmatch, everyone against everyone with no team, won by the
+// first to the score limit in kills; or capture the flag, alpha against bravo, won by
+// the team to the score limit in captures. A map with a flag's spawn point plays CTF
+// unless a deathmatch is asked for (sv_gamemode); a map without one plays a deathmatch
+// whatever is asked. The other modes of the original are still to come.
 typedef enum MatchMode { MATCH_DEATHMATCH, MATCH_CTF, MATCH_MODE_COUNT } MatchMode;
 
 typedef struct MatchSettings {
@@ -140,6 +143,9 @@ void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], c
 MatchSettings match_default_settings(void);
 // The defaults, in the mode the map plays.
 MatchSettings match_settings_for_map(const Map *map);
+// The mode `map` plays when `wanted` is asked for: the map's own for MATCH_MODE_COUNT
+// (the server's sv_gamemode 0), else `wanted`, unless it is CTF on a map with no flags.
+MatchMode match_mode_choose(const Map *map, MatchMode wanted);
 // Whether the mode has teams.
 bool match_has_teams(const Match *m);
 void match_init(Match *m, MatchSettings settings);

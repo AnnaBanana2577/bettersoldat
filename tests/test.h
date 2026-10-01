@@ -72,3 +72,4 @@ void wire_tests(void);
 void stream_tests(void);
 void console_tests(void);
 void color_tests(void);
+void bot_tests(void);

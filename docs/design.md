@@ -330,11 +330,31 @@ waits a tick in the queue. Frames are drawn from the two snapshots as above. Bef
 joins, the client ticks the same world with authority and one soldier: the local
 sandbox is the server's code path with nobody on the line.
 
-**The server's tick** (server/main.c): poll the line (states taken, decisions into the
-mailbox, joins, leaves, chat and votes); then for each tick owed: everyone's command
-from `stream_command`, `game_tick`, `connections_snapshots` (collect the tick's
-travelling events into the queue, a snapshot to every player); a round change if one is
-due; flush.
+**The server's tick** (server/host.c, `host_pump`): poll the line (states taken,
+decisions into the mailbox, joins, leaves, chat and votes); then for each tick owed:
+everyone's command from `stream_command`, the bots' from their minds
+(`bots_commands`), `game_tick`, the bots told what the tick did to them (`bots_hear`),
+`connections_snapshots` (collect the tick's travelling events into the queue, a
+snapshot to every player); a round change if one is due; flush.
+
+**A host** (server/host.c) is the world with authority, the line, the players, the bots
+and the rounds in one struct, pumped by whoever owns it. The dedicated server
+(server/main.c) is a console and a stdin reader around one. The client's Local Play is
+one inside the client (the `host` command), pumped each frame before the client
+polls its own line, which it then joins over the loopback as it would any server. So
+a game against bots is the netcode's ordinary case with no latency, friends can join
+the same game at the player's address, and there is one code path for hosting.
+
+**The bots** (server/bots.c) are the original's AI (opensoldat's AI.pas), ported as it
+stands, and they sit where a client sits: a source of commands. Each tick a bot reads
+the server's world as a client would (the soldiers it can see from its head, by a ray
+through the map; the things; the grenades near it) and writes its keys and aim into
+its slot of the commands; the server's tick does with them what it does with a
+player's, and the bot's shots travel to the clients as any owner's decisions do. A bot
+is a soldier the server plays, marked `bot` in the served half so the roster knows,
+not remote, with a `Connection` holding its name and no peer. Nothing in shared/game
+knows a bot from a player; the one thing the bots write into the world is a thing's
+`interest`, as the original's do.
 
 **A round** (server/rounds.c): the context reloaded, the world and match made anew
 with the history ring cleared, everyone placed, everyone told (MsgMap, reliable, with

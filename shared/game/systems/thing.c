@@ -281,9 +281,13 @@ void thing_respawn(const Context *ctx, World *w, int index)
 void things_spawn(const Context *ctx, World *w)
 {
     for (int i = 0; i < MAX_THINGS; i++) thing_kill(&w->things[i]);
-    Vec2 pos;
-    if (thing_spawn_point(ctx->map, SPAWN_ALPHA_FLAG, &w->rng, &pos)) thing_create(ctx, w, THING_ALPHA_FLAG, pos, WEAPON_NONE, 0, -1);
-    if (thing_spawn_point(ctx->map, SPAWN_BRAVO_FLAG, &w->rng, &pos)) thing_create(ctx, w, THING_BRAVO_FLAG, pos, WEAPON_NONE, 0, -1);
+    // The flags' spots are rolled whatever the mode, so the kits after them come up the
+    // same on a map whether it plays CTF or a deathmatch; only in CTF are the flags placed.
+    Vec2 alpha, bravo;
+    bool alpha_spot = thing_spawn_point(ctx->map, SPAWN_ALPHA_FLAG, &w->rng, &alpha);
+    bool bravo_spot = thing_spawn_point(ctx->map, SPAWN_BRAVO_FLAG, &w->rng, &bravo);
+    if (w->rules.flags && alpha_spot) thing_create(ctx, w, THING_ALPHA_FLAG, alpha, WEAPON_NONE, 0, -1);
+    if (w->rules.flags && bravo_spot) thing_create(ctx, w, THING_BRAVO_FLAG, bravo, WEAPON_NONE, 0, -1);
     kits_spawn(ctx, w, THING_MEDICAL_KIT, ctx->map->medikits);
     if (w->rules.max_grenades > 0) kits_spawn(ctx, w, THING_GRENADE_KIT, ctx->map->grenade_packs);
     if (w->rules.stationary_guns) {
