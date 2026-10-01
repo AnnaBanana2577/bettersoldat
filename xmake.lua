@@ -11,7 +11,7 @@
 -- package's own directory once unpacked, so nothing is passed on the command line.
 
 set_project("bettersoldat")
-set_version("0.3.0")
+set_version("0.3.1")
 
 add_rules("mode.debug", "mode.release")
 set_languages("c11")
