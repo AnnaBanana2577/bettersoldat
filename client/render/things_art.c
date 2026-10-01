@@ -152,8 +152,11 @@ void things_draw(const ThingsArt *a, const Thing *things, const RenderSoldier *s
     for (int i = 0; i < MAX_THINGS; i++) {
         const Thing *t = &things[i];
         if (t->style == THING_NONE) continue;
+        // A flag or a dropped gun about to go flashes its last five seconds (TThing.Render,
+        // PolygonsRender). Nothing else does: a kit lies on past its timeout, which runs
+        // down to -1000 and stays, and a negative count would never show again.
         bool flag = t->style == THING_ALPHA_FLAG || t->style == THING_BRAVO_FLAG;
-        if (t->timeout < 300 && t->timeout % 6 < 3 && !flag) continue;
+        if ((flag || t->style == THING_WEAPON) && t->timeout < 300 && t->timeout % 6 < 3) continue;
         Vec2 p[4];
         for (int k = 0; k < 4; k++) p[k] = vec2_add(t->old_pos[k], vec2_scale(vec2_sub(t->pos[k], t->old_pos[k]), alpha));
         switch (t->style) {

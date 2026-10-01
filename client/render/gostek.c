@@ -102,14 +102,18 @@ static const GostekPart GOSTEK_PARTS[] = {
 
 _Static_assert(sizeof(GOSTEK_PARTS) / sizeof(GOSTEK_PARTS[0]) == GOSTEK_PART_COUNT, "GOSTEK_PART_COUNT");
 
-// Held weapons: the primary in the hands (skeleton 16 -> 15), the secondary slung across
-// the back (5 -> 10). Mirrored images are "<stem>-2.png" under weapons-gfx.
+// Held weapons: the primary in the hands (skeleton 16 -> 15; the knife 16 -> 20, along
+// the forearm, as the original's Primary_Knife), the secondary slung across the back
+// (5 -> 10; the knife is not shown there, as the original's Secondary_Knife has no
+// image). Mirrored images are "<stem>-2.png" under weapons-gfx.
 typedef struct WeaponArt {
     const char *stem;
     float cx, cy;     // in the hands
     float bx, by;     // on the back
     const char *fire; // the muzzle flash, drawn the tick a shot goes off
     float fx, fy;     // its anchor, past the muzzle so fx is negative
+    int hand_p2;      // the second point the primary is pinned to; 0 for the usual 15
+    bool unslung;     // never drawn on the back
 } WeaponArt;
 
 static const WeaponArt WEAPON_ART[WEAPON_COUNT] = {
@@ -129,7 +133,7 @@ static const WeaponArt WEAPON_ART[WEAPON_COUNT] = {
     [WEAPON_FLAMER] = {"flamer", 0.3f, 0.6f, 0.3f, 0.3f, "flamer-fire", -0.2f, 0.5f},
     [WEAPON_BOW] = {"bow", 0.2f, 0.5f, 0.3f, 0.5f, "bow-fire", -0.2f, 0.5f},
     [WEAPON_BOW2] = {"bow", 0.2f, 0.5f, 0.3f, 0.5f, "bow-fire", -0.2f, 0.5f},
-    [WEAPON_KNIFE] = {"knife", 0.2f, 0.5f, 0.3f, 0.5f, NULL, 0, 0},
+    [WEAPON_KNIFE] = {"knife", -0.1f, 0.6f, 0, 0, NULL, 0, 0, .hand_p2 = 20, .unslung = true},
 };
 
 void gostek_load(Gostek *g, const char *base)
@@ -235,7 +239,7 @@ static void draw_held_weapon(const Gostek *g, const RenderSoldier *s)
 {
     const WeaponArt *art = &WEAPON_ART[s->weapon];
     if (!art->stem) return;
-    draw_weapon(g, &s->pose, s->weapon, 16, 15, art->cx, art->cy, s->facing_left);
+    draw_weapon(g, &s->pose, s->weapon, 16, art->hand_p2 ? art->hand_p2 : 15, art->cx, art->cy, s->facing_left);
 
     if (!s->fired) return;
     Sprite flash = g->flashes[s->weapon];
@@ -265,7 +269,7 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
 
     // slung across the back, so before the body
     const WeaponArt *back = &WEAPON_ART[s->secondary];
-    if (back->stem) draw_weapon(g, pose, s->secondary, 5, 10, back->bx, back->by, facing_left);
+    if (back->stem && !back->unslung) draw_weapon(g, pose, s->secondary, 5, 10, back->bx, back->by, facing_left);
 
     uint8_t bleeding = blood_alpha(s);
     // The grenades on the belt: what is carried, less the one already in the hand while a
