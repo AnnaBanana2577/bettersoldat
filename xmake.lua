@@ -66,8 +66,14 @@ target("client")
         target:add("defines", 'SOLDATRELOADED_VERSION="' .. project.version() .. '"')
     end)
     if is_plat("windows") then
-        -- SDL2main provides main; with none in our objects the linker can't infer the subsystem
-        add_ldflags("/SUBSYSTEM:CONSOLE")
+        -- SDL2main provides main and WinMain; with neither in our objects the linker can't
+        -- infer the subsystem. A release is a windowed program, with no console window
+        -- beside the game (the game has its own); a debug build keeps one for stderr.
+        if is_mode("debug") then
+            add_ldflags("/SUBSYSTEM:CONSOLE")
+        else
+            add_ldflags("/SUBSYSTEM:WINDOWS")
+        end
     end
     set_rundir("$(projectdir)")
 
