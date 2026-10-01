@@ -11,7 +11,7 @@
 -- package's own directory once unpacked, so nothing is passed on the command line.
 
 set_project("soldatreloaded")
-set_version("0.3.2")
+set_version("0.3.3")
 
 add_rules("mode.debug", "mode.release")
 set_languages("c11")
