@@ -25,7 +25,7 @@
 
 #include "game/entities.h"
 
-#define NET_VERSION 6
+#define NET_VERSION 7
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
 #define NET_TEXT_SIZE 128 // a line of chat, a reason
@@ -153,6 +153,9 @@ typedef enum MsgKind {
     MSG_CLIENT_STATE, // client -> server, every tick: the owned half (stream.h)
     MSG_SNAPSHOT,     // server -> client, every tick: everyone's halves (stream.h)
     MSG_VOTE,         // server -> client: a vote begun (for the HUD), or over (kind none)
+    MSG_MAP_CHANGE,   // server -> client: the round is over; the next map, and the ticks until it
+    MSG_MAP_QUERY,    // client -> server: the name of the server's map list's n-th map, for the map window
+    MSG_MAP_REPLY,    // server -> client: that name, and how many the list holds
     MSG_COUNT,
 } MsgKind;
 
@@ -194,6 +197,26 @@ typedef struct MsgDenied {
     char reason[NET_TEXT_SIZE];
 } MsgDenied;
 
+// The round is over (the original's MapChange): the world stands frozen with the
+// scoreboard up for `counter` ticks, then `map` is played. Sent as the countdown
+// begins, and to whoever joins during it.
+typedef struct MsgMapChange {
+    uint16_t counter;
+    char map[NET_MAP_SIZE];
+} MsgMapChange;
+
+// The escape menu's map window pages through the server's own list of maps (the
+// original's MapsList), one name at a time: the client asks for the n-th, the server
+// answers with it and the list's length.
+typedef struct MsgMapQuery {
+    uint16_t index;
+} MsgMapQuery;
+
+typedef struct MsgMapReply {
+    uint16_t index, count;
+    char map[NET_MAP_SIZE];
+} MsgMapReply;
+
 // The kinds of line the server itself says: the original's colour classes for them
 // (Constants.pas *_MESSAGE_COLOR), which the client colours as the original does.
 typedef enum ChatKind {
@@ -223,3 +246,6 @@ void msg_denied(NetBuf *b, MsgDenied *m);
 void msg_chat(NetBuf *b, MsgChat *m);
 void msg_vote(NetBuf *b, MsgVote *m);
 void msg_map(NetBuf *b, MsgMap *m);
+void msg_map_change(NetBuf *b, MsgMapChange *m);
+void msg_map_query(NetBuf *b, MsgMapQuery *m);
+void msg_map_reply(NetBuf *b, MsgMapReply *m);

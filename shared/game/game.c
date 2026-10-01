@@ -51,6 +51,11 @@ void world_init(World *w, uint64_t seed)
 
 void world_step(const Context *ctx, World *w, const Command cmds[MAX_PLAYERS], const Events *last, Events *events)
 {
+    if (w->rules.frozen) { // the original's countdown: nothing is updated, the scores stand
+        for (Pass p = 0; p < PASS_COUNT; p++) events_pending(last, events, p); // the mail is read and let go
+        w->tick++;
+        return;
+    }
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const Soldier *s = &w->soldiers[i];
         if (s->active) soldier_step(ctx, w, (uint8_t)i, cmds[i], events, !s->remote);
@@ -97,8 +102,9 @@ WorldRules match_rules(const Match *m)
     };
 }
 
-static void match_end(Match *m, Events *events)
+void match_stop(Match *m, Events *events)
 {
+    if (m->state == MATCH_ENDED) return;
     m->state = MATCH_ENDED;
     m->counter = ROUND_END_TICKS;
 
@@ -111,6 +117,8 @@ static void match_end(Match *m, Events *events)
 void match_run(const Context *ctx, World *w, Match *m, Events *events)
 {
     if (!w->authority) return; // the match is the server's: a client hears it in the snapshots
+    if (m->state == MATCH_ENDED && m->counter > 0) m->counter--;
+    if (m->state != MATCH_PLAYING) return; // the countdown: no respawns, no scores, the clock stopped
     for (int i = 0; i < MAX_PLAYERS; i++) soldier_served_tick(ctx, w, (uint8_t)i, events);
 
     // a capture scores for the carrier's team
@@ -119,9 +127,6 @@ void match_run(const Context *ctx, World *w, Match *m, Events *events)
         if (e->type == EVENT_FLAG_SCORE) m->scores[w->soldiers[e->flag_score.player].team]++;
     }
     bonuses_spawn(ctx, w, &m->settings, w->tick - 1); // on the tick just run
-
-    if (m->state == MATCH_ENDED && m->counter > 0) m->counter--;
-    if (m->state != MATCH_PLAYING) return;
 
     m->time_left--;
     int32_t limit = m->settings.score_limit;
@@ -132,7 +137,7 @@ void match_run(const Context *ctx, World *w, Match *m, Events *events)
             if (s->active && s->team != TEAM_SPECTATOR && s->kills >= limit) won = true;
         }
     }
-    if (m->time_left <= 0 || won) match_end(m, events);
+    if (m->time_left <= 0 || won) match_stop(m, events);
 }
 
 MatchMode match_mode_choose(const Map *map, MatchMode wanted)

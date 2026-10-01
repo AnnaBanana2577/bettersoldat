@@ -168,6 +168,7 @@ int main(void)
     console_tests();
     color_tests();
     bot_tests();
+    round_tests();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }

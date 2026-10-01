@@ -159,6 +159,12 @@ void match_run(const Context *ctx, World *w, Match *m, Events *events);
 // The round has ended and its scores have stood long enough: time for the next.
 bool match_over(const Match *m);
 
+// The round ends now, as at a limit: the scores stand for ROUND_END_TICKS with the
+// world frozen (the original's MapChangeCounter), and EVENT_MATCH_END says who won.
+// The server's, for `nextmap` and a map vote passed; emitted into `events`, which is
+// the mailbox (game_hear's) when called between ticks.
+void match_stop(Match *m, Events *events);
+
 // What the match decides that the world reads.
 WorldRules match_rules(const Match *m);
 

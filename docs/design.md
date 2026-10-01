@@ -356,6 +356,20 @@ not remote, with a `Connection` holding its name and no peer. Nothing in shared/
 knows a bot from a player; the one thing the bots write into the world is a thing's
 `interest`, as the original's do.
 
+**A round's end** is the original's MapChangeCounter. The match stops (a limit reached
+in `match_run`, or `match_stop` from the host for `nextmap`, a map vote or a script)
+and the world freezes: `world_step` runs no passes while `rules.frozen`, so bullets
+hang and nobody moves or respawns, and the scores stand for ROUND_END_TICKS. The host
+settles the map coming (the one asked for, else the rotation's next) and tells
+everyone (MsgMapChange: the map and the count; a newcomer during the count is told
+too). A client that hears it puts the scoreboard up, closes the weapons menu, prints
+"Next map:", and over the board says who won (`draw_end_game_texts`), as the original's
+ClientHandleMapChange and RenderEndGameTexts do. Votes (server/connections.c) run as
+the original's: twenty seconds, only yeses, against the players on when the vote began,
+passing at sv_votepercent; a kick passed bars the address for an hour. The escape
+menu's map window pages the server's own list (MsgMapQuery, MsgMapReply), the
+rotation or, with none, every map under assets.
+
 **A round** (server/rounds.c): the context reloaded, the world and match made anew
 with the history ring cleared, everyone placed, everyone told (MsgMap, reliable, with
 the round's number). Both streams are stamped with the round and another round's are

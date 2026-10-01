@@ -113,6 +113,7 @@ typedef struct HudData {
     bool flags_known;          // a CTF match with both flags placed
     bool flag_in_base[HUD_TEAMS];
     bool paused;
+    bool round_over; // the round has ended and the scores stand (the original's MapChangeCounter > 0)
     bool survival;
     bool survival_round_over;
     int alive, team_alive[HUD_TEAMS];

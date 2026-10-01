@@ -108,7 +108,7 @@ typedef struct App {
     // Local Play's: the server's own cvars, which the main menu edits and the config
     // keeps, so a dedicated server started beside this config plays the same game.
     Cvar *sv_port, *sv_maps, *sv_hostname, *sv_gamemode, *sv_timelimit, *sv_killlimit;
-    Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat;
+    Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat, *votepercent;
     Host *host; // the game hosted here (the `host` command), joined over the loopback; NULL for none
 
     Game *game; // large; on the heap
@@ -127,6 +127,10 @@ typedef struct App {
     int console_scroll;       // how far back the big console is paged while a line is typed
     bool vote_reason_typing;  // the prompt takes a kick vote's reason (the kick window's OK)
     int kick_target;          // the player it is about
+    uint32_t vote_seen;       // the vote the box last came up for (ClientNet.vote_seq)
+    bool vote_hidden;         // the box put away: I answered, or it is my own kick vote
+    int map_query_index;      // the map window's question last asked of the server, -1 for none
+    bool map_window_open;     // as of the last frame
     char maps[128][64];       // the maps under assets, for the map window
     int map_count;
     bool was_dead;         // my soldier as of the last tick, for the weapons menu at death
@@ -271,6 +275,14 @@ static void vote_said(App *app, const char *text)
 static void say(App *app, bool team, const char *text)
 {
     if (!text[0]) return;
+    // F12 and F11 (ControlGame.pas): an answer to the vote's box, while it is up. A yes
+    // goes to the server; a no is mine alone. Either puts the box away.
+    bool box_up = app->hud_data.vote != HUD_VOTE_NONE;
+    if (strcmp(text, "/yes") == 0 || strcmp(text, "/no") == 0) {
+        if (!box_up || !client_net_joined(&app->net)) return;
+        app->vote_hidden = true;
+        if (strcmp(text, "/no") == 0) return;
+    }
     if (text[0] == '/' && client_net_joined(&app->net)) vote_said(app, text);
     if (client_net_say(&app->net, text, team)) return;
     chat_heard(app, app->me, team, CHAT_SERVER, text);
@@ -601,6 +613,8 @@ static void cmd_host(Console *con, int argc, char **argv, void *user)
         .bots_bravo = clampi(app->bots_bravo->integer, 0, MAX_PLAYERS),
         .bots_difficulty = app->bots_difficulty->integer,
         .bots_chat = app->bots_chat->integer != 0,
+        .vote_percent = app->votepercent->integer,
+        .quiet = true, // the client's own console says what happens, as online
     };
     snprintf(s.assets, sizeof s.assets, "%s", app->assets->value);
     snprintf(s.maps, sizeof s.maps, "%s", app->sv_maps->value);
@@ -761,6 +775,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->bots_bravo = cvar_register(con, "bots_random_bravo", "0", CVAR_ARCHIVE, "bots on bravo in capture the flag");
     app->bots_difficulty = cvar_register(con, "bots_difficulty", "100", CVAR_ARCHIVE, "300 stupid, 200 poor, 100 normal, 50 hard, 10 impossible");
     app->bots_chat = cvar_register(con, "bots_chat", "1", CVAR_ARCHIVE, "whether the bots talk");
+    app->votepercent = cvar_register(con, "sv_votepercent", "60", CVAR_ARCHIVE, "the percentage of players whose yes passes a vote");
     console_add_command(con, "quit", cmd_quit, app, "leave the game");
     console_add_command(con, "screenshot", cmd_screenshot, app, "write the 60th frame from now to a PNG, then quit");
     console_add_command(con, "escmenu", cmd_menu, app, "the escape menu");
@@ -1137,10 +1152,15 @@ static void apply_menu_action(App *app, MenuAction action)
         app->vote_reason_typing = app->hud_data.chat_type != HUD_CHAT_NONE;
         app->hud_data.vote_reason_typing = app->vote_reason_typing;
         break;
-    case MENU_ACTION_VOTE_MAP: {
-        if (app->map_count == 0) break;
+    case MENU_ACTION_VOTE_MAP: { // the map the window shows: the server's, as it answered
         char text[HUD_TEXT];
-        snprintf(text, sizeof text, "/votemap %s", app->maps[clampi(action.value, 0, app->map_count - 1)]);
+        if (client_net_joined(&app->net)) {
+            if (!app->net.map_reply.map[0]) break;
+            snprintf(text, sizeof text, "/votemap %s", app->net.map_reply.map);
+        } else {
+            if (app->map_count == 0) break;
+            snprintf(text, sizeof text, "/votemap %s", app->maps[clampi(action.value, 0, app->map_count - 1)]);
+        }
         say(app, false, text);
         break;
     }
@@ -1234,15 +1254,23 @@ static void hud_data_build(App *app)
         flags++;
     }
     d->flags_known = flags == 2;
-    // the vote on, as the server last said
+    // The vote on, as the server last said, and its box: up until I answer (F12, F11),
+    // and never for a kick vote of my own, whose yes went with it (Game.pas StartVote).
     const MsgVote *v = &app->net.vote;
-    d->vote = v->kind == VOTE_KICK ? HUD_VOTE_KICK : v->kind == VOTE_MAP ? HUD_VOTE_MAP : HUD_VOTE_NONE;
+    bool my_kick = v->kind == VOTE_KICK && strcmp(v->starter, app->player_name->value) == 0;
+    bool box = v->kind != VOTE_NONE && !app->vote_hidden && !my_kick;
+    d->vote = !box ? HUD_VOTE_NONE : v->kind == VOTE_KICK ? HUD_VOTE_KICK : HUD_VOTE_MAP;
     snprintf(d->vote_target, sizeof d->vote_target, "%s", v->target);
     snprintf(d->vote_starter, sizeof d->vote_starter, "%s", v->starter);
     snprintf(d->vote_reason, sizeof d->vote_reason, "%s", v->reason);
     snprintf(d->hostname, sizeof(d->hostname), "%s", client_net_joined(&app->net) ? app->net.hostname : "bettersoldat");
-    // the map window's offer, kept within the list
-    if (app->map_count > 0) {
+    // the map window's offer: the server's n-th map, as it answered (GameMenus.pas, the
+    // VoteMapReply); the maps here only with no server to ask
+    if (client_net_joined(&app->net)) {
+        const MsgMapReply *r = &app->net.map_reply;
+        if (r->count > 0) app->menus.map_index = clampi(app->menus.map_index, 0, r->count - 1);
+        snprintf(d->map_offered, sizeof d->map_offered, "%s", r->index == app->menus.map_index ? r->map : "");
+    } else if (app->map_count > 0) {
         app->menus.map_index = clampi(app->menus.map_index, 0, app->map_count - 1);
         snprintf(d->map_offered, sizeof d->map_offered, "%s", app->maps[app->menus.map_index]);
     } else {
@@ -1253,6 +1281,7 @@ static void hud_data_build(App *app)
     d->time_left_sec = g->match.time_left / TICK_RATE % 60;
     for (int t = 0; t < HUD_TEAMS && t < TEAM_COUNT; t++) d->team_kills[t] = g->match.scores[t];
     d->paused = g->match.state == MATCH_PAUSED;
+    d->round_over = g->match.state == MATCH_ENDED && g->match.counter > 0;
 
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const Soldier *s = &g->world.soldiers[i];
@@ -1531,6 +1560,39 @@ int main(int argc, char *argv[])
                 app.quit = true;
             }
             app.me = app.net.slot;
+        }
+        // The round is over (ClientHandleMapChange): the scoreboard comes up and stays
+        // through the countdown, the weapons menu and the stats go, and with no teams the
+        // camera goes to the winner, the cursor to the middle.
+        if (client_net_take_map_change(&app.net)) {
+            app.hud_data.frags_menu = true;
+            app.hud_data.stats_menu = false;
+            menus_show(&app.menus, MENU_LIMBO, false, app.hud_data.mode, 1);
+            if (!team_game(&app)) {
+                int best = -1;
+                for (int i = 0; i < MAX_PLAYERS; i++) {
+                    const Soldier *s = &app.game->world.soldiers[i];
+                    if (s->active && s->team != TEAM_SPECTATOR && (best < 0 || s->kills > app.game->world.soldiers[best].kills)) best = i;
+                }
+                if (best >= 0 && best != app.me) app.camera_follow = best;
+                if (!app.menus.menus[MENU_ESC].active) app.input.cursor = vec2_scale(app.input.view, 0.5f);
+            }
+        }
+        // a vote begun: its box comes up (ClientHandleVoteOn), the stats go
+        if (app.net.vote_seq != app.vote_seen) {
+            app.vote_seen = app.net.vote_seq;
+            app.vote_hidden = false;
+            app.hud_data.stats_menu = false;
+        }
+        // the map window asks the server for the map it shows, as it opens and as it pages
+        {
+            bool open = app.menus.menus[MENU_MAP].active && client_net_joined(&app.net);
+            if (open && (!app.map_window_open || app.menus.map_index != app.map_query_index)) {
+                app.map_query_index = app.menus.map_index;
+                client_net_map_query(&app.net, app.map_query_index);
+            }
+            if (!open) app.map_query_index = -1;
+            app.map_window_open = open;
         }
         MsgChat heard;
         while (client_net_take_chat(&app.net, &heard)) chat_heard(&app, heard.slot, heard.team, (ChatKind)heard.kind, heard.text);

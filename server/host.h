@@ -31,6 +31,8 @@ typedef struct HostSettings {
     int bots_alpha, bots_bravo;      // bots on each team in CTF (bots_random_alpha, bots_random_bravo)
     int bots_difficulty;             // 100 as the bot files say; less is harder
     bool bots_chat;
+    int vote_percent;                // sv_votepercent; 0 for the default
+    bool quiet;                      // no lines of its own to the console but the first: a client beside it says what matters
 } HostSettings;
 
 typedef struct Host {
@@ -44,7 +46,16 @@ typedef struct Host {
     int profile_count;
     uint64_t rng;
     double accumulator;
-    bool next_round; // asked for (nextmap): at the end of the tick
+    bool next_round;             // asked for (nextmap): the round ends at the end of the tick
+    char chosen_map[NET_MAP_SIZE]; // the map asked for with it, else the rotation's
+    // The round's end, as the original's MapChangeCounter has it: the match ended (a
+    // limit, nextmap, a vote), everyone told the map coming, the world frozen with the
+    // scoreboard up while the match's counter runs, then that map.
+    char pending_map[NET_MAP_SIZE]; // the map the countdown leads to
+    bool ending_told;               // the countdown has begun and been announced
+    char end_why[8];                // "limit", "nextmap" or "vote"
+    char (*maps)[64];               // the server's list of maps: the rotation, or every map under assets
+    int map_count;
 } Host;
 
 // Everything up on `settings`: the map loaded, the port listening, the bots in. False,

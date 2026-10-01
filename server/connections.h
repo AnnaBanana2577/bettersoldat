@@ -37,8 +37,17 @@ typedef struct Connection {
     Team team;       // what it said
 } Connection;
 
-#define VOTE_TICKS (60 * 60) // a minute to decide
-#define VOTE_PERCENT 51
+// The votes as the original runs them (Game.pas StartVote, CountVote, TimerVote): twenty
+// seconds to decide; only a yes is counted, against the number of players on when it
+// began, and it passes at sv_votepercent of them; a no is the voter's own business (its
+// client drops the box) and a vote that gathers too few yeses simply runs out. Nobody
+// may start one within two minutes of joining or of their last. A kick passed puts the
+// player off for an hour, by address.
+#define VOTE_TICKS (20 * TICK_RATE)             // DEFAULT_VOTING_TIME
+#define VOTE_COOLDOWN_TICKS (2 * 60 * TICK_RATE) // DEFAULT_VOTE_TIME
+#define VOTE_PERCENT_DEFAULT 60                  // sv_votepercent
+#define VOTE_KICK_BAN_TICKS (60 * 60 * TICK_RATE) // an hour
+#define MAX_BANS 32
 
 typedef struct Vote {
     VoteKind kind;              // VOTE_NONE: none running
@@ -47,8 +56,15 @@ typedef struct Vote {
     int slot;                   // the player, for a kick
     int starter;
     int32_t ticks_left;
-    uint8_t answer[MAX_PLAYERS]; // 0 none, 1 yes, 2 no
+    int max_votes;              // the players on when it began (VoteMaxVotes)
+    uint8_t answer[MAX_PLAYERS]; // 1: voted yes
 } Vote;
+
+typedef struct Ban {
+    uint32_t host;  // the address, as ENet has it; 0 for an empty entry
+    uint32_t until; // the connections' tick it lifts at
+    char reason[NET_REASON_SIZE];
+} Ban;
 
 typedef struct Connections {
     NetLink *link;
@@ -60,8 +76,15 @@ typedef struct Connections {
     char map[NET_MAP_SIZE];        // on which map
     char hostname[NET_NAME_SIZE];  // the server's name, told with the map (sv_hostname)
     char maps_dir[512];            // where a voted map must be found, <assets>/maps; empty accepts any
+    const char (*maps)[64];        // the server's list of maps (the original's MapsList), for the map window and
+    int map_count;                 // the votes; NULL, and a voted map is looked for in maps_dir instead
+    char next_map[NET_MAP_SIZE];   // the map the round's end leads to, told with MsgMapChange
+    uint32_t ticks;                // ticks run, for the cooldowns and the bans
     Vote vote;
+    int vote_percent;              // sv_votepercent; VOTE_PERCENT_DEFAULT unless set
+    int32_t vote_cooldown[MAX_PLAYERS]; // ticks until each may start a vote; below 0 may
     char vote_map[NET_MAP_SIZE];   // a map vote passed, until the server takes it
+    Ban bans[MAX_BANS];
 } Connections;
 
 // `map` is the map being played, round 1. False if the streams couldn't be made.
@@ -93,6 +116,14 @@ void connections_place(Connections *c, Game *g, int slot, Team team);
 
 // A map vote passed since last asked: true, with the map, once.
 bool connections_take_vote_map(Connections *c, char *map, size_t size);
+
+// The round is over and `map` follows once the match's counter runs out: everyone is
+// told (MsgMapChange), and so is whoever joins before it does.
+void connections_map_change(Connections *c, const Game *g, const char *map);
+
+// The player in `slot` is put off for `ticks` by address, with a reason the next Hello
+// from it is denied with.
+void connections_ban(Connections *c, int slot, uint32_t ticks, const char *reason);
 
 // The server's own chat to everyone, shown as "*SERVER*: text".
 void connections_say(Connections *c, const char *text);

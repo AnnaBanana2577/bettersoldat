@@ -28,6 +28,8 @@ void client_net_connect(ClientNet *n, Console *con, const char *address, uint16_
     n->state = CLIENT_NET_CONNECTING;
     n->slot = -1;
     n->had_map = false;
+    n->map_changing = n->map_replied = false;
+    n->vote = (MsgVote){.kind = VOTE_NONE};
     snprintf(n->address, sizeof n->address, "%s", address);
     n->port = port;
     console_print(con, "connecting to %s:%u...\n", address, port);
@@ -84,8 +86,24 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         snprintf(n->hostname, sizeof n->hostname, "%s", m.hostname);
         n->mapped = true;
         client_stream_reset(&n->stream, m.round);
-        if (n->had_map) console_print_color(con, HUD_COLOR_GAME, "Next map: %s\n", m.map); // as the original, on a change
         n->had_map = true;
+        break;
+    }
+    case MSG_MAP_CHANGE: { // the round is over: said as the original's ClientHandleMapChange says it
+        MsgMapChange m = {0};
+        msg_map_change(&b, &m);
+        if (!netbuf_done(&b)) return;
+        n->map_change = m;
+        n->map_changing = true;
+        console_print_color(con, HUD_COLOR_GAME, "Next map: %s\n", m.map);
+        break;
+    }
+    case MSG_MAP_REPLY: {
+        MsgMapReply m = {0};
+        msg_map_reply(&b, &m);
+        if (!netbuf_done(&b)) return;
+        n->map_reply = m;
+        n->map_replied = true;
         break;
     }
     case MSG_DENIED: {
@@ -97,7 +115,9 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
     case MSG_VOTE: {
         MsgVote m = {0};
         msg_vote(&b, &m);
-        if (netbuf_done(&b)) n->vote = m;
+        if (!netbuf_done(&b)) return;
+        if (m.kind != VOTE_NONE && (n->vote.kind == VOTE_NONE || strcmp(n->vote.target, m.target) != 0)) n->vote_seq++;
+        n->vote = m;
         break;
     }
     case MSG_CHAT: {
@@ -181,4 +201,30 @@ bool client_net_say(ClientNet *n, const char *text, bool team)
     msg_kind(&b, &kind);
     msg_chat(&b, &m);
     return netbuf_ok(&b) && net_send(n->link.peer, MSG_CHAT, buf, netbuf_bytes(&b));
+}
+
+bool client_net_take_map_change(ClientNet *n)
+{
+    if (!n->map_changing) return false;
+    n->map_changing = false;
+    return true;
+}
+
+void client_net_map_query(ClientNet *n, int index)
+{
+    if (n->state != CLIENT_NET_JOINED || index < 0) return;
+    uint8_t buf[NET_MTU];
+    NetBuf b = netbuf_writer(buf, sizeof buf);
+    MsgKind kind = MSG_MAP_QUERY;
+    MsgMapQuery m = {.index = (uint16_t)index};
+    msg_kind(&b, &kind);
+    msg_map_query(&b, &m);
+    if (netbuf_ok(&b)) net_send(n->link.peer, MSG_MAP_QUERY, buf, netbuf_bytes(&b));
+}
+
+bool client_net_map_replied(ClientNet *n)
+{
+    if (!n->map_replied) return false;
+    n->map_replied = false;
+    return true;
 }

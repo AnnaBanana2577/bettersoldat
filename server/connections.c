@@ -23,7 +23,8 @@ static void say(Console *con, const char *fmt, ...)
 
 bool connections_init(Connections *c, NetLink *link, Console *console, const char *map)
 {
-    *c = (Connections){.link = link, .console = console, .round = 1, .vote = {.starter = -1}};
+    *c = (Connections){.link = link, .console = console, .round = 1, .vote = {.starter = -1}, .vote_percent = VOTE_PERCENT_DEFAULT};
+    for (int i = 0; i < MAX_PLAYERS; i++) c->vote_cooldown[i] = -1;
     snprintf(c->map, sizeof c->map, "%s", map ? map : "");
     wire_queue_init(&c->events);
     c->streams = calloc(MAX_PLAYERS, sizeof *c->streams);
@@ -73,6 +74,46 @@ static void route_denied(NetBuf *b, void *m) { msg_denied(b, m); }
 static void route_chat(NetBuf *b, void *m) { msg_chat(b, m); }
 static void route_vote(NetBuf *b, void *m) { msg_vote(b, m); }
 static void route_map(NetBuf *b, void *m) { msg_map(b, m); }
+static void route_map_change(NetBuf *b, void *m) { msg_map_change(b, m); }
+static void route_map_reply(NetBuf *b, void *m) { msg_map_reply(b, m); }
+
+// The round's end to one peer, or (NULL) everyone: the map coming and the ticks until it.
+static void tell_map_change(Connections *c, ENetPeer *peer, const Game *g)
+{
+    uint8_t buf[NET_MTU];
+    MsgMapChange m = {.counter = (uint16_t)(g->match.counter > 0 ? g->match.counter : 0)};
+    snprintf(m.map, sizeof m.map, "%s", c->next_map);
+    size_t n = build(buf, sizeof buf, MSG_MAP_CHANGE, route_map_change, &m);
+    if (!n) return;
+    if (peer) net_send(peer, MSG_MAP_CHANGE, buf, n);
+    else connections_broadcast(c, MSG_MAP_CHANGE, buf, n);
+}
+
+void connections_map_change(Connections *c, const Game *g, const char *map)
+{
+    snprintf(c->next_map, sizeof c->next_map, "%s", map);
+    tell_map_change(c, NULL, g);
+}
+
+// The ban on this address, or NULL.
+static const Ban *banned(const Connections *c, uint32_t host)
+{
+    for (int i = 0; i < MAX_BANS; i++)
+        if (c->bans[i].host == host && c->bans[i].host != 0 && c->bans[i].until > c->ticks) return &c->bans[i];
+    return NULL;
+}
+
+void connections_ban(Connections *c, int slot, uint32_t ticks, const char *reason)
+{
+    const Connection *conn = &c->items[slot];
+    if (!conn->peer) return;
+    Ban *b = NULL;
+    for (int i = 0; i < MAX_BANS && !b; i++) // an empty place, or one whose ban has lifted
+        if (c->bans[i].host == 0 || c->bans[i].until <= c->ticks) b = &c->bans[i];
+    if (!b) b = &c->bans[0];
+    *b = (Ban){.host = conn->peer->address.host, .until = c->ticks + ticks};
+    snprintf(b->reason, sizeof b->reason, "%s", reason);
+}
 
 // The round's map to one peer.
 static void tell_map(Connections *c, ENetPeer *peer)
@@ -175,6 +216,13 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
         return;
     }
     if (slot_of(c, peer) >= 0) return; // said hello twice
+    const Ban *ban = banned(c, peer->address.host);
+    if (ban) {
+        char reason[NET_TEXT_SIZE];
+        snprintf(reason, sizeof reason, "You have been banned on this server. Reason: %s", ban->reason);
+        deny(c, peer, reason);
+        return;
+    }
     int slot = free_slot(c, g);
     if (slot < 0) {
         deny(c, peer, "the server is full");
@@ -200,7 +248,9 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     size_t n = build(buf, sizeof buf, MSG_WELCOME, route_welcome, &w);
     if (n) net_send(peer, MSG_WELCOME, buf, n);
     tell_map(c, peer); // joining is hearing of the round
+    if (g->match.state == MATCH_ENDED) tell_map_change(c, peer, g); // and of its end, if it is ending
     c->vote.answer[slot] = 0;
+    c->vote_cooldown[slot] = VOTE_COOLDOWN_TICKS; // no votes for two minutes after joining
     if (c->vote.kind != VOTE_NONE) tell_vote(c, peer);
     say(c->console, "%s joined as %d\n", conn->name, slot);
     if (!match_has_teams(&g->match)) announce_join(c, g, slot); // with teams, once it has chosen one
@@ -314,6 +364,31 @@ static void chat(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
         if (c->items[i].joined && g->world.soldiers[i].team == team) net_send(c->items[i].peer, MSG_CHAT, buf, n);
 }
 
+// The map window asks for the n-th of the server's maps: its name, and how many there
+// are (the original's VoteMapReply). Nothing is answered past the end.
+static void map_query(Connections *c, ENetPeer *peer, const NetEvent *e)
+{
+    NetBuf b = netbuf_reader(e->data, e->size);
+    MsgKind kind;
+    MsgMapQuery q = {0};
+    msg_kind(&b, &kind);
+    msg_map_query(&b, &q);
+    if (!netbuf_done(&b)) return;
+    MsgMapReply m = {.index = q.index};
+    if (c->maps) {
+        if (q.index >= c->map_count) return;
+        m.count = (uint16_t)c->map_count;
+        snprintf(m.map, sizeof m.map, "%s", c->maps[q.index]);
+    } else { // no list: the map being played is the whole of it
+        if (q.index > 0) return;
+        m.count = 1;
+        snprintf(m.map, sizeof m.map, "%s", c->map);
+    }
+    uint8_t buf[NET_MTU];
+    size_t n = build(buf, sizeof buf, MSG_MAP_REPLY, route_map_reply, &m);
+    if (n) net_send(peer, MSG_MAP_REPLY, buf, n);
+}
+
 void connections_broadcast(Connections *c, MsgKind kind, const uint8_t *data, size_t size)
 {
     for (int i = 0; i < MAX_PLAYERS; i++)
@@ -336,6 +411,7 @@ void connections_poll(Connections *c, Game *g)
             else if (slot < 0) deny(c, e.peer, "no Hello first"); // the rest is for players
             else if (e.msg == MSG_CHAT) chat(c, g, e.peer, &e);
             else if (e.msg == MSG_CLIENT_STATE) server_stream_receive(&c->streams[slot], g, slot, e.data, e.size);
+            else if (e.msg == MSG_MAP_QUERY) map_query(c, e.peer, &e);
             break;
         }
         default: break;
@@ -355,6 +431,7 @@ static void vote_tick(Connections *c);
 
 void connections_snapshots(Connections *c, const Game *g)
 {
+    c->ticks++;
     vote_tick(c);
     wire_collect(&c->events, &g->events, g->world.tick - 1, -1); // the tick just run
     char names[MAX_PLAYERS][NET_NAME_SIZE];
@@ -383,8 +460,15 @@ static void tell(Connections *c, int slot, const char *fmt, ...)
     if (n) net_send(c->items[slot].peer, MSG_CHAT, buf, n);
 }
 
+// Whether the server knows `map`: in its list (the original's MapsList), or, with no
+// list, as a file under maps_dir.
 static bool map_exists(const Connections *c, const char *map)
 {
+    if (c->maps) {
+        for (int i = 0; i < c->map_count; i++)
+            if (strcmp(c->maps[i], map) == 0) return true;
+        return false;
+    }
     if (!c->maps_dir[0]) return true;
     if (!map[0] || strchr(map, '/') || strchr(map, '\\') || strstr(map, "..")) return false;
     char path[600];
@@ -409,8 +493,8 @@ static int player_named(const Connections *c, const char *name)
     return found;
 }
 
-// Over: the original says nothing of a kick that failed, and of a map vote that did,
-// that no map was voted; a pass shows as the kick or the next map.
+// Over (StopVote): the original says nothing of a kick that ran out, and of a map vote
+// that did, that no map was voted; a pass shows as the kick or the next map.
 static void vote_end(Connections *c, bool passed)
 {
     if (c->vote.kind == VOTE_MAP && !passed) announce(c, CHAT_VOTE, "No map has been voted");
@@ -418,49 +502,51 @@ static void vote_end(Connections *c, bool passed)
     tell_vote(c, NULL);
 }
 
-// Counts the answers: passed on VOTE_PERCENT of the players, failed once it no longer can.
-static void vote_check(Connections *c)
+// A yes from `slot` (CountVote): once each; passed when the yeses reach sv_votepercent
+// of the players there were when the vote began. A kick passed puts the player off for
+// an hour; a map passed is the server's to play next.
+static void vote_count(Connections *c, int slot)
 {
-    if (c->vote.kind == VOTE_NONE) return;
-    int players = connections_count(c), yes = 0, no = 0;
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (!c->items[i].joined) continue;
-        yes += c->vote.answer[i] == 1;
-        no += c->vote.answer[i] == 2;
+    if (c->vote.kind == VOTE_NONE || c->vote.answer[slot]) return;
+    c->vote.answer[slot] = 1;
+    int yes = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) yes += c->vote.answer[i] == 1;
+    int max = c->vote.max_votes > 0 ? c->vote.max_votes : 1;
+    if ((float)yes / (float)max < (float)c->vote_percent / 100.0f) return;
+    Vote v = c->vote;
+    if (v.kind == VOTE_MAP) {
+        snprintf(c->vote_map, sizeof c->vote_map, "%s", v.target);
+    } else if (c->items[v.slot].joined) {
+        c->items[v.slot].kick_why = KICK_VOTED;
+        connections_ban(c, v.slot, VOTE_KICK_BAN_TICKS, "Vote Kicked");
+        connections_kick(c, v.slot, "Vote Kicked");
     }
-    int needed = (players * VOTE_PERCENT + 99) / 100;
-    if (needed < 1) needed = 1;
-    if (yes >= needed) {
-        Vote v = c->vote;
-        if (v.kind == VOTE_MAP) {
-            snprintf(c->vote_map, sizeof c->vote_map, "%s", v.target);
-            vote_end(c, true);
-        } else {
-            vote_end(c, true);
-            if (c->items[v.slot].joined) {
-                c->items[v.slot].kick_why = KICK_VOTED;
-                connections_kick(c, v.slot, "kicked by a vote");
-            }
-        }
-    } else if (players - no < needed) {
-        vote_end(c, false);
-    }
+    vote_end(c, true);
 }
 
+// Each tick (TimerVote): the vote runs out, and the cooldowns run down.
 static void vote_tick(Connections *c)
 {
+    for (int i = 0; i < MAX_PLAYERS; i++)
+        if (c->vote_cooldown[i] > -1) c->vote_cooldown[i]--;
     if (c->vote.kind == VOTE_NONE) return;
     if (--c->vote.ticks_left <= 0) vote_end(c, false);
 }
 
+// StartVote: the players on now are the votes there are to gather; the starter may not
+// start another for two minutes. A kick's starter has voted by starting it (the
+// original's client sends its yes as the box would); a map's has not, and presses F12.
 static void vote_start(Connections *c, int slot, VoteKind kind, const char *target, int target_slot, const char *reason)
 {
-    c->vote = (Vote){.kind = kind, .slot = target_slot, .starter = slot, .ticks_left = VOTE_TICKS};
+    c->vote = (Vote){.kind = kind, .slot = target_slot, .starter = slot, .ticks_left = VOTE_TICKS, .max_votes = connections_count(c)};
     snprintf(c->vote.target, sizeof c->vote.target, "%s", target);
     snprintf(c->vote.reason, sizeof c->vote.reason, "%s", reason ? reason : "");
-    c->vote.answer[slot] = 1;
+    c->vote_cooldown[slot] = VOTE_COOLDOWN_TICKS;
     tell_vote(c, NULL); // the vote's box says who wants what; the original's console says nothing
-    vote_check(c);
+    if (kind == VOTE_KICK) {
+        say(c->console, "%s started votekick against %s - Reason:%s\n", c->items[slot].name, target, c->vote.reason);
+        vote_count(c, slot);
+    }
 }
 
 // /team <n>: the team menu's choice, the original's numbering: 0 to play with no teams,
@@ -484,7 +570,8 @@ static void team_command(Connections *c, Game *g, int slot, const char *rest)
     announce_join(c, g, slot);
 }
 
-// A command said in the chat: team <n>, votemap <map>, votekick <player>, yes, no.
+// A command said in the chat: team <n>, votemap <map>, votekick <player> [reason], yes,
+// no. The votes as the original's ServerHandleVoteKick and CommandVotemap take them.
 static void vote_command(Connections *c, Game *g, int slot, const char *text)
 {
     char word[NET_TEXT_SIZE];
@@ -496,38 +583,56 @@ static void vote_command(Connections *c, Game *g, int slot, const char *text)
 
     if (strcmp(word, "team") == 0) {
         team_command(c, g, slot, rest);
-    } else if (strcmp(word, "votemap") == 0 || strcmp(word, "votekick") == 0) {
+    } else if (strcmp(word, "votemap") == 0) {
+        // CommandVotemap: with a vote on, a yes to it if it is for this map; else a new one,
+        // for a map the server has, by a player who may
         if (c->vote.kind != VOTE_NONE) {
-            tell(c, slot, "A vote is already on");
+            if (c->vote.kind == VOTE_MAP && strcmp(c->vote.target, rest) == 0) vote_count(c, slot);
             return;
         }
-        if (strcmp(word, "votemap") == 0) {
-            if (!map_exists(c, rest)) {
-                tell(c, slot, "No such map: %s", rest);
-                return;
-            }
-            vote_start(c, slot, VOTE_MAP, rest, -1, NULL);
-        } else {
-            // the player first, then the reason, as much of it as the box shows
-            char who[NET_TEXT_SIZE];
-            int k = 0;
-            while (*rest && *rest != ' ' && k < (int)sizeof who - 1) who[k++] = *rest++;
-            who[k] = '\0';
-            while (*rest == ' ') rest++;
-            int target = player_named(c, who);
-            if (target < 0) {
-                tell(c, slot, "No such player: %s", who);
-                return;
-            }
-            vote_start(c, slot, VOTE_KICK, c->items[target].name, target, rest);
-        }
-    } else if (strcmp(word, "yes") == 0 || strcmp(word, "no") == 0) {
-        if (c->vote.kind == VOTE_NONE) {
-            tell(c, slot, "No vote is on");
+        if (!map_exists(c, rest)) {
+            tell(c, slot, "Map not found (%s)", rest);
             return;
         }
-        c->vote.answer[slot] = strcmp(word, "yes") == 0 ? 1 : 2;
-        vote_check(c);
+        if (c->vote_cooldown[slot] >= 0) {
+            tell(c, slot, "Can't vote for 2:00 minutes after joining game or last vote");
+            return;
+        }
+        vote_start(c, slot, VOTE_MAP, rest, -1, "---");
+    } else if (strcmp(word, "votekick") == 0) {
+        // ServerHandleVoteKick: a yes to the kick on, unless I am its target; else a new one,
+        // quietly refused within the cooldown
+        char who[NET_TEXT_SIZE];
+        int k = 0;
+        while (*rest && *rest != ' ' && k < (int)sizeof who - 1) who[k++] = *rest++;
+        who[k] = '\0';
+        while (*rest == ' ') rest++;
+        int target = player_named(c, who);
+        if (c->vote.kind != VOTE_NONE) {
+            if (c->vote.kind != VOTE_KICK) return;
+            if (c->vote.slot == slot) {
+                tell(c, slot, "A vote has been cast against you. You can not vote.");
+                return;
+            }
+            if (target == c->vote.slot) vote_count(c, slot);
+            return;
+        }
+        if (c->vote_cooldown[slot] >= 0) return;
+        if (target < 0) {
+            tell(c, slot, "No such player: %s", who);
+            return;
+        }
+        vote_start(c, slot, VOTE_KICK, c->items[target].name, target, rest);
+    } else if (strcmp(word, "yes") == 0) {
+        // F12: a yes to the vote on, whatever it is for; its target may not
+        if (c->vote.kind == VOTE_NONE) return;
+        if (c->vote.kind == VOTE_KICK && c->vote.slot == slot) {
+            tell(c, slot, "A vote has been cast against you. You can not vote.");
+            return;
+        }
+        vote_count(c, slot);
+    } else if (strcmp(word, "no") == 0) {
+        // F11 is the voter's own business: the original's client only drops the box
     } else {
         tell(c, slot, "Unknown command: /%s", word);
     }

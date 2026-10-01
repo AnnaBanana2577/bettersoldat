@@ -101,6 +101,13 @@ static int want_votes, want_announcements; // what the first client waits to hav
 static bool vote_heard(TestClient **c) { return c[0]->votes >= want_votes && c[2]->votes >= want_votes; }
 static bool answered(TestClient **c) { return c[0]->announcements >= want_announcements; }
 static bool third_cut_off(TestClient **c) { return c[2]->closed; }
+static bool third_answered(TestClient **c) { return c[2]->denied || c[2]->welcomed; }
+static int never_rounds; // a few rounds for word to travel, waiting for nothing in particular
+static bool never(TestClient **c)
+{
+    (void)c;
+    return ++never_rounds % 20 == 0;
+}
 
 void join_tests(void)
 {
@@ -157,36 +164,65 @@ void join_tests(void)
           "a team line reaches the team alone, a public one everyone (a heard %d, d heard %d: %s)", a.chats - a_before,
           d.chats - d_before, d.chat.text);
 
-    // Votes ride the chat. A map vote by one of two players is half, short of the 51%;
-    // the other's yes passes it, and the server is handed the map.
+    // Votes ride the chat, and run as the original's: a newcomer may not start one for
+    // two minutes, so the cooldowns are waived here; only yeses count, against the two
+    // players on, and 60% of them is both. A map vote's starter has not voted by
+    // starting it: one yes of two is half, short; the starter's own passes it, and the
+    // server is handed the map.
     snprintf(conns.maps_dir, sizeof conns.maps_dir, "assets/maps");
     MsgChat cmd = {.slot = 0, .text = "/votemap ctf_Ash"};
     client_send(&a, MSG_CHAT, route_chat, &cmd);
     want_votes = 1;
     pump(&conns, g, three, 3, vote_heard);
+    CHECK(conns.vote.kind == VOTE_NONE, "a player just joined may not start a vote: it is refused");
+    CHECK(a.announcements == 3 && strstr(a.chat.text, "2:00 minutes") != NULL, "and told why, alone (%s)", a.chat.text);
+    conns.vote_cooldown[0] = conns.vote_cooldown[1] = -1;
+    client_send(&a, MSG_CHAT, route_chat, &cmd);
+    pump(&conns, g, three, 3, vote_heard);
     char voted[NET_MAP_SIZE];
     CHECK(a.vote.kind == VOTE_MAP && strcmp(a.vote.target, "ctf_Ash") == 0 && strcmp(a.vote.starter, "Tester") == 0 &&
-              d.vote.kind == VOTE_MAP && !connections_take_vote_map(&conns, voted, sizeof voted),
-          "a map vote begins, everyone told what and by whom, and one of two is not enough");
+              d.vote.kind == VOTE_MAP && !connections_take_vote_map(&conns, voted, sizeof voted) && conns.vote.max_votes == 2,
+          "a map vote begins, everyone told what and by whom, against the two players on");
     snprintf(cmd.text, sizeof cmd.text, "/yes");
     client_send(&d, MSG_CHAT, route_chat, &cmd);
+    pump(&conns, g, three, 3, never);
+    CHECK(conns.vote.kind == VOTE_MAP && conns.vote.answer[1] == 1 && !connections_take_vote_map(&conns, voted, sizeof voted),
+          "one yes of two is half, short of the 60%%: the vote is still on");
+    client_send(&a, MSG_CHAT, route_chat, &cmd);
     want_votes = 2;
     pump(&conns, g, three, 3, vote_heard);
     CHECK(a.vote.kind == VOTE_NONE && connections_take_vote_map(&conns, voted, sizeof voted) && strcmp(voted, "ctf_Ash") == 0,
-          "the other's yes passes it: everyone hears it is over and the server is handed the map (%s)", voted);
+          "the starter's yes passes it: everyone hears it is over and the server is handed the map (%s)", voted);
+    conns.vote_cooldown[0] = -1;
     snprintf(cmd.text, sizeof cmd.text, "/votemap NoSuchMap");
     client_send(&a, MSG_CHAT, route_chat, &cmd);
     want_announcements = a.announcements + 1; // the server's answer, to the asker alone
     pump(&conns, g, three, 3, answered);
-    CHECK(conns.vote.kind == VOTE_NONE, "a vote for a map the server doesn't have never begins");
-    // a kick vote against the third, agreed to by the third, passes and cuts it off
+    CHECK(conns.vote.kind == VOTE_NONE && strstr(a.chat.text, "Map not found") != NULL,
+          "a vote for a map the server doesn't have never begins (%s)", a.chat.text);
+    // A kick vote against the third: the starter's yes goes with it, one of two, and the
+    // third, its target, may not vote. At the two players' 60% it would run out; at a
+    // server's 50% the starter's yes passes it at once, and the third is cut off and
+    // barred for an hour.
+    conns.vote_cooldown[0] = -1;
     snprintf(cmd.text, sizeof cmd.text, "/votekick 1");
     client_send(&a, MSG_CHAT, route_chat, &cmd);
     want_votes = 3;
     pump(&conns, g, three, 3, vote_heard);
-    CHECK(conns.vote.kind == VOTE_KICK && conns.vote.slot == 1, "a kick vote names the player by slot");
+    CHECK(conns.vote.kind == VOTE_KICK && conns.vote.slot == 1 && conns.vote.answer[0] == 1,
+          "a kick vote names the player by slot, the starter's yes counted (kind %d, slot %d)", conns.vote.kind, conns.vote.slot);
     snprintf(cmd.text, sizeof cmd.text, "/yes");
     client_send(&d, MSG_CHAT, route_chat, &cmd);
+    pump(&conns, g, three, 3, never);
+    CHECK(conns.vote.kind == VOTE_KICK && conns.vote.answer[1] == 0, "its target's yes is not taken");
+    conns.vote.ticks_left = 1; // it runs out
+    pump(&conns, g, three, 3, never);
+    for (int t = 0; t < 2 && conns.vote.kind != VOTE_NONE; t++) connections_snapshots(&conns, g);
+    CHECK(conns.vote.kind == VOTE_NONE && conns.items[1].joined, "run out, nothing happens to it");
+    conns.vote_percent = 50;
+    conns.vote_cooldown[0] = -1;
+    snprintf(cmd.text, sizeof cmd.text, "/votekick 1 afk");
+    client_send(&a, MSG_CHAT, route_chat, &cmd);
     pump(&conns, g, three, 3, third_cut_off);
     for (int round = 0; round < 50 && conns.items[1].joined; round++) { // the server hears the line close
         connections_poll(&conns, g);
@@ -194,6 +230,15 @@ void join_tests(void)
     }
     CHECK(d.closed && d.denied && !conns.items[1].joined && conns.vote.kind == VOTE_NONE,
           "passed, it is told why and cut off, and its slot frees (denied: %s; closed %d, joined %d, vote %d)", d.denial.reason, d.closed, conns.items[1].joined, conns.vote.kind);
+    CHECK(conns.bans[0].host != 0 && conns.bans[0].until == conns.ticks + VOTE_KICK_BAN_TICKS && strcmp(conns.bans[0].reason, "Vote Kicked") == 0,
+          "and its address is barred for an hour");
+    // which keeps it out: the same address comes back and is denied
+    TestClient e;
+    TestClient *four[3] = {&a, &b, &e};
+    CHECK(client_open(&e, NET_VERSION), "the kicked player's address connects again");
+    pump(&conns, g, four, 3, third_answered);
+    CHECK(e.denied && !e.welcomed && strstr(e.denial.reason, "banned") != NULL, "and is denied: %s", e.denial.reason);
+    net_close(&e.link);
 
     net_close(&d.link);
     net_close(&a.link);

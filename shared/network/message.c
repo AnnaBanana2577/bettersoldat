@@ -13,6 +13,9 @@ const bool MSG_RELIABLE[MSG_COUNT] = {
     [MSG_CLIENT_STATE] = false,
     [MSG_SNAPSHOT] = false,
     [MSG_VOTE] = true,
+    [MSG_MAP_CHANGE] = true,
+    [MSG_MAP_QUERY] = true,
+    [MSG_MAP_REPLY] = true,
 };
 
 void msg_kind(NetBuf *b, MsgKind *kind)
@@ -73,4 +76,19 @@ void msg_chat(NetBuf *b, MsgChat *m)
     net_range(b, &kind, CHAT_KINDS - 1);
     m->kind = (uint8_t)kind;
     net_string(b, m->text, sizeof m->text);
+}
+
+void msg_map_change(NetBuf *b, MsgMapChange *m)
+{
+    net_u16(b, &m->counter);
+    net_string(b, m->map, sizeof m->map);
+}
+
+void msg_map_query(NetBuf *b, MsgMapQuery *m) { net_u16(b, &m->index); }
+
+void msg_map_reply(NetBuf *b, MsgMapReply *m)
+{
+    net_u16(b, &m->index);
+    net_u16(b, &m->count);
+    net_string(b, m->map, sizeof m->map);
 }

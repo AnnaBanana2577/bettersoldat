@@ -31,6 +31,11 @@ typedef struct ClientNet {
     MsgChat inbox[CLIENT_NET_INBOX]; // chat heard and not yet taken (client_net_take_chat), oldest first
     int inbox_count;
     MsgVote vote;           // the vote on, kind none for none; for the HUD
+    uint32_t vote_seq;      // votes begun, counted: a new one is told from the last
+    MsgMapChange map_change; // the round's end as last told: the map coming
+    bool map_changing;      // a MapChange not yet taken (client_net_take_map_change)
+    MsgMapReply map_reply;  // the server's answer to the map window's last question
+    bool map_replied;       // one has come since the last question
 } ClientNet;
 
 // Once per program; false if ENet or the ring wouldn't start.
@@ -51,6 +56,13 @@ bool client_net_take_map(ClientNet *n);
 // A line of chat heard, oldest first: its sender's slot (MAX_PLAYERS for the server),
 // whether to the team, and the text. False when there is none.
 bool client_net_take_chat(ClientNet *n, MsgChat *out);
+// The round ended (the original's MapChange): once, true, with `n->map_change` set:
+// the map coming and the ticks until it, for the scoreboard to come up.
+bool client_net_take_map_change(ClientNet *n);
+// The map window's question: the name of the server's n-th map. The answer lands in
+// `n->map_reply` (client_net_map_replied, once per answer).
+void client_net_map_query(ClientNet *n, int index);
+bool client_net_map_replied(ClientNet *n);
 // After the client's tick: its decisions among the tick's events and its state to the
 // server.
 void client_net_tick(ClientNet *n, const Game *g);

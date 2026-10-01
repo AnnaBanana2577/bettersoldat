@@ -40,6 +40,7 @@ typedef struct Server {
     Cvar *hostname;
     Cvar *gamemode, *timelimit, *killlimit;
     Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat;
+    Cvar *votepercent;
     Host host;
     bool quit;
 } Server;
@@ -155,6 +156,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->bots_bravo = cvar_register(con, "bots_random_bravo", "0", 0, "bots on bravo in capture the flag");
     sv->bots_difficulty = cvar_register(con, "bots_difficulty", "100", 0, "300 stupid, 200 poor, 100 normal, 50 hard, 10 impossible");
     sv->bots_chat = cvar_register(con, "bots_chat", "1", 0, "whether the bots talk");
+    sv->votepercent = cvar_register(con, "sv_votepercent", "60", 0, "the percentage of players whose yes passes a vote");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
     console_add_command(con, "say", cmd_say, sv, "say something to everyone, as the server");
@@ -180,6 +182,7 @@ static HostSettings settings_from_cvars(const Server *sv)
         .bots_bravo = clampi(sv->bots_bravo->integer, 0, MAX_PLAYERS),
         .bots_difficulty = sv->bots_difficulty->integer,
         .bots_chat = sv->bots_chat->integer != 0,
+        .vote_percent = sv->votepercent->integer,
     };
     snprintf(s.assets, sizeof s.assets, "%s", sv->assets->value);
     snprintf(s.map, sizeof s.map, "%s", sv->map->value);

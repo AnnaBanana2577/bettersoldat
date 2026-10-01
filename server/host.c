@@ -8,6 +8,7 @@
 #include "rounds.h"
 
 #define MAX_STALL 0.25 // a stall never turns into a burst of ticks
+#define HOST_MAX_MAPS 128
 
 static void bot_say(void *user, int slot, const char *text) { connections_say_as(&((Host *)user)->connections, slot, text); }
 
@@ -77,13 +78,31 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
         h->game = NULL;
         return false;
     }
-    if (!connections_init(&h->connections, &h->link, console, settings->map)) {
+    if (!connections_init(&h->connections, &h->link, settings->quiet ? NULL : console, settings->map)) {
         fprintf(stderr, "out of memory\n");
         host_close(h);
         return false;
     }
     snprintf(h->connections.maps_dir, sizeof h->connections.maps_dir, "%s/maps", settings->assets);
     snprintf(h->connections.hostname, sizeof h->connections.hostname, "%s", settings->hostname);
+    if (settings->vote_percent > 0) h->connections.vote_percent = settings->vote_percent;
+
+    // the server's list of maps (the original's MapsList): the rotation as given, or
+    // every map under assets when there is none; the map window pages it, a vote picks from it
+    h->maps = calloc(HOST_MAX_MAPS, sizeof *h->maps);
+    if (h->maps) {
+        const char *p = settings->maps;
+        while (*p && h->map_count < HOST_MAX_MAPS) {
+            while (*p == ' ' || *p == ',' || *p == '\t') p++;
+            if (!*p) break;
+            const char *start = p;
+            while (*p && *p != ' ' && *p != ',' && *p != '\t') p++;
+            snprintf(h->maps[h->map_count++], sizeof h->maps[0], "%.*s", (int)(p - start), start);
+        }
+        if (h->map_count == 0) h->map_count = list_files(h->connections.maps_dir, ".pms", h->maps, HOST_MAX_MAPS);
+        h->connections.maps = (const char (*)[64])h->maps;
+        h->connections.map_count = h->map_count;
+    }
 
     bots_init(&h->bots, (BotSettings){.difficulty = settings->bots_difficulty, .chat = settings->bots_chat}, bot_say, h);
     h->profiles = calloc(BOT_PROFILES, sizeof *h->profiles);
@@ -103,6 +122,7 @@ void host_close(Host *h)
     if (h->link.host) net_close(&h->link);
     connections_free(&h->connections);
     free(h->profiles);
+    free(h->maps);
     free(h->game->world.history);
     context_destroy(&h->game->ctx);
     free(h->game);
@@ -113,19 +133,52 @@ void host_end_round(Host *h) { h->next_round = true; }
 
 void host_say(Host *h, const char *text) { connections_say(&h->connections, text); }
 
-// The next round: on `chosen` if a vote chose one, else on the map after this one in
-// the rotation (or this one again).
-static bool next_round(Host *h, const char *chosen)
+// The next round, on the map the countdown led to.
+static bool next_round(Host *h)
 {
-    char map[NET_MAP_SIZE];
-    if (chosen) snprintf(map, sizeof map, "%s", chosen);
-    else rounds_next_map(h->settings.maps, h->connections.map, map, sizeof map);
-    if (!round_start(h->game, &h->connections, h->settings.assets, map, h->settings.mode)) {
-        fprintf(stderr, "could not load map '%s' from '%s'\n", map, h->settings.assets);
+    if (!round_start(h->game, &h->connections, h->settings.assets, h->pending_map, h->settings.mode)) {
+        fprintf(stderr, "could not load map '%s' from '%s'\n", h->pending_map, h->settings.assets);
         return false;
     }
     bots_new_round(&h->bots);
     h->next_round = false;
+    h->ending_told = false;
+    h->chosen_map[0] = h->pending_map[0] = '\0';
+    return true;
+}
+
+// The round's end, after the tick: asked for (nextmap, a vote) the match is stopped
+// now, as the original's PrepareMapChange does; as the match ends, by whatever, the
+// map coming is settled (the one asked for, else the rotation's next) and told to
+// everyone, and the scores stand while the counter runs; run out, the next round begins.
+static bool round_change(Host *h)
+{
+    Game *g = h->game;
+    char chosen[NET_MAP_SIZE];
+    if (connections_take_vote_map(&h->connections, chosen, sizeof chosen)) {
+        snprintf(h->chosen_map, sizeof h->chosen_map, "%s", chosen);
+        snprintf(h->end_why, sizeof h->end_why, "vote");
+        h->next_round = true;
+    } else if (h->next_round && !h->end_why[0]) {
+        snprintf(h->end_why, sizeof h->end_why, "nextmap");
+    }
+    if (h->next_round && g->match.state != MATCH_ENDED) {
+        match_stop(&g->match, &g->incoming); // the end goes out with the next tick's events
+        h->next_round = false;
+    }
+    if (g->match.state == MATCH_ENDED && !h->ending_told) {
+        if (!h->end_why[0]) snprintf(h->end_why, sizeof h->end_why, "limit");
+        if (h->chosen_map[0]) snprintf(h->pending_map, sizeof h->pending_map, "%s", h->chosen_map);
+        else rounds_next_map(h->settings.maps, h->connections.map, h->pending_map, sizeof h->pending_map);
+        connections_map_change(&h->connections, g, h->pending_map);
+        if (h->console && !h->settings.quiet) console_print(h->console, "Next map: %s\n", h->pending_map);
+        h->ending_told = true;
+        h->next_round = false;
+    }
+    if (match_over(&g->match)) {
+        h->end_why[0] = '\0';
+        if (!next_round(h)) return false;
+    }
     return true;
 }
 
@@ -144,9 +197,7 @@ bool host_pump(Host *h, double dt)
         bots_hear(&h->bots, h->game);
         connections_snapshots(&h->connections, h->game);
         h->accumulator -= TICK_SECONDS;
-        char chosen[NET_MAP_SIZE];
-        bool voted = connections_take_vote_map(&h->connections, chosen, sizeof chosen);
-        if ((voted || h->next_round || match_over(&h->game->match)) && !next_round(h, voted ? chosen : NULL)) return false;
+        if (!round_change(h)) return false;
     }
     net_flush(&h->link);
     return true;

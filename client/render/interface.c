@@ -292,11 +292,15 @@ static int rank_players(const HudData *d, int out[MAX_PLAYERS])
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (d->players[i].active) out[n++] = i;
     }
-    for (int i = 1; i < n; i++) { // insertion sort, by kills descending, then by deaths
+    // insertion sort, as the original's SortPlayers ranks them: captures first, then
+    // kills, then the fewer deaths
+    for (int i = 1; i < n; i++) {
         int p = out[i], j = i - 1;
-        while (j >= 0 && (d->players[out[j]].kills < d->players[p].kills ||
-                          (d->players[out[j]].kills == d->players[p].kills &&
-                           d->players[out[j]].deaths > d->players[p].deaths))) {
+        const HudPlayer *a = &d->players[p];
+        while (j >= 0) {
+            const HudPlayer *b = &d->players[out[j]];
+            bool after = b->flags < a->flags || (b->flags == a->flags && (b->kills < a->kills || (b->kills == a->kills && b->deaths > a->deaths)));
+            if (!after) break;
             out[j + 1] = out[j];
             j--;
         }
@@ -806,6 +810,33 @@ static void draw_frags_texts(const Frame *f, const HudData *d, float menu_bottom
         }
     }
     (void)menu_bottom; // the demo's name goes above it, once demos are recorded
+}
+
+// The round's end over the scoreboard (RenderEndGameTexts): the team that won, or a
+// tie, along the board's bottom edge; with no teams, the player who won, by the top.
+static void draw_end_game_texts(const Frame *f, const HudData *d, float menu_bottom)
+{
+    int ranked[MAX_PLAYERS];
+    int n = rank_players(d, ranked);
+    text_style(FONT_MENU);
+    if (d->team_game) {
+        text_align(TEXT_BOTTOM);
+        float y = menu_bottom;
+        int alpha = d->team_kills[TEAM_ALPHA], bravo = d->team_kills[TEAM_BRAVO];
+        if (alpha == bravo) {
+            text_color((Rgba){245, 245, 245, 255});
+            text_draw("It's a tie", f->fragx + 137, y);
+        } else {
+            text_color(alpha > bravo ? (Rgba){210, 15, 5, 255} : (Rgba){5, 15, 205, 255});
+            text_draw(alpha > bravo ? "Alpha team wins" : "Bravo team wins", f->fragx + 50, y);
+        }
+        text_align(TEXT_TOP);
+    } else if (n > 0 && d->players[ranked[0]].kills > 0) {
+        char str[HUD_NAME + 8];
+        snprintf(str, sizeof str, "%s wins", d->players[ranked[0]].name);
+        text_color((Rgba){185, 250, 138, 255});
+        text_draw(str, f->fragx + 107, 24);
+    }
 }
 
 void interface_draw_box(const Interface *hud, float x, float y, float w, float h, Rgba color)
@@ -1473,6 +1504,11 @@ void interface_draw(const Interface *hud, const HudData *d, const GameMenus *men
     text_shadow(1, 1, (Rgba){0, 0, 0, 255});
     if (me->active) draw_player_texts(&f, d, me, ctx);
     draw_team_scores(&f, d);
+    if (d->round_over) { // the countdown: who won, over the scoreboard, with more than one playing
+        int players = 0;
+        for (int i = 0; i < MAX_PLAYERS; i++) players += d->players[i].active;
+        if (d->frags_menu && players > 1) draw_end_game_texts(&f, d, frags_bottom);
+    }
     if (d->paused) {
         text_color((Rgba){185, 250, 138, 255});
         text_draw("Game paused", 197 + f.fragx, 24);
