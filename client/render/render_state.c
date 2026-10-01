@@ -26,7 +26,7 @@ static Vec2 lerp(Vec2 a, Vec2 b, float t)
 }
 
 // The team's shirt, worn over the player's own in a team game.
-static Rgba team_shirt(Team team)
+Rgba team_shirt(Team team)
 {
     switch (team) {
     case TEAM_ALPHA: return (Rgba){199, 56, 51, 255};

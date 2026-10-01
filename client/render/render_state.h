@@ -59,6 +59,9 @@ typedef struct RenderState {
 // The world's soldiers as they stand after a tick.
 void tick_snapshot_capture(TickSnapshot *snap, const World *w);
 
+// The team's shirt, worn over the player's own in a team game, and the roster's colour.
+Rgba team_shirt(Team team);
+
 // The frame `alpha` of the way from `from` to `to`. Positions blend between the two;
 // everything discrete (animation frames, weapons, health) is the latest tick's. A
 // soldier placed anew between the two (spawned, respawned, corrected) is drawn where

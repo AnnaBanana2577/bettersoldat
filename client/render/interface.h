@@ -41,6 +41,7 @@ typedef struct Interface {
     HudSprite smalldot;   // the minimap's dots
     HudSprite overlay;    // the bonus tint over the screen
     HudSprite sight;      // the sniper line
+    HudSprite deaddot, flag, bot, connection; // the scoreboard's rows: dead, carrying, a bot, the line's quality
     HudSprite guns[WEAPON_COUNT]; // the kill console's icons, by weapon
 } Interface;
 

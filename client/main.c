@@ -55,6 +55,7 @@
 #include <math.h>
 
 #include "audio/audio.h"
+#include "host.h" // the server's, built in for Local Play
 #include "ui/consoles.h"
 #include "ui/feed.h"
 #include "ui/mainmenu.h"
@@ -101,6 +102,11 @@ typedef struct App {
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
     Cvar *hud_demo;       // the HUD full of sample data, to see every part of it: page 1, 2 or 3
     char screenshot[512]; // a PNG of the 60th frame, then quit
+    // Local Play's: the server's own cvars, which the main menu edits and the config
+    // keeps, so a dedicated server started beside this config plays the same game.
+    Cvar *sv_port, *sv_maps, *sv_hostname, *sv_gamemode, *sv_timelimit, *sv_killlimit;
+    Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat;
+    Host *host; // the game hosted here (the `host` command), joined over the loopback; NULL for none
 
     Game *game; // large; on the heap
     int me;     // my soldier: 0 in the local sandbox, the slot the server gave me online
@@ -121,7 +127,8 @@ typedef struct App {
     char maps[128][64];       // the maps under assets, for the map window
     int map_count;
     bool was_dead;         // my soldier as of the last tick, for the weapons menu at death
-    int seen_life;         // the life the weapons menu last opened for: a new one opens it again
+    bool was_watching;     // dead or a spectator as of the last tick, for the camera's first target
+    int seen_life;         // my latest life, -1 before the first, which opens the weapons menu
     bool team_asked;       // the team menu shown for this round's join
     // Watching: the player the camera follows (-1 for me), or the free camera, moved by
     // the cursor's offset from the middle, as the original's spectator has it.
@@ -551,10 +558,64 @@ static void cmd_connect(Console *con, int argc, char **argv, void *user)
     client_net_connect(&app->net, con, address, port, app->player_name->value);
 }
 
+// The game hosted here is over: everyone on it is let go, the port freed.
+static void host_stop(App *app)
+{
+    if (!app->host) return;
+    host_close(app->host);
+    free(app->host);
+    app->host = NULL;
+    console_print(app->console, "no longer hosting\n");
+}
+
+// disconnect: the line closed, and the game hosted here, if any, with it.
 static void cmd_disconnect(Console *con, int argc, char **argv, void *user)
 {
     (void)argc, (void)argv;
-    client_net_disconnect(&((App *)user)->net, con);
+    App *app = user;
+    client_net_disconnect(&app->net, con);
+    host_stop(app);
+}
+
+// host: a server here on the sv_* and bots_* cvars (Local Play), then join it over the
+// loopback. The first map of sv_maps begins, or `map` with no rotation.
+static void cmd_host(Console *con, int argc, char **argv, void *user)
+{
+    (void)argc, (void)argv;
+    App *app = user;
+    if (app->host) {
+        console_print(con, "already hosting on port %d\n", app->host->settings.port);
+        return;
+    }
+    if (client_net_joined(&app->net)) client_net_disconnect(&app->net, con);
+    HostSettings s = {
+        .port = (uint16_t)app->sv_port->integer,
+        .mode = app->sv_gamemode->integer == 1 ? MATCH_DEATHMATCH : app->sv_gamemode->integer == 2 ? MATCH_CTF : MATCH_MODE_COUNT,
+        .time_limit = app->sv_timelimit->integer,
+        .score_limit = app->sv_killlimit->integer,
+        .bots_noteam = clampi(app->bots_noteam->integer, 0, MAX_PLAYERS),
+        .bots_alpha = clampi(app->bots_alpha->integer, 0, MAX_PLAYERS),
+        .bots_bravo = clampi(app->bots_bravo->integer, 0, MAX_PLAYERS),
+        .bots_difficulty = app->bots_difficulty->integer,
+        .bots_chat = app->bots_chat->integer != 0,
+    };
+    snprintf(s.assets, sizeof s.assets, "%s", app->assets->value);
+    snprintf(s.maps, sizeof s.maps, "%s", app->sv_maps->value);
+    snprintf(s.hostname, sizeof s.hostname, "%s", app->sv_hostname->value);
+    rounds_next_map(s.maps, "", s.map, sizeof s.map); // the rotation's first, or the map cvar's
+    if (!s.map[0]) snprintf(s.map, sizeof s.map, "%s", app->map->value);
+
+    app->host = calloc(1, sizeof(Host));
+    if (!app->host || !host_open(app->host, con, &s)) {
+        console_print_color(con, HUD_COLOR_WARNING, "could not host %s on port %d\n", s.map, s.port);
+        free(app->host);
+        app->host = NULL;
+        return;
+    }
+    char address[64];
+    snprintf(address, sizeof address, "127.0.0.1:%d", s.port);
+    client_net_connect(&app->net, con, "127.0.0.1", s.port, app->player_name->value);
+    (void)address;
 }
 
 // +radio / -radio: the radio menu, shown while the key is held. The digits choose
@@ -584,6 +645,8 @@ static void radio_choose(App *app, int digit)
     d->radio_state = 0;
 }
 
+static void cmd_freecam(Console *con, int argc, char **argv, void *user);
+
 // escmenu / weaponsmenu / teammenu / fragsmenu / statsmenu: each toggles its menu. The
 // scoreboard and the stats sit in the same place, so one closes the other, and neither
 // opens over the escape menu.
@@ -596,12 +659,22 @@ static void cmd_menu(Console *con, int argc, char **argv, void *user)
     const char *name = argv[0];
     if (strcmp(name, "escmenu") == 0) menus_show(m, MENU_ESC, !m->menus[MENU_ESC].active, d->mode, 1);
     else if (strcmp(name, "weaponsmenu") == 0) {
-        menus_show(m, MENU_LIMBO, !m->menus[MENU_LIMBO].active, d->mode, 1);
-        // closed while dead, it stays closed through the spawn; opened again, it comes back
-        if (app->game->world.soldiers[app->me].dead) {
+        // ControlGame.pas (TAction.Weapons): dead, the key opens and closes the menu, and
+        // closed that way it stays closed through the spawn (the lock) until opened again.
+        // Alive, the key never opens it: it closes one left open, and toggles the lock, so
+        // the menu is not seen again until the next death.
+        const Soldier *me = &app->game->world.soldiers[app->me];
+        if (m->menus[MENU_ESC].active || !me->active || me->team == TEAM_SPECTATOR) return;
+        if (me->dead) {
+            menus_show(m, MENU_LIMBO, !m->menus[MENU_LIMBO].active, d->mode, 1);
             app->limbo_lock = !m->menus[MENU_LIMBO].active;
-            console_print_color(con, HUD_COLOR_GAME, app->limbo_lock ? "Weapons menu disabled\n" : "Weapons menu active\n");
+        } else {
+            bool armed = me->weapon.id != WEAPON_NONE && me->secondary.id != WEAPON_NONE;
+            if (m->menus[MENU_LIMBO].active && !armed) return;
+            menus_show(m, MENU_LIMBO, false, d->mode, 1);
+            app->limbo_lock = !app->limbo_lock;
         }
+        console_print_color(con, HUD_COLOR_GAME, app->limbo_lock ? "Weapons menu disabled\n" : "Weapons menu active\n");
     }
     else if (strcmp(name, "teammenu") == 0) menus_show(m, MENU_TEAM, !m->menus[MENU_TEAM].active, d->mode, 1);
     else if (m->menus[MENU_ESC].active) return;
@@ -663,10 +736,23 @@ static bool console_open(App *app, int argc, char *argv[])
         }
     }
     app->hud_demo = cvar_register(con, "hud_demo", "0", 0, "fill the HUD with sample data: page 1, 2 or 3");
+    // the server's, for Local Play; saved, as the menu sets them
+    app->sv_port = cvar_register(con, "sv_port", "23073", CVAR_ARCHIVE, "the UDP port a game hosted here listens on");
+    app->sv_maps = cvar_register(con, "sv_maps", "", CVAR_ARCHIVE, "the maps in rotation, space-separated; the first plays first");
+    app->sv_hostname = cvar_register(con, "sv_hostname", "bettersoldat server", CVAR_ARCHIVE, "the hosted game's name, on the scoreboard");
+    app->sv_gamemode = cvar_register(con, "sv_gamemode", "0", CVAR_ARCHIVE, "0 the map's own, 1 deathmatch, 2 capture the flag");
+    app->sv_timelimit = cvar_register(con, "sv_timelimit", "15", CVAR_ARCHIVE, "minutes a round lasts");
+    app->sv_killlimit = cvar_register(con, "sv_killlimit", "10", CVAR_ARCHIVE, "the score that wins a round: kills, or captures in CTF");
+    app->bots_noteam = cvar_register(con, "bots_random_noteam", "0", CVAR_ARCHIVE, "bots in a deathmatch");
+    app->bots_alpha = cvar_register(con, "bots_random_alpha", "0", CVAR_ARCHIVE, "bots on alpha in capture the flag");
+    app->bots_bravo = cvar_register(con, "bots_random_bravo", "0", CVAR_ARCHIVE, "bots on bravo in capture the flag");
+    app->bots_difficulty = cvar_register(con, "bots_difficulty", "100", CVAR_ARCHIVE, "300 stupid, 200 poor, 100 normal, 50 hard, 10 impossible");
+    app->bots_chat = cvar_register(con, "bots_chat", "1", CVAR_ARCHIVE, "whether the bots talk");
     console_add_command(con, "quit", cmd_quit, app, "leave the game");
     console_add_command(con, "screenshot", cmd_screenshot, app, "write the 60th frame from now to a PNG, then quit");
     console_add_command(con, "escmenu", cmd_menu, app, "the escape menu");
     console_add_command(con, "weaponsmenu", cmd_menu, app, "the weapons menu");
+    console_add_command(con, "freecam", cmd_freecam, app, "the free camera while dead or watching; jump does the same");
     console_add_command(con, "teammenu", cmd_menu, app, "the team menu");
     console_add_command(con, "fragsmenu", cmd_menu, app, "the scoreboard");
     console_add_command(con, "statsmenu", cmd_menu, app, "the weapon stats");
@@ -680,7 +766,8 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "+radio", cmd_radio, app, "hold the radio menu open");
     console_add_command(con, "-radio", cmd_radio, app, NULL);
     console_add_command(con, "connect", cmd_connect, app, "join a server: connect <address[:port]>");
-    console_add_command(con, "disconnect", cmd_disconnect, app, "leave the server");
+    console_add_command(con, "disconnect", cmd_disconnect, app, "leave the server, and stop hosting one here");
+    console_add_command(con, "host", cmd_host, app, "host a game here on the sv_* and bots_* cvars, and join it");
     input_init(&app->input, con);
 
     input_default_binds(con);
@@ -840,8 +927,8 @@ static void player_name(const App *app, int i, char *name, size_t size)
 }
 
 // The next player to watch, from the one watched: alive, no spectator, and a teammate
-// unless I am watching from outside (GetCameraTarget). Nobody: the free camera.
-static void camera_next(App *app, bool backwards)
+// unless I am watching from outside (GetCameraTarget). False with nobody to watch.
+static bool camera_next(App *app, bool backwards)
 {
     const World *w = &app->game->world;
     const Soldier *me = &w->soldiers[app->me];
@@ -854,10 +941,28 @@ static void camera_next(App *app, bool backwards)
         if (!outside && s->team != me->team) continue;
         app->camera_follow = j;
         app->free_camera = false;
-        return;
+        return true;
     }
+    return false;
+}
+
+// The free camera, pushed about by the cursor: the original's for a dead player who
+// presses jump, and for anyone watching with nobody to watch.
+static void camera_free(App *app)
+{
     app->camera_follow = -1;
     app->free_camera = true;
+}
+
+// freecam: the free camera, for a player who is dead or watching; bindable, though the
+// jump key does the same while dead, as the original's does.
+static void cmd_freecam(Console *con, int argc, char **argv, void *user)
+{
+    (void)con, (void)argc, (void)argv;
+    App *app = user;
+    const Soldier *me = &app->game->world.soldiers[app->me];
+    if (!me->active || !(me->dead || me->team == TEAM_SPECTATOR) || app->menus.menus[MENU_LIMBO].active) return;
+    camera_free(app);
 }
 
 static void snapshot_tick(App *app)
@@ -892,17 +997,18 @@ static void tick(App *app)
     feed_tick(&app->feed, app->console, app->game, names, team_game(app), app->me);
     consoles_tick(&app->consoles);
 
-    // The weapons menu opens at my death and with every new life, the first included, and
-    // stays through the spawn, to pick with, until I move or fire, or pick; unless I
-    // closed it while dead. A game with teams asks the team first: the server keeps me
-    // watching until I say.
+    // The weapons menu (NetworkClientSprite.pas, NetworkUtils.pas): it opens at my
+    // death, unless I closed it while dead (the lock), and at my first life, before I
+    // have picked anything. It stays through the spawn, to pick with, until I pick a
+    // primary or move; the weaponsmenu key will not bring it back while I live. A game
+    // with teams asks the team first: the server keeps me watching until I say.
     const Soldier *me = &w->soldiers[app->me];
     bool spectator = me->active && me->team == TEAM_SPECTATOR;
     bool dead = me->active && me->dead && !spectator;
     bool limbo = app->menus.menus[MENU_LIMBO].active, esc = app->menus.menus[MENU_ESC].active;
-    bool new_life = me->active && !spectator && (int)me->life != app->seen_life;
-    if (new_life) app->seen_life = me->life;
-    if ((new_life || (dead && !app->was_dead)) && !app->limbo_lock && !limbo && !esc) {
+    bool first_life = me->active && !spectator && app->seen_life < 0;
+    if (me->active && !spectator) app->seen_life = me->life;
+    if ((first_life || (dead && !app->was_dead)) && !app->limbo_lock && !limbo && !esc) {
         menus_show(&app->menus, MENU_LIMBO, true, app->hud_data.mode, 1);
     }
     const Buttons moving = BUTTON_LEFT | BUTTON_RIGHT | BUTTON_JUMP | BUTTON_CROUCH | BUTTON_PRONE | BUTTON_JET | BUTTON_FIRE | BUTTON_THROW;
@@ -913,17 +1019,29 @@ static void tick(App *app)
         app->team_asked = true;
     }
 
-    // Watching (LocalInput.pas): dead or a spectator, fire or jump follows the next player
-    // and jet the one before, among those alive I may watch; with nobody, the free
-    // camera, which the cursor pushes. Alive, the camera is mine again.
+    // Watching (Control.pas, "change camera when dead"): as I die or join as a
+    // spectator the camera goes to a teammate, if one is up. Then, with no weapons menu
+    // open, fire follows the next player and jet the one before, among those alive I
+    // may watch (my team's in a team game); jump, or the freecam command, is the free
+    // camera, which the cursor pushes; and fire with nobody to follow is that too.
+    // Alive, the camera is mine again.
     Buttons pressed = (Buttons)(cmds[app->me].buttons & ~app->camera_keys);
     app->camera_keys = cmds[app->me].buttons;
-    if (me->active && (me->dead || spectator)) {
-        if (!limbo && (pressed & (BUTTON_FIRE | BUTTON_JUMP | BUTTON_JET))) camera_next(app, (pressed & BUTTON_JET) != 0);
+    bool watching = me->active && (me->dead || spectator);
+    if (watching) {
+        if (!app->was_watching) {
+            app->camera_follow = -1;
+            app->free_camera = false;
+            camera_next(app, false);
+        } else if (!limbo) {
+            if (pressed & BUTTON_JUMP) camera_free(app);
+            else if ((pressed & (BUTTON_FIRE | BUTTON_JET)) && !camera_next(app, (pressed & BUTTON_JET) != 0)) camera_free(app);
+        }
     } else {
         app->camera_follow = -1;
         app->free_camera = false;
     }
+    app->was_watching = watching;
     for (int i = 0; i < MAX_PLAYERS; i++) // what was said fades
         if (app->hud_data.players[i].chat_delay > 0) app->hud_data.players[i].chat_delay--;
 }
@@ -1129,11 +1247,14 @@ static void hud_data_build(App *app)
         p->team = s->team;
         p->dead = s->dead;
         p->holding_flag = s->held && thing_is_flag(g->world.things[s->held - 1].style);
-        p->shirt = s->look.shirt;
+        p->bot = s->bot;
+        // the team's shirt in a team game, as the original's ShirtColor is then (and the roster's colour)
+        p->shirt = d->team_game && s->team != TEAM_SPECTATOR ? team_shirt(s->team) : s->look.shirt;
         p->kills = s->kills;
         p->deaths = s->deaths;
         p->flags = s->flags;
         p->ping = s->ping;
+        p->bot = s->bot;
         p->typing = i != app->me && s->typing;
         p->spectator = s->team == TEAM_SPECTATOR;
     }
@@ -1163,8 +1284,10 @@ static void hud_data_build(App *app)
     d->me = app->me;
     d->camera_follow = app->camera_follow;
     d->free_camera = app->free_camera;
-    d->selected_weapon = me->weapon.id;
-    d->selected_secondary = me->secondary.id;
+    // the weapons menu's green lines: what the next spawn gets, picked last life or in the
+    // config, as the original's SelWeapon and cl_player_secwep
+    d->selected_weapon = me->primary_choice;
+    d->selected_secondary = me->secondary_choice;
     d->respawn_counter = me->respawn_counter;
     d->cease_fire_counter = me->cease_fire_counter;
     d->fps = app->fps;
@@ -1314,6 +1437,7 @@ static bool world_reload(App *app, const char *map)
     app->previous = app->latest = (TickSnapshot){0};
     app->limbo_lock = false;
     app->was_dead = false;
+    app->was_watching = false;
     app->seen_life = -1;
     app->team_asked = false;
     app->camera_follow = -1;
@@ -1377,6 +1501,12 @@ int main(int argc, char *argv[])
         app.time += dt;
 
         poll_events(&app);
+        // the game hosted here ticks first, so its snapshot of this frame is on the line
+        // before the client listens; a map it can't load ends it
+        if (app.host && !host_pump(app.host, dt)) {
+            console_print_color(app.console, HUD_COLOR_WARNING, "the hosted game could not go on\n");
+            console_execute(app.console, "disconnect");
+        }
         client_net_poll(&app.net, app.console, app.game);
         if (client_net_take_map(&app.net)) {
             // a round on the server's map: the world made anew for its snapshots, my slot its
@@ -1433,7 +1563,7 @@ int main(int argc, char *argv[])
                 Rect r = app.camera.viewport;
                 mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, app.game->ctx.anims, &app.game->ctx.weapons,
                               app.input.cursor, GAME_HEIGHT * r.width / r.height, GAME_HEIGHT / r.height, app.time,
-                              console_log_line(app.console, 0), client_net_joined(&app.net));
+                              console_log_line(app.console, 0), client_net_joined(&app.net), app.host != NULL, app.maps, app.map_count);
                 char command[256];
                 if (mainmenu_take_command(&app.mainmenu, command, sizeof command)) console_execute(app.console, command);
             }
@@ -1451,6 +1581,10 @@ int main(int argc, char *argv[])
         SDL_Delay(SLEEP_AFTER_FRAME_MS);
     }
 
+    if (app.host) {
+        client_net_disconnect(&app.net, app.console);
+        host_stop(&app);
+    }
     client_net_shutdown(&app.net);
     audio_shutdown(&app.audio);
     fonts_unload();

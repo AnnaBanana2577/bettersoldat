@@ -143,6 +143,10 @@ void interface_load(Interface *hud, const char *base, const ScaleData *scales)
     hud_sprite_load(&hud->smalldot, base, scales, "smalldot.png");
     hud_sprite_load(&hud->overlay, base, scales, "overlay.png");
     hud_sprite_load(&hud->sight, base, scales, "sight.png");
+    hud_sprite_load(&hud->deaddot, base, scales, "deaddot.png");
+    hud_sprite_load(&hud->flag, base, scales, "flag.png");
+    hud_sprite_load(&hud->bot, base, scales, "bot.png");
+    hud_sprite_load(&hud->connection, base, scales, "connection.png");
     for (int i = 0; i < WEAPON_COUNT; i++) {
         if (GUN_ICONS[i]) hud_sprite_load(&hud->guns[i], base, scales, GUN_ICONS[i]);
     }
@@ -154,7 +158,7 @@ void interface_unload(Interface *hud)
                         &hud->reload_bar, &hud->vest_bar, &hud->fire_bar, &hud->fire_bar_r, &hud->nade,
                         &hud->cluster_nade, &hud->dot,    &hud->cursor,   &hud->back,       &hud->noflag,
                         &hud->arrow,    &hud->scroll,   &hud->menucursor, &hud->smalldot, &hud->overlay,
-                        &hud->sight};
+                        &hud->sight,    &hud->deaddot,  &hud->flag,       &hud->bot,      &hud->connection};
     for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) gfx_texture_delete(&all[i]->tex);
     for (int i = 0; i < WEAPON_COUNT; i++) gfx_texture_delete(&hud->guns[i].tex);
     *hud = (Interface){0};
@@ -524,6 +528,44 @@ static float draw_frags_background(const Interface *hud, const Frame *f, const H
     if (sy * BACKGROUND_WIDTH > GAME_HEIGHT - 80) { // more than fits: the scroll hint blinks
         float bx = 580 + f->fragx, by = GAME_HEIGHT / 2;
         draw_sprite(&hud->scroll, bx, by, 0, (Rgba){255, 255, 255, (uint8_t)fabsf(sinf(5.1f * (float)d->time) * 255)});
+    }
+
+    // Each row's marks, under its text: the dead dot, the small dot by me, the flag
+    // carried, the bot, and the line's quality from red to green. The rows sit where
+    // draw_frags_texts puts them: by rank, and in a team game grouped alpha, bravo,
+    // charlie, delta, none, spectators, each group 20 under the last.
+    int ranked[MAX_PLAYERS];
+    int n = rank_players(d, ranked);
+    const int order[6] = {TEAM_ALPHA, TEAM_BRAVO, TEAM_CHARLIE, TEAM_DELTA, TEAM_NONE, 5};
+    int step[6] = {0}, before[6] = {0}, ids[6] = {0};
+    int next_step = 0, above = 0;
+    for (int g = 0; g < 6; g++) {
+        int slot = order[g];
+        int count = slot == 5 ? spectators : count_team(d, (Team)slot);
+        before[slot] = above;
+        if (count <= 0) continue;
+        step[slot] = next_step;
+        next_step += 20;
+        above += count;
+    }
+    Rgba mark = {255, 255, 255, STATUS_TRANSPARENCY};
+    for (int j = 0; j < n; j++) {
+        const HudPlayer *p = &d->players[ranked[j]];
+        float row = 61 + (float)((j + 1) * FRAGSMENU_PLAYER_HEIGHT);
+        if (d->team_game) {
+            int k = p->spectator ? 5 : (int)p->team;
+            row = 70 + (float)(ids[k] * FRAGSMENU_PLAYER_HEIGHT + step[k] + before[k] * FRAGSMENU_PLAYER_HEIGHT);
+            ids[k]++;
+        }
+        if (p->dead && !p->spectator) draw_sprite(&hud->deaddot, pixel_align(f, 32 + f->fragx), pixel_align(f, row + 1), 0, mark);
+        if (ranked[j] == d->me) draw_sprite(&hud->smalldot, pixel_align(f, 31 + f->fragx), pixel_align(f, row + 1), 0, mark);
+        if (p->flags > 0 && !p->spectator) draw_sprite(&hud->flag, pixel_align(f, f->fragx + 337), pixel_align(f, row - 1), 0, mark);
+        if (p->bot) draw_sprite(&hud->bot, pixel_align(f, f->fragx + 534), pixel_align(f, row), 0, mark);
+        // the original colours it by its ConnectionQuality, which no packet carries here;
+        // the ping stands in: whole up to 50 ms, gone by 350
+        int quality = clampi(100 - (p->ping - 50) / 3, 0, 100);
+        Rgba line = {(uint8_t)(255 * (100 - quality) / 100), (uint8_t)(255 * quality / 100), 0, STATUS_TRANSPARENCY};
+        draw_sprite(&hud->connection, pixel_align(f, f->fragx + 520), pixel_align(f, row + 2), 0, line);
     }
     return bottom;
 }
