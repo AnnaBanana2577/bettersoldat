@@ -577,6 +577,19 @@ void mainmenu_show(MainMenu *m, bool shown)
     unfocus(m);
 }
 
+// Text into the focused field, typed or pasted: what fits, control characters (a pasted
+// line's end among them) left out; the cvar follows.
+static void edit_insert(MainMenu *m, Console *con, const char *text)
+{
+    size_t len = strlen(m->edit);
+    for (const char *s = text; *s && (int)len < m->edit_max && len + 1 < sizeof m->edit; s++) {
+        if ((unsigned char)*s < 32) continue;
+        m->edit[len++] = *s;
+        m->edit[len] = '\0';
+    }
+    cvar_set(con, m->focus_cvar, m->edit);
+}
+
 bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
 {
     if (!m->shown) return false;
@@ -595,19 +608,21 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
         return e->type == SDL_KEYDOWN || e->type == SDL_KEYUP || e->type == SDL_MOUSEBUTTONDOWN || e->type == SDL_MOUSEBUTTONUP ||
                e->type == SDL_TEXTINPUT;
     }
-    // a field being typed into
+    // a field being typed into: what is typed, or pasted with Ctrl+V (an address, a password)
     if (m->focus_cvar[0]) {
         if (e->type == SDL_TEXTINPUT) {
-            size_t len = strlen(m->edit);
-            for (const char *s = e->text.text; *s && (int)len < m->edit_max && len + 1 < sizeof m->edit; s++) {
-                if ((unsigned char)*s < 32) continue;
-                m->edit[len++] = *s;
-                m->edit[len] = '\0';
-            }
-            cvar_set(con, m->focus_cvar, m->edit);
+            edit_insert(m, con, e->text.text);
             return true;
         }
         if (e->type == SDL_KEYDOWN) {
+            if ((e->key.keysym.mod & KMOD_CTRL) && e->key.keysym.scancode == SDL_SCANCODE_V) {
+                char *clip = SDL_GetClipboardText();
+                if (clip) {
+                    edit_insert(m, con, clip);
+                    SDL_free(clip);
+                }
+                return true;
+            }
             switch (e->key.keysym.scancode) {
             case SDL_SCANCODE_BACKSPACE: {
                 size_t len = strlen(m->edit);
