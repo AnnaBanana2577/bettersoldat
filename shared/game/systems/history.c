@@ -94,9 +94,15 @@ const Soldier *bullet_target(const Context *ctx, World *w, const Bullet *b, int 
 {
     if (i == b->owner || !w->history) return &w->soldiers[i]; // the shooter from the present; a client from what it shows
     // the frame the shooter had at this step is `lag` behind the present, and it drew the
-    // target `lead` ticks on from it
+    // target `lead` ticks on from it, the lead out of the pings that frame carried, which
+    // are the numbers the shooter had
     int shift = -(int)b->lag;
-    if (b->now) shift += ping_lead(w->soldiers[b->owner].ping, w->soldiers[i].ping);
+    if (b->now) {
+        const Soldier *had = w->soldiers;
+        uint32_t frame = w->tick + 1 - b->lag;
+        if (b->lag > 0 && history_has(w->history, frame)) had = w->history->frames[frame % HISTORY_TICKS];
+        shift += ping_lead(had[b->owner].ping, had[i].ping);
+    }
     if (shift == 0) return &w->soldiers[i];
     if (shift > 0) return history_future(ctx, w, i, shift);
     uint32_t frame = w->tick + 1 + (uint32_t)shift;

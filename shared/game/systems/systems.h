@@ -463,9 +463,11 @@ Soldier *target_soldier(World *w, Soldier *frame, uint8_t owner, int i);
 // The soldier a bullet meets, as its shooter saw it: the frame the shooter had at this
 // step, `lag` ticks behind the present, out of the history; and if the shooter shows
 // the others at now (Bullet.now), that frame's soldier stepped on by the lead the
-// shooter stepped it by, half its own ping and half the target's in ticks (ping_lead),
-// which the server reproduces, the step being the same everywhere, out of the frame
-// where the frame is kept and on from the present where it is not yet (history_future).
+// shooter stepped it by, half its own ping and half the target's in ticks (ping_lead)
+// as that frame carried them, which are the numbers the shooter had; the server
+// reproduces it, the step being the same everywhere, out of the frame where the frame
+// is kept and on from the present where it is not yet (history_future). No measurement
+// of the moment enters it: the stamp names the frame, and the frame holds the pings.
 // The shooter itself is taken from the present. Without a history (a client's world)
 // the present stands for everything.
 const Soldier *bullet_target(const Context *ctx, World *w, const Bullet *b, int i);

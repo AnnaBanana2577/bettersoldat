@@ -115,8 +115,9 @@ shooter had. The server runs the bullet forward from that tick to its own presen
 each step of the way, judges it against what the shooter drew at that step: the frame
 the shooter's screen held, out of the history ring, and the target in it stepped on by
 the shooter's lead, which the server can do too, the step being the same everywhere and
-the lead a function of the two pings it measures itself (bullet_target,
-history_future). Caught up, the bullet meets the present stepped on by the lead like
+the lead a function of the two pings as that very frame carried them, which are the
+numbers the shooter had (bullet_target, history_future). No measurement of the moment
+enters the judging: the stamp names the frame, and the frame holds the pings. Caught up, the bullet meets the present stepped on by the lead like
 any other. So what landed on the shooter's screen lands on the server, however far the
 target has moved since, and whatever the target did since, and the round trip never
 cheats the shooter of a hit. The price falls on the target, who can be hit where it

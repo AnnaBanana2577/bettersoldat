@@ -448,10 +448,6 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp, bool
     if (c->newest == 0) return; // nothing heard yet: the world stands as the round left it
     World *w = &g->world;
     c->extrapolate = extrapolate;
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        c->lead[i] = extrapolate ? (uint8_t)ping_lead(w->soldiers[me].ping, w->soldiers[i].ping) : 0;
-        c->shift[i] = extrapolate ? (int8_t)ping_shift(w->soldiers[me].ping, w->soldiers[i].ping) : 0;
-    }
     if (interp < 0) interp = 0;
     if (interp > STREAM_INTERP_MAX) interp = STREAM_INTERP_MAX;
     if (c->interp < interp) c->interp = interp;
@@ -492,12 +488,22 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp, bool
     // the frame on show, the others from their newest words, and the server's word due
     uint32_t v = w->tick;
     int k = (int)(v % STREAM_RING);
-    if (c->snap_tick[k] == v) {
+    bool have = c->snap_tick[k] == v;
+    if (have) {
         frame_apply(c, g, me, k);
         c->applies++;
         if (v > c->applied) c->applied = v;
     } else if (v > c->applied) {
         c->misses++;
+    }
+    // The leads, out of the pings the frame on show carries, which the server has in
+    // the same frame and takes the same lead from (bullet_target); a soldier the frame
+    // left out keeps the ping it had.
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        uint16_t mine = have && c->snap_word[k][me] == SNAP_STATE ? c->snaps[k][me].ping : w->soldiers[me].ping;
+        uint16_t theirs = have && c->snap_word[k][i] == SNAP_STATE ? c->snaps[k][i].ping : w->soldiers[i].ping;
+        c->lead[i] = extrapolate ? (uint8_t)ping_lead(mine, theirs) : 0;
+        c->shift[i] = extrapolate ? (int8_t)ping_shift(mine, theirs) : 0;
     }
     soldiers_apply(c, g, me, v);
     wire_pending_apply(&c->pending, g, v, extrapolate ? c->shift : NULL);
