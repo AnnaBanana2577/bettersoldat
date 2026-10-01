@@ -99,6 +99,16 @@ void die(const Context *ctx, World *w, Hit hit, Events *events)
     s->death_pos = s->pos;
     s->death_vel = s->vel;
     s->death_part = hit.part;
+    // and whether it burns (Sprites.pas Die, "Fire on from bullet")
+    s->death_fire = 0;
+    switch (hit.weapon) {
+    case WEAPON_FLAMER: s->death_fire = 1; break;
+    case WEAPON_BOW2: if (rand_int(&w->rng, 4) == 0) s->death_fire = 1; break;
+    case WEAPON_M79: if (rand_int(&w->rng, 8) == 0) s->death_fire = 2; break;
+    case WEAPON_CLUSTER_NADE: if (rand_int(&w->rng, 3) == 0) s->death_fire = 3; break;
+    case WEAPON_FRAG: if (rand_int(&w->rng, 12) == 0) s->death_fire = 4; break;
+    default: break;
+    }
 
     // the gun leaves the hand with the blow that killed; the things pass lays it down
     if (s->weapon.id != WEAPON_FLAMER && weapon_droppable(s->weapon.id)) {

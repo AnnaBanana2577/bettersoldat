@@ -41,6 +41,12 @@ const NetField SOLDIER_OWNED_FIELDS[] = {
     NETFIELD_ENUM(Soldier, grenade_type, WEAPON_COUNT - 1),
     NETFIELD(Soldier, use_time, NET_I, 8),
     NETFIELD_ENUM(Soldier, stat, MAX_THINGS),
+    NETFIELD(Soldier, idle.time, NET_I, COUNTER),
+    NETFIELD(Soldier, idle.random, NET_I, 8),
+    NETFIELD(Soldier, idle.seen, NET_U, 8),
+    NETFIELD(Soldier, has_cigar, NET_U, 4),
+    NETFIELD(Soldier, wear_helmet, NET_U, 2),
+    NETFIELD(Soldier, can_mercy, NET_BOOL, 0),
 };
 const int SOLDIER_OWNED_COUNT = sizeof SOLDIER_OWNED_FIELDS / sizeof SOLDIER_OWNED_FIELDS[0];
 
@@ -65,6 +71,9 @@ const NetField SOLDIER_SERVED_FIELDS[] = {
     NETFIELD(Soldier, death_vel, NET_VEC2, 0),
     NETFIELD(Soldier, death_part, NET_U, 8),
     NETFIELD(Soldier, torn_apart, NET_BOOL, 0),
+    NETFIELD(Soldier, death_fire, NET_U, 8),
+    NETFIELD(Soldier, antic, NET_I, 8),
+    NETFIELD(Soldier, antic_seq, NET_U, 8),
     NETFIELD(Soldier, rng, NET_U, 64),
     NETFIELD(Soldier, cmd_seq, NET_U, 32),
     NETFIELD(Soldier, view_lag, NET_U, 8),

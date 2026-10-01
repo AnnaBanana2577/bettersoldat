@@ -11,15 +11,16 @@
 // entries of the same shape.
 //
 // The colours, the hair, the headgear and the chain come from the soldier's PlayerLook.
-// The chains and the dreadlocks hang from the original's skeleton points 21 to 24,
-// which its physics trails behind the neck and the head; the pose carries only the
-// animation's 20, so here they hang straight down from the neck and the head's top by
-// the lengths the skeleton (gostek.po) gives them.
+// The chains and the dreadlocks hang from the skeleton's points 21 to 24, which the
+// simulation swings behind the neck and the head (Soldier.swing, the ragdoll's own
+// points on a body) and the snapshot carries in RenderSoldier.swing. The cigar shows
+// while one is in the mouth, and the helmet or hat sits in the hand while the brow is
+// wiped or it is taken off (the antics).
 
 #include "render/render_state.h"
 #include "render/sprite.h"
 
-#define GOSTEK_PART_COUNT 52
+#define GOSTEK_PART_COUNT 55
 
 // One sprite per (part, team 2, mirrored), plus the weapons and their muzzle flashes.
 typedef struct Gostek {

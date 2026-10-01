@@ -57,6 +57,14 @@ static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, cons
     // holds its last pose
     out.corpse = to->dead && body_to->active;
     out.pose = out.corpse ? corpse_pose(body_from, body_to, alpha) : soldier_pose(ctx->anims, to, out.pos);
+    // the chain's and the hair's points: the ragdoll's own on a body, the soldier's swing alive
+    for (int k = 0; k < 4; k++) {
+        if (out.corpse) out.swing[k] = body_from->active ? lerp(body_from->pos[20 + k], body_to->pos[20 + k], alpha) : body_to->pos[20 + k];
+        else out.swing[k] = vec2_add(continuous(from, to) ? lerp(from->swing[k], to->swing[k], alpha) : to->swing[k], offset);
+    }
+    out.body_frame = to->body.frame;
+    out.has_cigar = to->has_cigar;
+    out.wear_helmet = to->wear_helmet;
 
     out.dead = to->dead;
     out.team = to->team;

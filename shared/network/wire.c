@@ -36,6 +36,7 @@ WireSide wire_side(EventType type)
     case EVENT_THING_KNOCK:
     case EVENT_POLY_EFFECT:
     case EVENT_CORPSE_HIT:
+    case EVENT_ANTIC:
     case EVENT_ECHO_TEST: return WIRE_LOCAL;
     }
     return WIRE_LOCAL;

@@ -158,10 +158,14 @@ typedef struct BackgroundState {
     bool test_result;
 } BackgroundState;
 
-// The idle antics: how long a soldier has stood still, and which antic it rolled.
+// The idle antics (Control.pas, the IDLE block): how long a soldier has stood still,
+// which antic it is on (-1 none; 0 tobacco, 1 cigar, 2 wipe, 3 groin, 4 take off,
+// 5 victory, 6 piss, 7 mercy, 8 pwn: IdleRandom), and the last of the server's asks it
+// took (Soldier.antic_seq).
 typedef struct Idle {
     int32_t time;
     int8_t random;
+    uint8_t seen;
 } Idle;
 
 // How a player looks: the colours and the styles the gostek is drawn with. The player
@@ -194,6 +198,10 @@ typedef struct Soldier {
     Vec2 death_vel;
     uint8_t death_part;
     bool torn_apart; // killed or hit dead by a berserker: the body comes apart as a brutal death's does
+    // Burning: every death_fire-th body point of the corpse flames for its first seconds
+    // (the original's OnFire); 0 for a body that does not burn. Rolled at the death by
+    // what killed: a flame always, a cluster, an M79 round or a grenade now and then.
+    uint8_t death_fire;
     uint64_t rng;        // its own randomness (the spread of its shots), rolled where it is played
     uint32_t cmd_seq;    // the command it last ran: what its bullets are stamped with
     uint32_t shot_count; // bullets it has fired: each is stamped with its number
@@ -236,6 +244,9 @@ typedef struct Soldier {
     uint8_t stat;      // the stationary gun manned (thing index + 1)
     int16_t use_time;  // how hot the stationary guns it fires run: past the overheat they stop
     Idle idle;
+    uint8_t has_cigar;   // 0 none, 5 in the mouth unlit, 10 lit (HasCigar)
+    uint8_t wear_helmet; // 1 on the head, 2 taken off (WearHelmet)
+    bool can_mercy;      // the mercy antic goes on the second ask (CanMercy)
     bool dont_drop; // a knife just thrown: the held drop key throws nothing more until released
 
     // the server's
@@ -256,10 +267,21 @@ typedef struct Soldier {
     bool typing;
     uint16_t ping;
     bool bot; // the server plays it (server/bots.c): no ping to show, and the original's "BOT" on the roster
+    // The antic the server asks of the soldier (Idle.random's values): one of the four
+    // idle ones when it has stood still long enough, or a chat command (/smoke, /mercy
+    // and the rest). Numbered, so the owner's idle machine takes each ask once (Idle.seen).
+    int8_t antic;
+    uint8_t antic_seq;
 
     // This machine's alone, never on the wire: the soldier is heard of, not played
     // here, so its keys move it between words but fire nothing.
     bool remote;
+    // The chain's and the hair's points past the pose's 20 (gostek.po's 21 to 24): the
+    // neck and the head's top, and the pendant and the dreadlocks' end swinging below
+    // them, each machine's own verlet (TSprite.UpdatePose, DoVerletTimeStepFor).
+    Vec2 swing[4];     // points 21, 22, 23, 24, in the world
+    Vec2 swing_old[2]; // 22's and 24's places the tick before
+    bool mercy_shot;   // the mercy antic's shot and wound given for this run of its animation
 } Soldier;
 
 // ---------------------------------------------------------------------------------
@@ -420,6 +442,11 @@ typedef struct EventCorpseHit { uint8_t target; Vec2 pos; float fall; uint8_t co
 typedef struct EventMatchEnd { Team winner; } EventMatchEnd;
 // A death let go of the flag its player carried, which lies where it fell.
 typedef struct EventFlagDrop { uint8_t player; ThingStyle flag; Vec2 pos; } EventFlagDrop;
+// An antic's effect (SpriteEffects.pas): the spit, the puff of smoke at the mouth, the
+// match struck, the stub thrown away, a drop of piss. `pos` and `vel` are the spark's;
+// the piss brings the odds it shows this tick and how long the drop lives.
+typedef enum AnticKind { ANTIC_SPIT, ANTIC_CIGAR_PUFF, ANTIC_MATCH, ANTIC_CIGAR_THROW, ANTIC_PISS } AnticKind;
+typedef struct EventAntic { uint8_t player; AnticKind kind; Vec2 pos, vel; uint8_t odds, life; } EventAntic;
 typedef struct EventEchoTest { int n; } EventEchoTest; // the tests', to watch the passes' mail
 
 typedef enum EventType {
@@ -452,6 +479,7 @@ typedef enum EventType {
     EVENT_CORPSE_HIT,
     EVENT_MATCH_END,
     EVENT_FLAG_DROP,
+    EVENT_ANTIC,
     EVENT_ECHO_TEST,
 } EventType;
 
@@ -488,6 +516,7 @@ typedef struct Event {
         EventCorpseHit corpse_hit;
         EventMatchEnd match_end;
         EventFlagDrop flag_drop;
+        EventAntic antic;
         EventEchoTest echo;
     };
 } Event;

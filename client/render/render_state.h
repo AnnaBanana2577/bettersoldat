@@ -46,6 +46,10 @@ typedef struct RenderSoldier {
     bool fired;           // a shot went off on the latest tick: the muzzle flash
     bool spawn_protected; // drawn faded
     PlayerLook look;      // its colours, hair, headgear and chain
+    Vec2 swing[4];        // the chain's and the hair's points 21 to 24, where the frame shows them
+    int body_frame;       // the body animation's frame: the headgear is in the hand past a wipe's fourth
+    uint8_t has_cigar;    // the cigar in the mouth: 5 unlit, 10 lit
+    uint8_t wear_helmet;  // 1 on the head; anything else bares the hair
 } RenderSoldier;
 
 typedef struct RenderState {

@@ -160,7 +160,8 @@ The asks and their doers:
 Everything else is a consequence, emitted for whoever is listening: EVENT_FIRE (the
 muzzle), EVENT_BULLET_SPAWN and EVENT_BULLET_END, the wall hits, ricochets, bounces and
 splits, EVENT_BLOOD, EVENT_EXPLOSION, EVENT_DAMAGE, EVENT_FLAG_GRAB, RETURN, DROP and
-SCORE, EVENT_THING_HIT, EVENT_POLY_EFFECT, EVENT_CORPSE_HIT, EVENT_MATCH_END.
+SCORE, EVENT_THING_HIT, EVENT_POLY_EFFECT, EVENT_CORPSE_HIT, EVENT_MATCH_END, and
+EVENT_ANTIC (an antic's spit, puff, match, stub or piss, for the sparks and the audio).
 
 An event carries what its listeners need and nothing that requires looking the world
 up afterwards: a kill says who, whom, with what, where, the killer's tally now and the
@@ -212,7 +213,9 @@ After each tick the client hands the tick's events to what shows them:
 - `audio_tick`: a sound per event (a fire, a blast, a ricochet, a pickup, a capture),
   placed from the listener; and what has no event because it is a state, found by
   holding every soldier's last tick beside this one (the reload begun, the jets held,
-  the chainsaw running) and by watching the bullets pass the listener.
+  the chainsaw running) and by watching the bullets pass the listener. The
+  sparks' own noises (a casing landing, a body burning) are rolled with the spark, in
+  `Sparks.sounds`, and played from there.
 - `feed_tick`: the kill console, the big messages, the console's lines about flags and
   the match, and my weapon stats, from EVENT_KILL, FIRE, DAMAGE, the flag events and
   MATCH_END.

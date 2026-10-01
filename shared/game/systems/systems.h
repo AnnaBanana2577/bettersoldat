@@ -132,9 +132,21 @@ Pose soldier_pose(const Anims *anims, const Soldier *s, Vec2 pos);
 
 // --- antics.c ----------------------------------------------------------------------
 
-void antics_apply(const Context *ctx, World *w, Soldier *s);
+#define DEFAULT_IDLE_TIME (60 * 8)  // standing still this long brings an antic (DEFAULT_IDLETIME)
+#define LONGER_IDLE_TIME (60 * 30)  // a lit cigar is smoked this long (LONGER_IDLETIME)
+
+// The idle antics and the taunts, on the soldier's animations; `armed` as soldier_step's,
+// for the mercy's shot.
+void antics_apply(const Context *ctx, World *w, uint8_t index, Events *events, bool armed);
+
+// --- pose.c, the swing --------------------------------------------------------------
+
+// The chain's and the hair's points (Soldier.swing) after this tick's pose.
+void soldier_swing(const Context *ctx, const World *w, Soldier *s);
 
 // --- combat.c ----------------------------------------------------------------------
+
+void combat_fire(const Context *ctx, World *w, uint8_t index, Events *events);
 
 // A fresh weapon of this kind, as it is picked up or spawned with.
 Weapon weapon_state(const Context *ctx, WeaponId id);
@@ -175,6 +187,11 @@ Vec2 aim_direction(const Soldier *s);
 #define M2BULLET_TIMEOUT 60
 #define FLAMER_TIMEOUT 32
 #define MELEE_TIMEOUT 1
+
+// The stationary gun (stat_gun.c): shots on end before it starts to wander, and before
+// it overheats and stops (M2GUN_OVERAIM, M2GUN_OVERHEAT). The audio reads the second.
+#define M2_OVERAIM 4
+#define M2_OVERHEAT 18
 
 bool weapon_is_primary(WeaponId id);   // Eagle through Minigun
 bool weapon_is_secondary(WeaponId id); // Colt, Knife, Chainsaw, LAW

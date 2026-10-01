@@ -637,6 +637,27 @@ static void vote_command(Connections *c, Game *g, int slot, const char *text)
         vote_count(c, slot);
     } else if (strcmp(word, "no") == 0) {
         // F11 is the voter's own business: the original's client only drops the box
+    } else if (strcmp(word, "tabac") == 0 || strcmp(word, "smoke") == 0 || strcmp(word, "takeoff") == 0 ||
+               strcmp(word, "victory") == 0 || strcmp(word, "piss") == 0 || strcmp(word, "mercy") == 0 || strcmp(word, "pwn") == 0) {
+        // CommandPlayerCommand: the taunts, asked of the soldier's idle machine by their
+        // number (Idle.random's); a mercy costs a kill
+        static const char *const TAUNTS[] = {"tabac", "smoke", NULL, NULL, "takeoff", "victory", "piss", "mercy", "pwn"};
+        Soldier *s = &g->world.soldiers[slot];
+        if (!s->active || s->dead) return;
+        for (int i = 0; i < (int)(sizeof TAUNTS / sizeof TAUNTS[0]); i++) {
+            if (!TAUNTS[i] || strcmp(word, TAUNTS[i]) != 0) continue;
+            s->antic = (int8_t)i;
+            s->antic_seq++;
+            if (i == 7 && s->kills > 0) s->kills--;
+        }
+    } else if (strcmp(word, "kill") == 0 || strcmp(word, "brutalkill") == 0) {
+        // the original's: the vest off, a wound that kills (that tears apart, brutal), a kill fewer
+        Soldier *s = &g->world.soldiers[slot];
+        if (!s->active || s->dead) return;
+        s->vest = 0.0f;
+        float amount = word[0] == 'b' ? 3423.0f : 150.0f;
+        game_hear(g, (Event){.type = EVENT_HIT, .hit = {.shooter = (uint8_t)slot, .target = (uint8_t)slot, .weapon = s->weapon.id, .amount = amount, .pos = s->pos}});
+        if (s->kills > 0) s->kills--;
     } else {
         // a script's command, if it has one by that name
         if (c->hooks && c->hooks->command && c->hooks->command(c->hooks->user, slot, text)) return;

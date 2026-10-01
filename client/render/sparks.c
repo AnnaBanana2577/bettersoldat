@@ -23,18 +23,34 @@
 #define LESSBLEED_TIME 120 // ticks dead after which a body bleeds less, then not at all
 #define NOBLEED_TIME 300
 #define CLUSTER_EXPLOSION_RADIUS 35.0f
+// A burning body flames for this long, one in this many ticks per burning point, by how
+// busy the screen is (ONFIRE_TIME, FIRE_RANDOM_LOW, _NORMAL, _HIGH).
+#define ONFIRE_TIME 240
+#define FIRE_RANDOM_LOW 70
+#define FIRE_RANDOM_NORMAL 50
+#define FIRE_RANDOM_HIGH 30
+#define SHELL_LANDINGS 5 // a casing or a clip is gone after this many touches of the map
 
 static const char *const ART_FILES[SPARK_ART_COUNT] = {
     [SPARK_ART_SMOKE] = "smoke.png",         [SPARK_ART_LIL_SMOKE] = "lilsmoke.png", [SPARK_ART_MINI_SMOKE] = "minismoke.png",
     [SPARK_ART_BIG_SMOKE] = "bigsmoke.png",  [SPARK_ART_CHIP] = "odprysk.png",       [SPARK_ART_LIL_BLOOD] = "lilblood.png",
     [SPARK_ART_BLOOD] = "blood.png",         [SPARK_ART_SPAWN_SPARK] = "spawnspark.png", [SPARK_ART_JET_FIRE] = "jetfire.png",
+    [SPARK_ART_FLAME] = "plomyk.png",        [SPARK_ART_BLACK_SMOKE] = "blacksmoke.png", [SPARK_ART_STUFF] = "stuff.png",
+    [SPARK_ART_CIGAR] = "cygaro.png",
 };
 
-// The casings, by the weapon that ejects one; the rest eject none.
+// The casings, by the weapon that ejects one; the rest eject none. The shotgun's and
+// the M79's come out on the reload (the pump, the breech), not the shot.
 static const char *const SHELL_STEMS[WEAPON_COUNT] = {
     [WEAPON_EAGLE] = "eagles-shell", [WEAPON_MP5] = "mp5-shell",   [WEAPON_AK74] = "ak74-shell",       [WEAPON_STEYR] = "steyraug-shell",
     [WEAPON_RUGER] = "ruger77-shell", [WEAPON_BARRETT] = "barretm82-shell", [WEAPON_M249] = "m249-shell", [WEAPON_MINIGUN] = "minigun-shell",
-    [WEAPON_COLT] = "colt-shell",
+    [WEAPON_COLT] = "colt-shell",     [WEAPON_SPAS] = "spas12-shell", [WEAPON_M79] = "m79-shell",
+};
+
+// The clips, by the weapon that drops one on its reload (SpriteEffects.pas PlayClipOut).
+static const char *const CLIP_STEMS[WEAPON_COUNT] = {
+    [WEAPON_EAGLE] = "deserteagle-clip", [WEAPON_MP5] = "mp5-clip",   [WEAPON_AK74] = "ak74-clip", [WEAPON_STEYR] = "steyraug-clip",
+    [WEAPON_BARRETT] = "barretm82-clip", [WEAPON_M249] = "m249-clip", [WEAPON_COLT] = "colt1911-clip",
 };
 
 static const Rgba GREEN = {0, 255, 0, 255};
@@ -50,14 +66,36 @@ static bool moves(SparkStyle style)
     case SPARK_MINI_SMOKE:
     case SPARK_LIL_SMOKE:
     case SPARK_SHELL:
-    case SPARK_JET_FIRE: return true;
-    default: return false;
+    case SPARK_CLIP:
+    case SPARK_JET_FIRE:
+    case SPARK_SPIT:
+    case SPARK_MATCH:
+    case SPARK_CIGAR:
+    case SPARK_PISS: return true;
+    default: return false; // the flames and their smoke hang where they were lit
     }
 }
 
 static bool collides(SparkStyle style)
 {
-    return style == SPARK_LIL_BLOOD || style == SPARK_BLOOD || style == SPARK_SHELL || style == SPARK_JET_FIRE;
+    switch (style) {
+    case SPARK_LIL_BLOOD:
+    case SPARK_BLOOD:
+    case SPARK_SHELL:
+    case SPARK_CLIP:
+    case SPARK_JET_FIRE:
+    case SPARK_SPIT:
+    case SPARK_MATCH:
+    case SPARK_CIGAR:
+    case SPARK_PISS: return true;
+    default: return false;
+    }
+}
+
+// The sparks that count their landings: for a sound, and to be gone after a few.
+static bool lands(SparkStyle style)
+{
+    return style == SPARK_SHELL || style == SPARK_CLIP || style == SPARK_SPIT || style == SPARK_MATCH || style == SPARK_CIGAR;
 }
 
 void sparks_load(Sparks *s, const char *base)
@@ -84,6 +122,13 @@ void sparks_load(Sparks *s, const char *base)
         if (find_image(dir, name, path, sizeof path)) sprite_load(&s->shells[id], path, NULL);
     }
     if (find_image(dir, "shell.png", path, sizeof path)) sprite_load(&s->shell, path, NULL);
+    for (int id = 0; id < WEAPON_COUNT; id++) {
+        s->clips[id] = (Sprite){0};
+        if (!CLIP_STEMS[id]) continue;
+        char name[128];
+        snprintf(name, sizeof name, "%s.png", CLIP_STEMS[id]);
+        if (find_image(dir, name, path, sizeof path)) sprite_load(&s->clips[id], path, NULL);
+    }
     s->rng = 0x853C49E6748FEA9Bull;
     s->loaded = true;
 }
@@ -94,8 +139,16 @@ void sparks_unload(Sparks *s)
     for (int i = 0; i < EXPLOSION_FRAMES; i++) sprite_unload(&s->explode[i]);
     for (int i = 0; i < SMOKE_FRAMES; i++) sprite_unload(&s->smoke[i]);
     for (int id = 0; id < WEAPON_COUNT; id++) sprite_unload(&s->shells[id]);
+    for (int id = 0; id < WEAPON_COUNT; id++) sprite_unload(&s->clips[id]);
     sprite_unload(&s->shell);
     *s = (Sparks){0};
+}
+
+// A spark's noise, for the audio to play after the tick.
+static void noise(Sparks *s, SparkNoise n, Vec2 pos)
+{
+    if (s->sound_count == MAX_SPARK_SOUNDS) return;
+    s->sounds[s->sound_count++] = (SparkSound){.noise = n, .pos = pos};
 }
 
 void sparks_clear(Sparks *s)
@@ -124,7 +177,8 @@ static void add(Sparks *s, Vec2 pos, Vec2 vel, SparkStyle style, float life)
 }
 
 // Point collision as TSpark.CheckMapCollision does it, with its probe offset of (-8, -1).
-static void spark_collide(const Map *map, Spark *spark)
+// True when the spark touched the map this tick.
+static bool spark_collide(const Map *map, Spark *spark)
 {
     Vec2 probe = vec2_add(spark->pos, vec2(-8, -1));
     PolySector sector = map_sector_polys(map, probe);
@@ -144,8 +198,31 @@ static void spark_collide(const Map *map, Spark *spark)
         Vec2 normal = closest_perpendicular(poly, probe, &dist, &edge);
         spark->vel = vec2_sub(spark->vel, vec2_scale(vec2_normalize(normal), dist));
         spark->vel = vec2_scale(spark->vel, SPARK_SURFACECOEF);
-        return;
+        return true;
     }
+    return false;
+}
+
+// A casing or a clip touched the map: its sound on the landings the original counts
+// (CheckMapCollision: a casing on its first, third and fifth, a shotgun's on every one,
+// a clip on its first and fifth), and it is gone after the fifth.
+static void landing(Sparks *s, Spark *spark)
+{
+    int n = spark->collide_count;
+    int gone = SHELL_LANDINGS;
+    switch (spark->style) {
+    case SPARK_SHELL:
+        if (spark->weapon == WEAPON_SPAS) noise(s, SPARK_NOISE_GAUGE_SHELL, spark->pos);
+        else if (n == 0 || n == 2 || n == 4) noise(s, SPARK_NOISE_SHELL, spark->pos);
+        break;
+    case SPARK_CLIP:
+        if (n == 0 || n == 4) noise(s, SPARK_NOISE_CLIP, spark->pos);
+        break;
+    case SPARK_SPIT: gone = 3; break; // the original's style 32 goes after its third touch
+    default: break;                   // the match and the stub after their fifth, as a casing
+    }
+    if (spark->collide_count < 255) spark->collide_count++;
+    if (spark->collide_count > gone) spark->style = SPARK_NONE;
 }
 
 // ---- the bursts each event makes ----
@@ -211,7 +288,7 @@ static void fire(Sparks *s, const Context *ctx, const World *w, const EventFire 
 {
     const Soldier *shooter = &w->soldiers[f->player];
     if (!shooter->active) return;
-    if (SHELL_STEMS[f->weapon]) {
+    if (SHELL_STEMS[f->weapon] && f->weapon != WEAPON_SPAS && f->weapon != WEAPON_M79) {
         Pose pose = soldier_pose(ctx->anims, shooter, shooter->pos);
         float dir = (float)shooter->direction;
         Vec2 aim = vec2_normalize(f->vel);
@@ -225,9 +302,26 @@ static void fire(Sparks *s, const Context *ctx, const World *w, const EventFire 
     }
 }
 
+// An antic's sparks (SpriteEffects.pas SE_SPIT, SE_CIGARLIGHT, SE_CIGARPUFF,
+// SE_CIGARTHROW and PissSpark): the simulation says where and how fast; the piss's
+// odds are rolled here, with the spark.
+static void antic(Sparks *s, const EventAntic *e)
+{
+    switch (e->kind) {
+    case ANTIC_SPIT: add(s, e->pos, e->vel, SPARK_SPIT, 245); break;
+    case ANTIC_CIGAR_PUFF: add(s, e->pos, e->vel, SPARK_LIL_SMOKE, 65); break;
+    case ANTIC_MATCH: add(s, e->pos, e->vel, SPARK_MATCH, 245); break;
+    case ANTIC_CIGAR_THROW: add(s, e->pos, e->vel, SPARK_CIGAR, 245); break;
+    case ANTIC_PISS:
+        if (e->odds > 0 && rand_n(s, e->odds) == 0) add(s, e->pos, e->vel, SPARK_PISS, (float)e->life);
+        break;
+    }
+}
+
 static void sparks_event(Sparks *s, const Context *ctx, const World *w, const Event *e)
 {
     switch (e->type) {
+    case EVENT_ANTIC: antic(s, &e->antic); break;
     case EVENT_WALL_HIT: wall_hit(s, e->wall_hit.pos, e->wall_hit.vel); break;
     case EVENT_RICOCHET: wall_hit(s, e->ricochet.pos, e->ricochet.vel); break;
     case EVENT_COLLIDER_HIT: wall_hit(s, e->collider_hit.pos, e->collider_hit.vel); break;
@@ -251,6 +345,7 @@ static void sparks_event(Sparks *s, const Context *ctx, const World *w, const Ev
             for (int i = 0; i < 3; i++) add(s, e->poly_effect.pos, vec2(rand_spread(s, 0.8f), -0.5f - rand01(s)), SPARK_CHIP_FIRE, 35);
             break;
         case POLY_REGENERATES: add(s, e->poly_effect.pos, vec2(0, -0.4f), SPARK_SMOKE, 50); break;
+        case POLY_BOUNCY: break; // its thud is the audio's
         default: add(s, e->poly_effect.pos, vec2(0, -0.2f), SPARK_LIL_BLOOD, 45); break;
         }
         break;
@@ -278,33 +373,92 @@ static void jets(Sparks *s, const Context *ctx, const World *w)
     }
 }
 
+// A casing out of a reload (SpriteEffects.pas PlayShell): the shotgun's off the pump,
+// the M79's out of the breech, spun away from the hand along the aim.
+static void reload_shell(Sparks *s, const Context *ctx, const Soldier *soldier, WeaponId weapon, float spin)
+{
+    Pose pose = soldier_pose(ctx->anims, soldier, soldier->pos);
+    float dir = (float)soldier->direction;
+    Vec2 b = vec2_scale(vec2_normalize(vec2_sub(soldier->aim, pose.p[15 - 1])), ctx->weapons.info[weapon].stats.speed);
+    b.x = dir * spin * b.y + soldier->vel.x;
+    b.y = -dir * spin * b.x + soldier->vel.y; // from the x just set, as the original has it
+    Vec2 a = vec2(pose.p[15 - 1].x + 2 - dir * 0.015f * b.x, pose.p[15 - 1].y - 2 - dir * 0.015f * b.y);
+    Spark *shell = spark_add(s, a, b, SPARK_SHELL, 255, RGBA_WHITE);
+    if (shell) shell->weapon = weapon;
+}
+
+// What a reload drops (Sprites.pas, Control.pas): the empty clip as the reload passes
+// its clip-out time (the Desert Eagles drop two), the M79's casing then too, and the
+// shotgun's as the pump passes its 24th frame, which the sim steps over in one tick.
+static void reloads(Sparks *s, const Context *ctx, const World *w)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        const Soldier *soldier = &w->soldiers[i];
+        const WeaponInfo *info = &ctx->weapons.info[soldier->weapon.id];
+        int32_t count = soldier->weapon.reload_count, last = s->last_reload[i];
+        int32_t pump = soldier->body.id == ANIM_SHOTGUN ? soldier->body.frame : 0, last_pump = s->last_pump[i];
+        s->last_reload[i] = count;
+        s->last_pump[i] = pump;
+        if (!soldier->active || soldier->dead) continue;
+        bool clip_out = count == info->clip_out_time && count > 0 && last != count && soldier->weapon.ammo == 0;
+        if (clip_out && CLIP_STEMS[soldier->weapon.id]) {
+            Pose pose = soldier_pose(ctx->anims, soldier, soldier->pos);
+            Vec2 hand = pose.p[15 - 1];
+            Spark *clip = spark_add(s, vec2_add(hand, vec2(0, 6)), vec2_add(soldier->vel, vec2(0, -0.001f)), SPARK_CLIP, 255, RGBA_WHITE);
+            if (clip) clip->weapon = soldier->weapon.id;
+            if (soldier->weapon.id == WEAPON_EAGLE) {
+                clip = spark_add(s, vec2_add(hand, vec2(-2, 7)), vec2_add(soldier->vel, vec2(0.3f, -0.003f)), SPARK_CLIP, 255, RGBA_WHITE);
+                if (clip) clip->weapon = WEAPON_EAGLE;
+            }
+        }
+        if (clip_out && soldier->weapon.id == WEAPON_M79) reload_shell(s, ctx, soldier, WEAPON_M79, 0.08f);
+        if (soldier->weapon.id == WEAPON_SPAS && pump >= 25 && last_pump > 0 && last_pump < 25) reload_shell(s, ctx, soldier, WEAPON_SPAS, 0.025f);
+    }
+}
+
 // The corpses bleed from where they were cut (TSprite.Update's dead branch): every body
 // point an end of a torn constraint hangs off drips, thrown along the way that point is
 // moving. It thins after two seconds and stops after five, and thins again while the
 // screen is already full of sparks, so a pile of bodies does not drown everything else.
+// A body that died burning (death_fire) flames and smokes off every death_fire-th point
+// for its first four seconds, and crackles as it does.
 static void corpses(Sparks *s, const Context *ctx, const World *w)
 {
     int live = 0;
     for (int i = 0; i < MAX_SPARKS; i++) live += s->pool[i].style != SPARK_NONE;
     int base = live > 300 ? BLOOD_RANDOM_LOW : live > 50 ? BLOOD_RANDOM_NORMAL : BLOOD_RANDOM_HIGH;
+    int fire_odds = live > 170 ? FIRE_RANDOM_LOW : live < 17 ? FIRE_RANDOM_HIGH : FIRE_RANDOM_NORMAL;
     const ParticleObject *skeleton = &ctx->skeletons->gostek;
 
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const Soldier *soldier = &w->soldiers[i];
         const Ragdoll *r = &w->ragdolls[i];
-        if (!soldier->active || !soldier->dead || !r->active || r->torn == 0) continue;
+        if (!soldier->active || !soldier->dead || !r->active) continue;
         int odds = base;
         if (r->dead_time > LESSBLEED_TIME) odds *= 2;
         if (r->dead_time > NOBLEED_TIME) odds *= 100;
+        bool burning = soldier->death_fire > 0 && r->dead_time < ONFIRE_TIME;
         for (int point = 0; point < POSE_POINTS; point++) {
-            for (int ci = 0; ci < skeleton->constraint_count && ci < 32; ci++) {
+            Vec2 moved = vec2_sub(r->pos[point], r->old_pos[point]);
+            for (int ci = 0; r->torn != 0 && ci < skeleton->constraint_count && ci < 32; ci++) {
                 const int *c = skeleton->constraints[ci];
                 if (!(r->torn >> ci & 1) || (c[0] != point && c[1] != point)) continue;
                 if (ci == 9 || ci == 10) continue; // the two the original leaves dry
                 Vec2 at = vec2_add(r->pos[point], vec2(0, 2));
-                Vec2 vel = vec2_scale(vec2_sub(r->pos[point], r->old_pos[point]), 0.35f);
+                Vec2 vel = vec2_scale(moved, 0.35f);
                 if (rand_n(s, odds) == 0) add(s, at, vel, SPARK_BLOOD, 85.0f - (float)rand_n(s, 25));
                 else if (rand_n(s, odds / 3 > 1 ? odds / 3 : 1) == 0) add(s, at, vel, SPARK_LIL_BLOOD, 85.0f - (float)rand_n(s, 25));
+            }
+            if (burning && (point + 1) % soldier->death_fire == 0) {
+                Vec2 at = vec2_add(r->pos[point], vec2(0, 3));
+                Vec2 vel = vec2_scale(moved, 0.3f);
+                if (rand_n(s, fire_odds) == 0) {
+                    add(s, at, vel, SPARK_FLAME, 35);
+                    if (rand_n(s, 8) == 0) noise(s, SPARK_NOISE_ONFIRE, soldier->pos);
+                    if (rand_n(s, 2) == 0) noise(s, SPARK_NOISE_FIRECRACK, soldier->pos);
+                } else if (rand_n(s, fire_odds / 3) == 0) {
+                    add(s, at, vel, SPARK_BLACK_SMOKE, 75);
+                }
             }
         }
     }
@@ -313,8 +467,10 @@ static void corpses(Sparks *s, const Context *ctx, const World *w)
 void sparks_tick(Sparks *s, const Context *ctx, const World *w, const Events *events)
 {
     if (!s->loaded) return;
+    s->sound_count = 0;
     for (int i = 0; i < events->count; i++) sparks_event(s, ctx, w, &events->items[i]);
     jets(s, ctx, w);
+    reloads(s, ctx, w);
     corpses(s, ctx, w);
 
     for (int i = 0; i < MAX_SPARKS; i++) {
@@ -325,7 +481,10 @@ void sparks_tick(Sparks *s, const Context *ctx, const World *w, const Events *ev
             spark->pos = vec2_add(spark->pos, spark->vel);
             spark->vel = vec2_scale(spark->vel, SPARK_DAMPING);
         }
-        if (collides(spark->style)) spark_collide(ctx->map, spark);
+        if (collides(spark->style) && spark_collide(ctx->map, spark) && lands(spark->style)) {
+            landing(s, spark);
+            if (spark->style == SPARK_NONE) continue;
+        }
         spark->life -= 1.0f;
         if (spark->life <= 0.0f) spark->style = SPARK_NONE;
     }
@@ -371,10 +530,25 @@ void sparks_draw(const Sparks *s)
         case SPARK_JET_FIRE: draw_spark(s->art[SPARK_ART_JET_FIRE], p, 1, l * RAD_PER_DEG, l * 5, spark->color); break;
         case SPARK_SHELL: {
             Sprite shell = s->shells[spark->weapon].tex.handle ? s->shells[spark->weapon] : s->shell;
-            float spin = spark->weapon == WEAPON_BARRETT ? 3.5f : 4.0f;
+            float spin = spark->weapon == WEAPON_BARRETT ? 3.5f : spark->weapon == WEAPON_SPAS || spark->weapon == WEAPON_M79 ? 3.77f : 4.0f;
             draw_spark(shell, p, 1, l * spin * RAD_PER_DEG, 255, white);
             break;
         }
+        case SPARK_CLIP: draw_spark(s->clips[spark->weapon], vec2_add(p, vec2(8, 0)), 1, (float)M_PI, 255, white); break; // upside down, as it fell
+        case SPARK_FLAME: {
+            float sc = l / 35.0f;
+            draw_spark(s->art[SPARK_ART_FLAME], vec2_sub(p, vec2(0, 1 / sc)), sc, 0, fminf(l * 2 + 185, 255.0f), white);
+            break;
+        }
+        case SPARK_BLACK_SMOKE: {
+            float sc = l / 75.0f;
+            draw_spark(s->art[SPARK_ART_BLACK_SMOKE], vec2_sub(p, vec2(0, 1 / sc)), sc, 0, l * 3, white);
+            break;
+        }
+        case SPARK_SPIT: draw_spark(s->art[SPARK_ART_STUFF], p, 1, 0, l + 10, white); break;
+        case SPARK_MATCH: draw_spark(s->shell, p, 1, l * 4 * RAD_PER_DEG, 255, (Rgba){187, 170, 169, 255}); break; // a casing, greyed
+        case SPARK_CIGAR: draw_spark(s->art[SPARK_ART_CIGAR], p, 1, l * 4 * RAD_PER_DEG, 255, white); break;
+        case SPARK_PISS: draw_spark(s->art[SPARK_ART_CHIP], p, 1, 0, l * 2 + 10, (Rgba){255, 255, 0, 255}); break;
         case SPARK_EXPLODE_M79: {
             int frame = explosion_frame(l, 4);
             Vec2 at = vec2_sub(p, vec2(19, 38));

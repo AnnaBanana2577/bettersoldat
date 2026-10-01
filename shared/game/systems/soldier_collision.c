@@ -191,7 +191,10 @@ bool check_map_collision(const Context *ctx, World *w, uint8_t index, Vec2 at, i
         if (area == 0 || (area == 1 && (s->vel.y < 0.0f || s->vel.x > SLIDELIMIT || s->vel.x < -SLIDELIMIT))) {
             s->old_pos = s->pos;
             s->pos = vec2_sub(s->pos, push);
-            if (poly->type == POLY_BOUNCY) push = vec2_scale(vec2_normalize(push), poly->bounciness * speed);
+            if (poly->type == POLY_BOUNCY) {
+                push = vec2_scale(vec2_normalize(push), poly->bounciness * speed);
+                if (vec2_length(push) > 1.0f) poly_effect(events, index, POLY_BOUNCY, pos, false); // the thud
+            }
             s->vel = vec2_sub(s->vel, push);
         }
         if (area == 0) apply_ground_friction(w, s, poly, normal);

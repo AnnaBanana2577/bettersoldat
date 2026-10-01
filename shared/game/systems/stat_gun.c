@@ -8,8 +8,6 @@
 #include "game/systems/systems.h"
 
 #define STAT_RADIUS 15.0f
-#define M2_OVERHEAT 18 // shots on end before it stops
-#define M2_OVERAIM 4   // shots on end before it starts to wander
 
 void stat_gun_update(const Context *ctx, World *w, int index, Events *events)
 {

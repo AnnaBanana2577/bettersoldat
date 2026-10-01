@@ -57,6 +57,8 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
         .spawn_still = true,
         .bonus_time = -1,
         .aim_dist = DEFAULT_AIM_DIST,
+        .idle = {.time = DEFAULT_IDLE_TIME, .random = -1},
+        .wear_helmet = 1,
     };
     anim_set(ctx->anims, &s->legs, ANIM_STAND, 1);
     anim_set(ctx->anims, &s->body, ANIM_STAND, 1);
@@ -141,7 +143,8 @@ void soldier_step(const Context *ctx, World *w, uint8_t index, Command cmd, Even
 
     soldier_collide(ctx, w, index, events);
     weapon_timers(ctx, s);
-    antics_apply(ctx, w, s);
+    antics_apply(ctx, w, index, events, armed);
+    soldier_swing(ctx, w, s);
 
     // the bow heals its archer
     if (w->tick % 3 == 0 && (s->weapon.id == WEAPON_BOW || s->weapon.id == WEAPON_BOW2) && s->health < DEFAULT_HEALTH) s->health += 1.0f;
@@ -218,6 +221,10 @@ void soldier_copy_owned(const Anims *anims, Soldier *dst, const Soldier *src)
     dst->grenade_type = src->grenade_type;
     dst->use_time = src->use_time;
     dst->stat = src->stat;
+    dst->idle = src->idle;
+    dst->has_cigar = src->has_cigar;
+    dst->wear_helmet = src->wear_helmet;
+    dst->can_mercy = src->can_mercy;
 }
 
 void soldier_copy_served(Soldier *dst, const Soldier *src)
@@ -232,6 +239,8 @@ void soldier_copy_served(Soldier *dst, const Soldier *src)
     dst->cease_fire_counter = src->cease_fire_counter;
     dst->bonus = src->bonus;
     dst->bonus_time = src->bonus_time;
+    dst->antic = src->antic;
+    dst->antic_seq = src->antic_seq;
     dst->held = src->held;
     dst->flag_grab_cooldown = src->flag_grab_cooldown;
     dst->medikit_cooldown = src->medikit_cooldown;
@@ -242,6 +251,7 @@ void soldier_copy_served(Soldier *dst, const Soldier *src)
     dst->death_vel = src->death_vel;
     dst->death_part = src->death_part;
     dst->torn_apart = src->torn_apart;
+    dst->death_fire = src->death_fire;
     dst->rng = src->rng;
     dst->cmd_seq = src->cmd_seq;
     dst->view_lag = src->view_lag;

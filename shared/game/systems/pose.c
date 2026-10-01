@@ -88,3 +88,38 @@ Pose soldier_pose(const Anims *anims, const Soldier *s, Vec2 pos)
     }
     return pose;
 }
+
+// ---- the swing: the chain and the hair ----
+
+// The gostek skeleton's settings for its loose points (Anims.pas: GostekSkeleton).
+#define SWING_GRAVITY 1.06f
+#define SWING_DAMPING 0.997f
+
+// The chain's and the hair's swing (TSprite.UpdatePose, and the two DoVerletTimeStepFor
+// at the end of a live soldier's update). The neck (21) goes where the pose has it, a
+// step ahead by the body's speed; the head's top (23) sits out past the head along the
+// way it is turned (the head point is 0.1 along that way, this one 5). The pendant (22)
+// and the dreadlocks' end (24) fall after them under the skeleton's own gravity and
+// damping, then their constraints (gostek.po's last two) pull each pair half way
+// together, so the anchors end a little off too, and that is what is drawn.
+void soldier_swing(const Context *ctx, const World *w, Soldier *s)
+{
+    const ParticleObject *sk = &ctx->skeletons->gostek;
+    Pose pose = soldier_pose(ctx->anims, s, s->pos);
+    s->swing[0] = vec2_add(pose.p[8], s->vel);
+    s->swing[2] = vec2_add(pose.p[8], vec2_scale(vec2_sub(pose.p[11], pose.p[8]), 50.0f));
+    for (int k = 0; k < 2; k++) {
+        Vec2 *anchor = &s->swing[2 * k], *end = &s->swing[2 * k + 1], *old = &s->swing_old[k];
+        Vec2 was = *end;
+        *end = vec2_add(vec2_sub(vec2_scale(was, 1.0f + SWING_DAMPING), vec2_scale(*old, SWING_DAMPING)), vec2(0, SWING_GRAVITY * w->gravity));
+        *old = was;
+        int c = sk->constraint_count - 2 + k; // 22 to 21, then 24 to 23
+        if (c < 0) continue;
+        float rest = vec2_length(vec2_sub(sk->points[sk->constraints[c][1]], sk->points[sk->constraints[c][0]]));
+        Vec2 d = vec2_sub(*anchor, *end);
+        float len = vec2_length(d);
+        float diff = len != 0.0f ? (len - rest) / len : 0.0f;
+        *end = vec2_add(*end, vec2_scale(d, 0.5f * diff));
+        *anchor = vec2_sub(*anchor, vec2_scale(d, 0.5f * diff));
+    }
+}

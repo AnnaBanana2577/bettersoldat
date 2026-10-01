@@ -10,6 +10,7 @@ typedef enum GostekColor {
     GOSTEK_COLOR_SKIN,
     GOSTEK_COLOR_HAIR,
     GOSTEK_COLOR_HEAD_BLOOD,
+    GOSTEK_COLOR_CIGAR, // white, or grey while unlit
 } GostekColor;
 
 typedef struct GostekPart {
@@ -32,16 +33,20 @@ typedef struct GostekPart {
     int dread;  // the nth dreadlock, 1 to 5: offset from the head's top and hanging from there
     int head;   // drawn for this head style
     int chain;  // drawn for this chain style
+    bool grabbed; // the headgear in the hand (a wipe or a take-off past its fourth frame) rather than on the head
+    bool cigar;   // drawn while a cigar is in the mouth
 } GostekPart;
 
 // The chains' and the dreadlocks' points, past the pose's 20: the neck (21) with the
-// pendant hanging below it (22), and the head's top (23) with the dreadlocks' end below
-// it (24), at the lengths gostek.po gives their constraints.
+// pendant swinging below it (22), and the head's top (23) with the dreadlocks' end
+// below it (24), as the simulation swings them (RenderSoldier.swing).
 #define GOSTEK_POINTS 24
-#define CHAIN_DROP 3.0f
-#define DREAD_DROP 1.5f
 
 static const GostekPart GOSTEK_PARTS[] = {
+    // The helmet or the hat in the left hand, while the brow is wiped or it comes off
+    // (Grabbed_Helmet, Grabbed_Hat): behind everything, as the original draws them.
+    {.file = "helm", .p1 = 15, .p2 = 19, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 1, .grabbed = true},
+    {.file = "kap", .p1 = 15, .p2 = 19, .cx = 0.1f, .cy = 0.4f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 2, .grabbed = true},
     {.file = "udo", .p1 = 6, .p2 = 3, .cx = 0.2f, .cy = 0.5f, .flex = 5, .flip = true, .team = true, .color = GOSTEK_COLOR_PANTS},
     {.file = "ranny/udo", .p1 = 6, .p2 = 3, .cx = 0.2f, .cy = 0.5f, .flex = 5, .flip = true, .team = true, .blood = true},
     {.file = "stopa", .p1 = 2, .p2 = 18, .cx = 0.35f, .cy = 0.35f, .flip = true, .team = true, .foot = true},
@@ -86,6 +91,8 @@ static const GostekPart GOSTEK_PARTS[] = {
     {.file = "zlotylancuch", .p1 = 10, .p2 = 22, .cx = 0.1f, .cy = 0.5f, .team = true, .chain = 2},
     {.file = "zlotylancuch", .p1 = 11, .p2 = 22, .cx = 0.1f, .cy = 0.5f, .team = true, .chain = 2},
     {.file = "zloto", .p1 = 22, .p2 = 21, .cx = 0.5f, .cy = 0.5f, .flip = true, .team = true, .chain = 2},
+    // The cigar, while one is in the mouth (the antics): grey until it is lit
+    {.file = "cygaro", .p1 = 9, .p2 = 12, .cx = -0.125f, .cy = 0.4f, .flip = true, .team = true, .color = GOSTEK_COLOR_CIGAR, .cigar = true},
     // The belt, between the hips. The original's data pins all five to the same spot, so
     // a soldier carrying more shows no more; the count is still the original's.
     {.file = "frag-grenade", .dir = "weapons-gfx", .p1 = 5, .p2 = 6, .cx = 0.5f, .cy = 0.1f, .nade = 1},
@@ -202,6 +209,7 @@ static Rgba gostek_color(GostekColor c, const RenderSoldier *s)
     case GOSTEK_COLOR_SKIN: color = s->look.skin; break;
     case GOSTEK_COLOR_HAIR: color = s->look.hair; break;
     case GOSTEK_COLOR_HEAD_BLOOD: color = (Rgba){172, 169, 168, 255}; break;
+    case GOSTEK_COLOR_CIGAR: color = s->has_cigar == 5 ? (Rgba){97, 97, 97, 255} : RGBA_WHITE; break;
     default: color = RGBA_WHITE; break;
     }
     color.a = s->spawn_protected ? 153 : 255;
@@ -262,10 +270,7 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
     // the pose's points, and the four the chains and the dreadlocks hang from
     Vec2 p[GOSTEK_POINTS];
     for (int i = 0; i < POSE_POINTS; i++) p[i] = pose->p[i];
-    p[21 - 1] = p[9 - 1];
-    p[22 - 1] = vec2_add(p[9 - 1], vec2(0, CHAIN_DROP));
-    p[23 - 1] = p[12 - 1];
-    p[24 - 1] = vec2_add(p[12 - 1], vec2(0, DREAD_DROP));
+    for (int k = 0; k < 4; k++) p[POSE_POINTS + k] = s->swing[k];
 
     // slung across the back, so before the body
     const WeaponArt *back = &WEAPON_ART[s->secondary];
@@ -276,7 +281,11 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
     // throw runs.
     int carried = s->grenades - (s->body_anim == ANIM_THROW ? 1 : 0);
     bool bow = s->weapon == WEAPON_BOW || s->weapon == WEAPON_BOW2;
-    bool hair_shown = !bow && (look->head_style == 0 || look->hair_style == 3);
+    // the headgear: on the head, or in the hand past the fourth frame of a wipe or a
+    // take-off; the hair shows under neither but Mr. T's, and once the helmet is off
+    bool grabbed = (s->body_anim == ANIM_WIPE || s->body_anim == ANIM_TAKE_OFF) && s->body_frame > 4;
+    bool capped = look->head_style != 0 && s->wear_helmet == 1;
+    bool hair_shown = !bow && (grabbed || !capped || look->hair_style == 3);
 
     for (int i = 0; i < GOSTEK_PART_COUNT; i++) {
         const GostekPart *part = &GOSTEK_PARTS[i];
@@ -288,8 +297,9 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
         if (part->badge && !bow) continue;
         if (part->nade > 0 && part->nade > carried) continue; // a body keeps its belt, as the original leaves it
         if (part->hair && (part->hair != look->hair_style || !hair_shown)) continue;
-        if (part->head && (part->head != look->head_style || bow)) continue;
+        if (part->head && (part->head != look->head_style || bow || !capped || part->grabbed != grabbed)) continue;
         if (part->chain && part->chain != look->chain_style) continue;
+        if (part->cigar && s->has_cigar != 5 && s->has_cigar != 10) continue;
 
         bool mirrored = facing_left && part->flip;
         Sprite sprite = g->parts[i][part->team ? team : 0][mirrored ? 1 : 0];

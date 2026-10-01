@@ -583,3 +583,7 @@ Vec2 aim_direction(const Soldier *s)
     if (vec2_is_zero(d)) return vec2((float)s->direction, 0.0f);
     return d;
 }
+
+// One pull of the trigger from outside the control (the mercy antic's shot at its
+// 20th frame, the original's SpriteC.Fire).
+void combat_fire(const Context *ctx, World *w, uint8_t index, Events *events) { fire(ctx, w, index, events); }

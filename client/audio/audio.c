@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "game/systems/systems.h"
+#include "render/sparks.h"
 
 #define SOUND_MAXDIST 750.0f
 #define SOUND_METERLENGTH 2000.0f
@@ -150,6 +151,7 @@ static int voice_take(Audio *a)
     for (int i = 0; i < MAX_PLAYERS; i++)
         for (int k = 0; k < VOICE_COUNT; k++)
             if (a->reserved[i][k].voice == oldest + 1) a->reserved[i][k] = (Reserved){0};
+    if (a->weather.voice == oldest + 1) a->weather = (Reserved){0};
     return oldest;
 }
 
@@ -204,9 +206,8 @@ static bool reserved_playing(const Audio *a, const Reserved *r)
     return v->sample && v->started == r->started;
 }
 
-static void voice_stop(Audio *a, int slot, ReservedVoice kind)
+static void reserved_stop(Audio *a, Reserved *r)
 {
-    Reserved *r = &a->reserved[slot][kind];
     if (reserved_playing(a, r)) {
         SDL_LockAudioDevice(a->device);
         a->voices[r->voice - 1].sample = NULL;
@@ -215,20 +216,21 @@ static void voice_stop(Audio *a, int slot, ReservedVoice kind)
     *r = (Reserved){0};
 }
 
-// A soldier's reserved voice: refreshed while it plays, restarted with `name` once it
-// has ended, so a loop lives by being played every tick.
-static void voice_play(Audio *a, int slot, ReservedVoice kind, const char *name, Vec2 at)
+static void voice_stop(Audio *a, int slot, ReservedVoice kind) { reserved_stop(a, &a->reserved[slot][kind]); }
+
+// A reserved voice: refreshed while it plays, restarted with `name` once it has ended,
+// so a loop lives by being played every tick.
+static void reserved_play(Audio *a, Reserved *r, const char *name, Vec2 at)
 {
     if (!a->ready || !name) return;
-    Reserved *r = &a->reserved[slot][kind];
     float left, right;
     if (!place(a, at, false, &left, &right)) {
-        voice_stop(a, slot, kind);
+        reserved_stop(a, r);
         return;
     }
     const Sample *s = sample(a, name); // read before the lock: a file is slow
     if (!s || !s->frames) {
-        voice_stop(a, slot, kind);
+        reserved_stop(a, r);
         return;
     }
     SDL_LockAudioDevice(a->device);
@@ -243,6 +245,12 @@ static void voice_play(Audio *a, int slot, ReservedVoice kind, const char *name,
     a->voices[r->voice - 1].left = left;
     a->voices[r->voice - 1].right = right;
     SDL_UnlockAudioDevice(a->device);
+}
+
+// A soldier's reserved voice (the layout of Sprites.pas: reload, jets, gattling, gattling2).
+static void voice_play(Audio *a, int slot, ReservedVoice kind, const char *name, Vec2 at)
+{
+    reserved_play(a, &a->reserved[slot][kind], name, at);
 }
 
 // SetSoundPaused: pauses only a playing voice, resumes only a paused one.
@@ -325,7 +333,7 @@ static void audio_event(Audio *a, const Event *e, const World *w, int me)
     case EVENT_EXPLOSION: {
         const EventExplosion *x = &e->explosion;
         const Soldier *mine = &w->soldiers[me];
-        if (mine->active && mine->health > -50.0f && vec2_length(vec2_sub(x->pos, a->listener)) < GRENADE_EFFECT_DIST) {
+        if (mine->active && mine->health > -50.0f && vec2_length(vec2_sub(x->pos, mine->pos)) < GRENADE_EFFECT_DIST) {
             a->ringing = GRENADE_EFFECT_TIME;
             audio_flat(a, "hum.wav");
         }
@@ -382,14 +390,18 @@ static void audio_event(Audio *a, const Event *e, const World *w, int me)
         case POLY_LAVA: sound_play(a, "lava.wav", e->poly_effect.pos); break;
         case POLY_REGENERATES: sound_play(a, "regenerate.wav", e->poly_effect.pos); break;
         case POLY_EXPLODES: sound_play(a, "explosion-erg.wav", e->poly_effect.pos); break;
+        case POLY_BOUNCY: sound_play(a, "bounce.wav", e->poly_effect.pos); break;
         default: break;
         }
         break;
+    // The flag's sounds, all from where it happened. The original places the grab and
+    // plays the return, the score and the drop flat, from the camera, so a flag returned
+    // across the map sounds as if it were returned beside you; a departure, on purpose.
     case EVENT_FLAG_GRAB: sound_play(a, "capture.wav", e->flag_grab.pos); break;
-    case EVENT_FLAG_RETURN: audio_flat(a, "capture.wav"); break;
-    case EVENT_FLAG_SCORE: audio_flat(a, "ctf.wav"); break;
+    case EVENT_FLAG_RETURN: sound_play(a, "capture.wav", e->flag_return.pos); break;
+    case EVENT_FLAG_SCORE: sound_play(a, "ctf.wav", e->flag_score.pos); break;
     case EVENT_FLAG_DROP:
-        if (w->soldiers[e->flag_drop.player].team == w->soldiers[me].team) audio_flat(a, "infilt-point.wav");
+        if (w->soldiers[e->flag_drop.player].team == w->soldiers[me].team) sound_play(a, "infilt-point.wav", e->flag_drop.pos);
         break;
     case EVENT_KIT_PICKUP: {
         const char *name = KIT_SOUNDS[e->kit_pickup.kit];
@@ -397,6 +409,10 @@ static void audio_event(Audio *a, const Event *e, const World *w, int me)
         break;
     }
     case EVENT_WEAPON_PICKUP: sound_play(a, "takegun.wav", e->weapon_pickup.pos); break;
+    case EVENT_ANTIC: // the spit, and the puff of smoke that lights the cigar or is drawn on it
+        if (e->antic.kind == ANTIC_SPIT) sound_play(a, "spit.wav", w->soldiers[e->antic.player].pos);
+        if (e->antic.kind == ANTIC_CIGAR_PUFF) sound_play(a, "smoke.wav", w->soldiers[e->antic.player].pos);
+        break;
     case EVENT_THING_HIT:
         // a landing, or (part 0) cloth flapping
         switch (e->thing_hit.thing) {
@@ -551,6 +567,35 @@ static void audio_soldier(Audio *a, const Context *ctx, int slot, const Soldier 
 
     if (fresh) return;
 
+    // the stationary gun (Things.pas): the clank of taking it, and its clicking on the
+    // firing beat while the trigger is held past the overheat
+    if (p.stat == 0 && s->stat != 0) sound_play(a, "m2use.wav", at);
+    if (s->stat != 0 && (c & BUTTON_FIRE) && s->legs.id == ANIM_STAND && s->use_time > M2_OVERHEAT &&
+        (tick - 1) % (uint32_t)ctx->weapons.info[WEAPON_M2].stats.fire_interval == 0) {
+        sound_play(a, "m2overheat.wav", at);
+    }
+
+    // the antics (the IDLE block of Control.pas): the tobacco's "stuff" as the chew steps
+    // over its 17th frame, the match struck as the cigar's ninth passes with the cigar in
+    // the mouth, the roar of a victory, the piss, the mercy's plea (and the minigun's
+    // spin-up with it), and at its 20th frame the blade, the saw or the bare hand on
+    // the head, on the gattling voice as the original has them
+    if (crossed(&p.body, &s->body, ANIM_SMOKE, 17) && s->idle.random == 0) sound_play(a, "stuff.wav", at);
+    if (crossed(&p.body, &s->body, ANIM_CIGAR, 9) && s->has_cigar == 5) sound_play(a, "match.wav", at);
+    if (s->body.id == ANIM_VICTORY && p.body.id != ANIM_VICTORY) sound_play(a, "roar.wav", at);
+    if (s->body.id == ANIM_PISS && p.body.id != ANIM_PISS) sound_play(a, "piss.wav", at);
+    bool mercy_now = s->body.id == ANIM_MERCY || s->body.id == ANIM_MERCY2;
+    bool mercy_then = p.body.id == ANIM_MERCY || p.body.id == ANIM_MERCY2;
+    if (mercy_now && !mercy_then) {
+        sound_play(a, "mercy.wav", at);
+        if (s->weapon.id == WEAPON_MINIGUN) sound_play(a, "minigun-start.wav", at);
+    }
+    if (mercy_now && mercy_then && crossed(&p.body, &s->body, s->body.id, 20)) {
+        if (s->weapon.id == WEAPON_KNIFE) voice_play(a, slot, VOICE_GATTLING, "slash.wav", at);
+        if (s->weapon.id == WEAPON_CHAINSAW) voice_play(a, slot, VOICE_GATTLING, "chainsaw-r.wav", at);
+        if (s->weapon.id == WEAPON_NONE) voice_play(a, slot, VOICE_GATTLING, "dead-hit.wav", at);
+    }
+
     // legs: going prone, standing up, rolling, jumping, crouching, stopping
     static const AnimId PRONES[] = {ANIM_PRONE, ANIM_PRONE_MOVE, ANIM_GET_UP};
     static const AnimId ROLLS[] = {ANIM_ROLL, ANIM_ROLL_BACK};
@@ -603,10 +648,10 @@ static void audio_soldier(Audio *a, const Context *ctx, int slot, const Soldier 
 // ---- bullets passing me ----
 
 // A whistle 25 ticks into any round's flight but a shotgun's, and a whiz the first time
-// another's bullet enters the box around me.
-static void audio_bullets(Audio *a, const Context *ctx, const World *w, int me)
+// a bullet enters the box around the soldier the camera follows, unless it is that
+// soldier's own (CreateBullet marks those whizzed); nothing whizzes past the free camera.
+static void audio_bullets(Audio *a, const Context *ctx, const World *w, int followed)
 {
-    const Soldier *mine = &w->soldiers[me];
     for (int i = 0; i < MAX_BULLETS; i++) {
         const Bullet *b = &w->bullets[i];
         if (!b->active) {
@@ -614,7 +659,7 @@ static void audio_bullets(Audio *a, const Context *ctx, const World *w, int me)
             continue;
         }
         if (b->timeout == ctx->weapons.info[b->weapon].timeout - 25 && b->style != BULLET_SHOTGUN) sound_play(a, "bulletby.wav", b->pos);
-        if (a->whizzed[i] || b->owner == me || b->style == BULLET_PUNCH || b->style == BULLET_FLAME || !mine->active) continue;
+        if (a->whizzed[i] || followed < 0 || b->owner == followed || b->style == BULLET_PUNCH || b->style == BULLET_FLAME) continue;
         Vec2 d = vec2_sub(b->pos, a->listener);
         if (d.x > -200 && d.x < 200 && d.y > -350 && d.y < 100) {
             sound_play(a, pick(a, WHIZ, 4), b->pos);
@@ -623,16 +668,40 @@ static void audio_bullets(Audio *a, const Context *ctx, const World *w, int me)
     }
 }
 
-void audio_tick(Audio *a, const Game *g, int me, Vec2 camera)
+// What the sparks sounded like: casings and clips landing, a body burning.
+static void audio_sparks(Audio *a, const Sparks *sparks)
+{
+    static const char *const SHELLS[] = {"shell.wav", "shell2.wav"};
+    if (!sparks) return;
+    for (int i = 0; i < sparks->sound_count; i++) {
+        const SparkSound *s = &sparks->sounds[i];
+        switch (s->noise) {
+        case SPARK_NOISE_SHELL: sound_play(a, pick(a, SHELLS, 2), s->pos); break;
+        case SPARK_NOISE_GAUGE_SHELL: sound_play(a, "gaugeshell.wav", s->pos); break;
+        case SPARK_NOISE_CLIP: sound_play(a, "clipfall.wav", s->pos); break;
+        case SPARK_NOISE_ONFIRE: sound_play(a, "onfire.wav", s->pos); break;
+        case SPARK_NOISE_FIRECRACK: sound_play(a, "firecrack.wav", s->pos); break;
+        }
+    }
+}
+
+void audio_tick(Audio *a, const Game *g, int me, int followed, Vec2 camera, const Sparks *sparks)
 {
     if (!a->ready) return;
     const World *w = &g->world;
-    const Soldier *mine = &w->soldiers[me];
+    if (followed >= 0 && !w->soldiers[followed].active) followed = -1;
     a->camera = camera;
-    a->listener = mine->active ? mine->pos : camera;
+    a->listener = followed >= 0 ? w->soldiers[followed].pos : camera;
     if (a->ringing > -1) a->ringing--;
     audio_clock(a, &g->match);
     for (int i = 0; i < g->events.count; i++) audio_event(a, &g->events.items[i], w, me);
     for (int i = 0; i < MAX_PLAYERS; i++) audio_soldier(a, &g->ctx, i, &w->soldiers[i], w->tick);
-    audio_bullets(a, &g->ctx, w, me);
+    audio_bullets(a, &g->ctx, w, followed);
+    audio_sparks(a, sparks);
+
+    // the weather (WeatherEffects.pas): the wind, the one loop the original gives rain,
+    // sandstorm and snow alike, from the camera, kept up by being played every tick
+    uint8_t weather = g->ctx.map->weather;
+    if (weather >= 1 && weather <= 3) reserved_play(a, &a->weather, "sfx_wind.wav", a->camera);
+    else reserved_stop(a, &a->weather);
 }
