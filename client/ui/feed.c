@@ -210,19 +210,27 @@ void feed_tick(Feed *f, Console *con, const Game *g, const char names[MAX_PLAYER
             console_print_color(con, team_color(scoring), "%s scores for %s Team\n", names[e->flag_score.player], team_name(scoring));
             break;
         }
+        // The flag's big messages are in the colour of the team whose player did it, as the
+        // original's pickup message has them (NetworkClientThing.pas: CapColor by the
+        // taker's team): a capture in the capturer's, a return in the returner's, which is
+        // the flag's own. The original's other return message (ClientApplyFlagInfo) says
+        // either flag in Alpha's red, a slip not kept: "Blue Flag returned!" is blue.
         case EVENT_FLAG_GRAB: { // the enemy's flag taken: mine to me, theirs to the rest; no
                                 // line in the console, as the original (its SmallCapText is never drawn)
             ThingStyle flag = e->flag_grab.flag;
+            const Soldier *taker = &g->world.soldiers[e->flag_grab.player];
+            Team team = taker->team == TEAM_ALPHA || taker->team == TEAM_BRAVO ? taker->team
+                      : flag_team(flag) == TEAM_ALPHA ? TEAM_BRAVO : TEAM_ALPHA; // only the other side can take it
             if (e->flag_grab.player == me) snprintf(text, sizeof text, "You got the %s Flag!", flag_name(flag));
             else snprintf(text, sizeof text, "%s Flag captured!", flag_name(flag));
-            big_message(f, text, flag_color(flag), FEED_CAPTURE_MESSAGE_TICKS);
+            big_message(f, text, team_color(team), FEED_CAPTURE_MESSAGE_TICKS);
             break;
         }
         case EVENT_FLAG_RETURN: { // by a player: said; by the clock: nothing, as the original
             ThingStyle flag = e->flag_return.flag;
             if (e->flag_return.player == 255) break;
             snprintf(text, sizeof text, "%s Flag returned!", flag_name(flag));
-            big_message(f, text, team_color(TEAM_ALPHA), FEED_CAPTURE_MESSAGE_TICKS); // alpha's colour for either, as the original
+            big_message(f, text, flag_color(flag), FEED_CAPTURE_MESSAGE_TICKS);
             console_print_color(con, flag_color(flag), "%s returned the %s Flag\n", names[e->flag_return.player], flag_name(flag));
             break;
         }
