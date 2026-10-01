@@ -212,6 +212,11 @@ void stream_tests(void)
     CHECK(fabsf(bot_here->pos.x - bot_there->pos.x) < 30.0f, "and here it is near where the server has it (%.1f vs %.1f)",
           bot_here->pos.x, bot_there->pos.x);
 
+    // The kits that came up meanwhile may still be falling, and a thing in motion goes
+    // whole, so the size depends on the tick the clock has reached: three seconds standing
+    // still first, for everything to come to rest.
+    play(&conns, gs, &c, 180, 0, 0);
+
     // the deltas
     CHECK(c.state_bytes > 0 && c.state_bytes < 60, "a tick's client state is small (%zu bytes)", c.state_bytes);
     CHECK(c.snapshot_bytes > 0 && c.snapshot_bytes < 200, "and so is a snapshot of two soldiers and the map's things (%zu bytes)",
