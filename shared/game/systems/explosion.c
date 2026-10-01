@@ -105,7 +105,7 @@ void explode(const Context *ctx, World *w, Bullet *b, uint16_t index, ExplosionK
         const Soldier *s = &w->soldiers[i];
         if (!s->active || s->team == TEAM_SPECTATOR) continue;
         if (s->dead) blast_corpse(ctx, w, b, i, kind, events);
-        else blast_soldier(ctx, w, b, i, bullet_target(ctx, w, b, i), kind, hit_soldier, hit_part, events); // as the thrower saw it
+        else blast_soldier(ctx, w, b, i, bullet_target(w, b, i), kind, hit_soldier, hit_part, events); // as the thrower saw it
     }
 
     // the blast shoves the things it may: every point in range gets its previous

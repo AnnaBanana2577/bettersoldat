@@ -55,7 +55,6 @@ typedef struct MsgClientState {
     uint8_t life;       // the life the soldier is on here: the word of an older life is not taken
     Soldier owned;      // the owned half, and the loadout choice, ride in a Soldier
     bool typing;        // the player is at the chat prompt: the dots over its head
-    bool extrapolate;   // the player shows the others at now (cl_extrapolate): its shots are judged so
     // then the client's own decisions since the server's acknowledgement (wire.h)
 } MsgClientState;
 
@@ -167,12 +166,6 @@ typedef struct ClientStream {
     uint32_t skipped, held, resyncs; // the view clock's nudges forward and back, and its jumps
     uint32_t applies;    // snapshots applied to the world
     float correction;    // how far, all told, the applied snapshots moved the others from where stepping had them
-    // The others at now (cl_extrapolate): each is stepped on from its last word by half
-    // my ping and half its own, and its shots have flown that much longer than their
-    // stamps say, less the half of its ping the stamp already stands behind.
-    bool extrapolate;
-    uint8_t lead[MAX_PLAYERS];  // ticks each is shown ahead of its last word (ping_lead)
-    int8_t shift[MAX_PLAYERS];  // ticks each one's shots are further along than stamped (ping_shift)
     uint32_t word_applied[MAX_PLAYERS]; // the newest snapshot tick each soldier was taken from
     WirePending pending; // the server's events heard, each applied in the tick of its frame
     uint32_t last_word[MAX_PLAYERS]; // the snapshot tick each soldier was last heard of in
@@ -206,17 +199,15 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
 // least `interp` ticks behind it; the snapshot of the tick on show applied to the world
 // (the match, the things, `me`'s served half, and its owned half only on a new life);
 // every other soldier taken from its newest word and stepped on to the tick on show,
-// and `extrapolate` ticks beyond it by half my ping and half its own, so a word that
-// comes late moves nothing that stepping had right; and the server's events due by the
-// tick into the game's mailbox.
-void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp, bool extrapolate);
+// so a word that comes late moves nothing that stepping had right; and the server's
+// events due by the tick into the game's mailbox.
+void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp);
 
 // After the client's tick: its own decisions among the tick's events, for the server.
 void client_stream_collect(ClientStream *c, const Game *g, int me);
 
 // Each frame: the offsets ease away, nine tenths of a correction gone `seconds` after
-// it (none at all with 0), or after the lead the soldier is shown with if that is
-// longer, since the error was made over that long. `dt` is the frame's seconds.
+// it (none at all with 0). `dt` is the frame's seconds.
 void client_stream_smooth(ClientStream *c, float dt, float seconds);
 
 // The client's state, its soldier `me` as it stands and its decisions pending, into

@@ -6,7 +6,6 @@
 // has caught up and meets the present (bullets_update). A world without a history (a
 // client's) judges against what it shows, which is the same thing.
 
-#include <math.h>
 #include <string.h>
 
 #include "game/systems/systems.h"
@@ -50,61 +49,8 @@ Soldier *target_soldier(World *w, Soldier *frame, uint8_t owner, int i)
     return i == owner ? &w->soldiers[i] : &frame[i];
 }
 
-static int ping_ticks(float ms)
+const Soldier *bullet_target(World *w, const Bullet *b, int i)
 {
-    return (int)lroundf(ms * (float)TICK_RATE / 1000.0f);
-}
-
-int ping_lead(uint16_t mine, uint16_t theirs)
-{
-    int lead = ping_ticks(((float)mine + (float)theirs) / 2.0f);
-    return lead > LEAD_MAX ? LEAD_MAX : lead;
-}
-
-int ping_shift(uint16_t mine, uint16_t theirs)
-{
-    int shift = ping_ticks(((float)mine - (float)theirs) / 2.0f);
-    return shift > LEAD_MAX ? LEAD_MAX : shift < -LEAD_MAX ? -LEAD_MAX : shift;
-}
-
-const Soldier *history_future(const Context *ctx, World *w, int i, int ahead)
-{
-    History *h = w->history;
-    if (ahead <= 0 || !h) return &w->soldiers[i];
-    if (ahead > LEAD_MAX) ahead = LEAD_MAX;
-    if (h->future_tick[i] != w->tick) {
-        h->future_tick[i] = w->tick;
-        h->future_count[i] = 0;
-    }
-    // stepped on in place, the soldier standing in for its own future for a moment
-    Soldier present = w->soldiers[i];
-    while (h->future_count[i] < ahead) {
-        int n = h->future_count[i];
-        if (n > 0) w->soldiers[i] = h->future[i][n - 1];
-        Events scratch = {0}; // what the step would say is said by nobody
-        soldier_step(ctx, w, (uint8_t)i, soldier_last_command(&w->soldiers[i], false), &scratch, false);
-        h->future[i][n] = w->soldiers[i];
-        h->future_count[i] = n + 1;
-    }
-    w->soldiers[i] = present;
-    return &h->future[i][ahead - 1];
-}
-
-const Soldier *bullet_target(const Context *ctx, World *w, const Bullet *b, int i)
-{
-    if (i == b->owner || !w->history) return &w->soldiers[i]; // the shooter from the present; a client from what it shows
-    // the frame the shooter had at this step is `lag` behind the present, and it drew the
-    // target `lead` ticks on from it, the lead out of the pings that frame carried, which
-    // are the numbers the shooter had
-    int shift = -(int)b->lag;
-    if (b->now) {
-        const Soldier *had = w->soldiers;
-        uint32_t frame = w->tick + 1 - b->lag;
-        if (b->lag > 0 && history_has(w->history, frame)) had = w->history->frames[frame % HISTORY_TICKS];
-        shift += ping_lead(had[b->owner].ping, had[i].ping);
-    }
-    if (shift == 0) return &w->soldiers[i];
-    if (shift > 0) return history_future(ctx, w, i, shift);
-    uint32_t frame = w->tick + 1 + (uint32_t)shift;
-    return history_has(w->history, frame) ? &w->history->frames[frame % HISTORY_TICKS][i] : &w->soldiers[i];
+    if (i == b->owner) return &w->soldiers[i]; // the shooter from the present, as above
+    return &history_targets(w, b->lag)[i];
 }

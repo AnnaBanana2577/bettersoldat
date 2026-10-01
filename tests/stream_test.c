@@ -100,7 +100,7 @@ static void client_tick(StreamClient *c, Buttons buttons)
 {
     World *w = &c->game->world;
     Command cmds[MAX_PLAYERS] = {0};
-    client_stream_begin_tick(&c->stream, c->game, c->slot, client_interp, true);
+    client_stream_begin_tick(&c->stream, c->game, c->slot, client_interp);
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
         s->remote = i != c->slot;

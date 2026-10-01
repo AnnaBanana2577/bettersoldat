@@ -91,43 +91,34 @@ of the frame it shows, kept against the newest snapshot it holds: the clock runs
 and is nudged a tick at a time when the frames in hand run consistently over or under
 (client_stream_begin_tick; `cl_interp` keeps it some ticks behind the newest, which is
 off by default). A client runs its own soldier at the present with no delay and no
-correction. Everyone else it takes from their newest word and steps on to the tick on
-show, and past it by a lead, with their last controls through the ordinary
-`soldier_step` with `armed` false, so a remote soldier moves but never fires from its
-keys. The lead (`cl_extrapolate`, on by default) is half my ping and half theirs in
-ticks (ping_lead), which is how far their last word stands behind where they are by
-now, so the picture is at now and not where everyone last was. A word that arrives
-late is stepped on the further and moves nothing that stepping had right, so the
-line's jitter never reaches the picture; what the word does move is what stepping
+correction, and shows everyone else where the game last heard they were, moving as
+they were moving: each is taken from its newest word and stepped on to the tick on
+show with its last controls through the ordinary `soldier_step` with `armed` false, so
+a remote soldier moves but never fires from its keys, and is never stepped past the
+tick on show, as the original's are not. A word that arrives late is stepped on the
+further and moves nothing that stepping had right, the step being the same everywhere,
+so the line's jitter never reaches the picture; what a word does move is what stepping
 could not foresee, a key pressed since, and that blends in rather than snapping: the
 picture keeps its place and its speed at the moment of the word and eases to the
 corrected place as a critically damped spring does, nine tenths of the way over
-cl_smooth (100 ms) or over the lead if that is longer, since the error was made over
-that long (client_stream_smooth). No word for half a second releases the keys, so a quiet player falls and
-stops. The server's events ride the same clock: a client keeps them until their tick
-is on show. A shot heard has flown half my ping less half the shooter's longer than
-its stamp says from here (ping_shift), and is run forward by as much more, so it sits
-where the shooter's soldier, shown at now, has it; and it gets the flash, the smoke and
-the sound at that soldier's muzzle, which its unarmed step would never give.
+cl_smooth (100 ms) (client_stream_smooth). No word for half a second releases the
+keys, so a quiet player falls and stops. The server's events ride the same clock: a
+client keeps them until their tick is on show. A shot heard is run forward from its
+stamp to the tick on show, so it is where its shooter has it by then, half the
+shooter's ping ahead of the shooter's soldier as drawn; and it gets the flash, the
+smoke and the sound at that soldier's muzzle, which its unarmed step would never give.
 
 A shot is an event from the owner, stamped with its tick, which names the frame the
 shooter had. The server runs the bullet forward from that tick to its own present and,
-each step of the way, judges it against what the shooter drew at that step: the frame
-the shooter's screen held, out of the history ring, and the target in it stepped on by
-the shooter's lead, which the server can do too, the step being the same everywhere and
-the lead a function of the two pings as that very frame carried them, which are the
-numbers the shooter had (bullet_target, history_future). No measurement of the moment
-enters the judging: the stamp names the frame, and the frame holds the pings. Caught up, the bullet meets the present stepped on by the lead like
-any other. So what landed on the shooter's screen lands on the server, however far the
-target has moved since, and whatever the target did since, and the round trip never
-cheats the shooter of a hit. The price falls on the target, who can be hit where it
-was drawn, which is where its last word said it was going: a target that turned inside
-the last half ping and half ping is hit where it would have been. That is the trade of
-showing everyone at now, and it is the original's trade too; `cl_extrapolate 0` shows
-everyone where they were last heard of instead, and the server, told so in the client's
-state, judges that player's shots on the frames alone, so a target is only ever hit
-where it was. The shooter plays its own flash, sound and blood at once, and the health
-on the server's damage event.
+each step of the way, judges it against the frame the shooter's screen held at that
+step, out of the history ring (bullet_target, history_targets), until it has caught up
+and meets the present like any other bullet. So what landed on the shooter's screen
+lands on the server however far the target has moved since, and the round trip never
+cheats the shooter of a hit; the price falls on the target, who can be hit a round trip
+after reaching cover, as in every game that rewinds. What is left is what the shooter's
+screen could not know: a key the target changed, or a frame lost, inside the last round
+trip. The shooter plays its own flash, sound and blood at once, and the health on the
+server's damage event.
 
 ## Things
 
@@ -241,13 +232,14 @@ that changes the netcode says what it measured, on what line.
    meets the shooter's frames out of the history ring, as the Time section says, and
    tests/rewind_test.c holds that a shot landed on the shooter's screen lands on the
    server a sixth of a second later with the target run on past it, and that the same
-   aim judged at the present misses. Then the others at now: each stepped on from its
-   last word by the lead the two pings give, a late word stepped on the further so
-   jitter moves nothing, and the server stepping its frames on by the same lead to
-   meet what the shooter drew (cl_extrapolate; cl_interp keeps the view behind the
-   newest instead, for the line that needs it). A tracer that stood in for a flight
-   nobody saw was tried on the way and dropped: with the shot placed where the
-   shooter as drawn has it, there is no gap to draw.
+   aim judged at the present misses. Then the words applied by stepping: a late word
+   stepped on to the tick on show, so jitter moves nothing, and cl_interp to keep the
+   view behind the newest for a line that needs it. Two things were tried on the way
+   and dropped: a tracer standing in for the flight nobody saw, and the others stepped
+   on past their last word by half each ping to show them at now, with the server
+   stepping its frames on by the same lead to judge; the stepping ahead was a
+   prediction, wrong whenever a key changed inside it, and the game shows everyone
+   where it last heard they were, as the original does.
 7. Things, flags, kits, the match, rounds, chat. Built in part: the things ride the
    snapshot as the soldiers do, a word per slot and a delta against what the client
    received, out of the history ring which keeps them too; a client takes what a thing

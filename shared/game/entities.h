@@ -275,10 +275,6 @@ typedef struct Soldier {
     // This machine's alone, never on the wire: the soldier is heard of, not played
     // here, so its keys move it between words but fire nothing.
     bool remote;
-    // The server's alone, from the client's state: its player shows the others
-    // extrapolated to now (cl_extrapolate), so its shots are judged at now too, each
-    // target shifted by half the difference of the two pings (bullet_target).
-    bool extrapolates;
     // The chain's and the hair's points past the pose's 20 (gostek.po's 21 to 24): the
     // neck and the head's top, and the pendant and the dreadlocks' end swinging below
     // them, each machine's own verlet (TSprite.UpdatePose, DoVerletTimeStepFor).
@@ -302,7 +298,6 @@ typedef struct Bullet {
     WeaponId weapon;
     uint8_t owner;
     uint8_t lag;        // ticks behind the present it meets the soldiers, as its shooter saw them
-    bool now;           // its shooter shows the others at now: it meets each shifted by the pings' difference instead
     uint32_t spawn_cmd; // the command of its owner that fired it
     uint32_t shot_id;   // its owner's count of its bullets: the same number on every machine
     Vec2 pos, old_pos;
@@ -550,16 +545,9 @@ typedef struct Events {
 // History: where everyone was over the last second, kept on the server so a shot is
 // judged against the soldiers as its shooter saw them.
 
-#define LEAD_MAX 10 // ticks a soldier is shown, or judged, ahead of its last word at most
-
 typedef struct History {
     Soldier frames[HISTORY_TICKS][MAX_PLAYERS]; // by tick modulo the ring
     Thing things[HISTORY_TICKS][MAX_THINGS];    // and the things, for the snapshots' deltas
     uint32_t tick; // the newest frame's
     uint32_t count;
-    // The other way: each soldier stepped on from the present on its last keys, as a
-    // client showing it at now has it, worked out as asked and kept for the tick.
-    Soldier future[MAX_PLAYERS][LEAD_MAX];
-    uint32_t future_tick[MAX_PLAYERS];
-    int future_count[MAX_PLAYERS];
 } History;

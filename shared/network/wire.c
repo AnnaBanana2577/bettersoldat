@@ -285,7 +285,7 @@ void wire_read_pending(NetBuf *b, WirePending *p)
     }
 }
 
-void wire_pending_apply(WirePending *p, Game *g, uint32_t tick, const int8_t shift[MAX_PLAYERS])
+void wire_pending_apply(WirePending *p, Game *g, uint32_t tick)
 {
     for (uint32_t seq = p->applied + 1; seq <= p->received; seq++) {
         uint32_t k = seq % WIRE_PENDING;
@@ -297,12 +297,9 @@ void wire_pending_apply(WirePending *p, Game *g, uint32_t tick, const int8_t shi
             continue;
         }
         Event e = p->items[k];
-        int64_t due = e.tick;
-        if (shift && e.type == EVENT_SHOT) due -= shift[e.shot.player];
-        if (due > (int64_t)tick) return; // not yet
+        if (e.tick > tick) return; // not yet
         p->seq[k] = 0;
         p->applied = seq;
-        if (e.type == EVENT_SHOT && due >= 1) e.tick = (uint32_t)due; // the stamp as seen from here
         shot_advance(&e, tick);
         game_hear(g, e);
     }

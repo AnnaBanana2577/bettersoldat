@@ -85,7 +85,5 @@ void wire_read_pending(NetBuf *b, WirePending *p);
 // Applies, in order, every event due by `tick` into the game's mailbox, each once; one
 // stamped past `tick` waits, and so does everything after it. A number never received
 // below the newest is the receiver's own, which the sender leaves out, and is passed
-// over. A shot's advance is `tick` minus its own, and `shift`, if given, is how many
-// ticks longer than that a shot of each player's has been flying as seen from here
-// (ping_shift), which moves its due tick back, or forward, by as much.
-void wire_pending_apply(WirePending *p, Game *g, uint32_t tick, const int8_t shift[MAX_PLAYERS]);
+// over. A shot's advance is `tick` minus its own.
+void wire_pending_apply(WirePending *p, Game *g, uint32_t tick);

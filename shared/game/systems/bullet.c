@@ -28,7 +28,6 @@ static int bullet_make(const Context *ctx, World *w, const EventShot *shot, Even
             .style = info->stats.style,
             .weapon = shot->weapon,
             .owner = shot->player,
-            .now = s->extrapolates, // judged as its shooter drew the others (bullet_target)
             .spawn_cmd = s->cmd_seq,
             .shot_id = shot->shot,
             .pos = shot->pos,

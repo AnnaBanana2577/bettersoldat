@@ -21,7 +21,6 @@ void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base)
     netfields_serialize(b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m->owned, base);
     netfields_serialize(b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &m->owned, base);
     net_bool(b, &m->typing);
-    net_bool(b, &m->extrapolate);
 }
 
 static const SnapBase NO_BASE = {0};
@@ -93,7 +92,6 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     netfields_serialize(&b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m.owned, base);
     netfields_serialize(&b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &m.owned, base);
     net_bool(&b, &m.typing);
-    net_bool(&b, &m.extrapolate);
     if (!netbuf_ok(&b) || soldier_out_of_bounds(&g->ctx, m.owned.pos)) {
         s->dropped++;
         return false;
@@ -121,7 +119,6 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     Soldier *soldier = &g->world.soldiers[slot];
     if (soldier->active && !soldier->dead && m.life == soldier->life) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
     soldier->typing = m.typing;
-    soldier->extrapolates = m.extrapolate;
     soldier->primary_choice = weapon_is_primary(m.owned.primary_choice) ? m.owned.primary_choice : WEAPON_EAGLE;
     soldier->secondary_choice = weapon_is_secondary(m.owned.secondary_choice) ? m.owned.secondary_choice : WEAPON_KNIFE;
     return true;
@@ -396,7 +393,7 @@ static void frame_apply(ClientStream *c, Game *g, int me, int k)
     }
 }
 
-#define STREAM_STEPS_MAX (LEAD_MAX + 6) // a word is stepped on this far at most: past it, it stands
+#define STREAM_STEPS_MAX 16 // a word is stepped on this far at most: past it, it stands
 
 // Soldier `i` as its word in ring slot `k` has it, stepped on `steps` ticks on its last
 // keys to where the tick on show wants it. The correction goes to the picture, to be
@@ -423,31 +420,30 @@ static void soldier_apply(ClientStream *c, Game *g, int i, int k, int steps, Eve
     if (!placed) c->correction += vec2_length(jump);
 }
 
-// Every other soldier from its newest word no later than the tick on show plus its
-// lead, stepped on to there; one with no newer word keeps stepping as it is.
+// Every other soldier from its newest word no later than the tick on show, stepped on
+// to there, so a word that came late moves nothing that stepping had right; one with
+// no newer word keeps stepping as it is.
 static void soldiers_apply(ClientStream *c, Game *g, int me, uint32_t v)
 {
     Events scratch;
     events_clear(&scratch);
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (i == me) continue;
-        uint32_t want = v + c->lead[i];
-        uint32_t t = want < c->newest ? want : c->newest;
+        uint32_t t = v < c->newest ? v : c->newest;
         for (; t > c->word_applied[i] && c->newest - t < STREAM_RING; t--) {
             int k = (int)(t % STREAM_RING);
             if (c->snap_tick[k] != t || c->snap_word[k][i] != SNAP_STATE) continue;
-            soldier_apply(c, g, i, k, (int)(want - t), &scratch);
+            soldier_apply(c, g, i, k, (int)(v - t), &scratch);
             c->word_applied[i] = t;
             break;
         }
     }
 }
 
-void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp, bool extrapolate)
+void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp)
 {
     if (c->newest == 0) return; // nothing heard yet: the world stands as the round left it
     World *w = &g->world;
-    c->extrapolate = extrapolate;
     if (interp < 0) interp = 0;
     if (interp > STREAM_INTERP_MAX) interp = STREAM_INTERP_MAX;
     if (c->interp < interp) c->interp = interp;
@@ -496,17 +492,8 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp, bool
     } else if (v > c->applied) {
         c->misses++;
     }
-    // The leads, out of the pings the frame on show carries, which the server has in
-    // the same frame and takes the same lead from (bullet_target); a soldier the frame
-    // left out keeps the ping it had.
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        uint16_t mine = have && c->snap_word[k][me] == SNAP_STATE ? c->snaps[k][me].ping : w->soldiers[me].ping;
-        uint16_t theirs = have && c->snap_word[k][i] == SNAP_STATE ? c->snaps[k][i].ping : w->soldiers[i].ping;
-        c->lead[i] = extrapolate ? (uint8_t)ping_lead(mine, theirs) : 0;
-        c->shift[i] = extrapolate ? (int8_t)ping_shift(mine, theirs) : 0;
-    }
     soldiers_apply(c, g, me, v);
-    wire_pending_apply(&c->pending, g, v, extrapolate ? c->shift : NULL);
+    wire_pending_apply(&c->pending, g, v);
     c->event_last = c->pending.received; // what is held here need not come again
 }
 
@@ -519,7 +506,6 @@ void client_stream_smooth(ClientStream *c, float dt, float seconds)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         float over = seconds;
-        if (over > 0.0f && (float)c->lead[i] * (float)TICK_SECONDS > over) over = (float)c->lead[i] * (float)TICK_SECONDS;
         if (over <= 0.0f) {
             c->blend[i] = c->blend_vel[i] = vec2(0, 0);
             continue;
@@ -549,8 +535,7 @@ size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, siz
 
     NetBuf b = netbuf_writer(buf, size);
     MsgKind kind = MSG_CLIENT_STATE;
-    MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .life = me->life,
-                        .owned = *me, .typing = me->typing, .extrapolate = c->extrapolate};
+    MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .life = me->life, .owned = *me, .typing = me->typing};
     msg_kind(&b, &kind);
     msg_client_state(&b, &m, base);
     wire_write(&b, &c->out, c->event_ack, -1, WIRE_PER_PACKET);

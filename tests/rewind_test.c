@@ -1,10 +1,9 @@
 // A shot heard late is judged against the soldiers as its shooter drew them: the server
 // runs the bullet forward from the shooter's tick and, each step of the way, meets the
-// frame the shooter's screen held at that step, out of the history ring, stepped on by
-// the lead the shooter showed the others with, so what landed on the shooter's screen
-// lands on the server however far the target has moved since (bullets_update,
-// bullet_target). And a client hearing the shot gives it the flash its own weapon pass
-// would have.
+// frame the shooter's screen held at that step, out of the history ring, so what landed
+// on the shooter's screen lands on the server however far the target has moved since
+// (bullets_update, bullet_target). And a client hearing the shot gives it the flash its
+// own weapon pass would have.
 
 #include <math.h>
 #include <stdlib.h>
@@ -57,7 +56,6 @@ void rewind_tests(void)
     g->world.history = calloc(1, sizeof(History));
     World *w = &g->world;
     settle(g);
-    Vec2 start = w->soldiers[1].pos; // the runner is put back here before each later run, out of the map's cover
     for (int i = 0; i < 40; i++) tick_running(g);
     CHECK(w->soldiers[1].vel.x > 1.0f, "soldier 1 is running right (%.2f a tick)", w->soldiers[1].vel.x);
 
@@ -95,26 +93,6 @@ void rewind_tests(void)
         hits += count(&g->events, EVENT_HIT, 1);
     }
     CHECK(hits == 0, "the same shot judged at the present misses (%d hits)", hits);
-
-    // A shooter who shows the others at now (cl_extrapolate) drew the runner stepped on
-    // from its frame by half its ping and half the runner's: nine ticks at 150 ms each.
-    // The server steps the frame on the same way and meets the runner there.
-    w->soldiers[0].extrapolates = true;
-    w->soldiers[0].ping = w->soldiers[1].ping = 150;
-    CHECK(ping_lead(150, 150) == 9 && ping_shift(150, 150) == 0, "two players at 150 ms show each other nine ticks on, their shots as stamped (%d, %d)",
-          ping_lead(150, 150), ping_shift(150, 150));
-    place(&w->soldiers[1], start);
-    for (int i = 0; i < 20; i++) tick_running(g);
-    uint32_t seen2 = w->tick;
-    for (int i = 0; i < 20; i++) tick_running(g);
-    const Soldier *drawn = history_at(w, seen2 + 9);
-    CHECK(drawn && drawn[1].pos.x > w->soldiers[1].pos.x - 100.0f, "the frame the shooter's picture stood for is in the history (tick %u)", seen2 + 9);
-    EventShot ahead = shot_at(g, &drawn[1]);
-    ahead.shot = w->soldiers[0].shot_count + 1;
-    ahead.advance = (uint8_t)(w->tick - (seen2 - 1));
-    game_hear(g, (Event){.type = EVENT_SHOT, .tick = seen2 - 1, .shot = ahead});
-    tick_running(g);
-    CHECK(count(&g->events, EVENT_HIT, 1) > 0, "a shot at the runner as drawn nine ticks ahead lands (%d hits)", count(&g->events, EVENT_HIT, 1));
 
     // a client hearing a shot gives it the flash and the sound its unarmed shooter never made
     w->authority = false;
