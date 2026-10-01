@@ -165,7 +165,7 @@ static Spark *spark_add(Sparks *s, Vec2 pos, Vec2 vel, SparkStyle style, float l
     for (int i = 0; i < MAX_SPARKS; i++) {
         Spark *spark = &s->pool[i];
         if (spark->style != SPARK_NONE) continue;
-        *spark = (Spark){.style = style, .life = life, .pos = pos, .vel = vel, .color = color};
+        *spark = (Spark){.style = style, .life = life, .pos = pos, .vel = vel, .color = color, .old_pos = pos, .prev_life = life};
         return spark;
     }
     return NULL;
@@ -476,6 +476,8 @@ void sparks_tick(Sparks *s, const Context *ctx, const World *w, const Events *ev
     for (int i = 0; i < MAX_SPARKS; i++) {
         Spark *spark = &s->pool[i];
         if (spark->style == SPARK_NONE) continue;
+        spark->old_pos = spark->pos; // the frames between this tick and the next blend from here
+        spark->prev_life = spark->life;
         if (moves(spark->style)) {
             spark->vel.y += SPARK_GRAVITY;
             spark->pos = vec2_add(spark->pos, spark->vel);
@@ -505,14 +507,15 @@ static int explosion_frame(float l, float step)
     return clampi(EXPLOSION_FRAMES - 1 - (int)roundf(l / step), 0, EXPLOSION_FRAMES - 1);
 }
 
-void sparks_draw(const Sparks *s)
+void sparks_draw(const Sparks *s, float between)
 {
     if (!s->loaded) return;
     const Rgba white = RGBA_WHITE;
     for (int i = 0; i < MAX_SPARKS; i++) {
         const Spark *spark = &s->pool[i];
-        float l = spark->life;
-        Vec2 p = spark->pos;
+        // between the last tick and the latest, as the original's frame lerps them
+        float l = spark->prev_life + (spark->life - spark->prev_life) * between;
+        Vec2 p = vec2_add(spark->old_pos, vec2_scale(vec2_sub(spark->pos, spark->old_pos), between));
         switch (spark->style) {
         case SPARK_NONE: break;
         case SPARK_SMOKE: draw_spark(s->art[SPARK_ART_SMOKE], p, 1, 0, l + 10, white); break;

@@ -52,6 +52,11 @@ typedef struct Spark {
     SparkStyle style;
     float life;
     Vec2 pos, vel;
+    // Where it was and how long it had to live a tick ago, for the frames between ticks
+    // (GameRendering.pas lerps SparkParts.OldPos to Pos, LifePrev to Life); a new spark's
+    // are where it starts and its whole life.
+    Vec2 old_pos;
+    float prev_life;
     Rgba color;            // the spawn spark carries the team colour, the jet fire the jet's
     WeaponId weapon;       // a shell's or a clip's
     uint8_t collide_count; // landings so far: a casing sounds on some and is gone after five
@@ -113,5 +118,7 @@ void sparks_clear(Sparks *s); // a new map: the old one's sparks go with it
 // every spark on by one step. Leaves this tick's `sounds`.
 void sparks_tick(Sparks *s, const Context *ctx, const World *w, const Events *events);
 
-// Under the camera's transform, after everything they land on.
-void sparks_draw(const Sparks *s);
+// Under the camera's transform, after everything they land on, `between` of the way from
+// each spark's last tick to its latest: its place and its life, and with the life what
+// it fades, grows and turns by. 0 draws the last tick, 1 the latest.
+void sparks_draw(const Sparks *s, float between);

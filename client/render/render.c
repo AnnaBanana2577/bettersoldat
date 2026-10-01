@@ -131,7 +131,7 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
     map_draw_scenery(v, 1);
     map_draw_terrain(v);
     map_draw_scenery(v, 2);
-    sparks_draw(&r->sparks);
+    sparks_draw(&r->sparks, state->alpha);
 
     if (options.wireframe) map_draw_wireframe(v->map, camera);
     if (options.debug) {
