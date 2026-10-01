@@ -95,10 +95,10 @@ void wire_tests(void)
     last = 0;
     r = netbuf_reader(packet, netbuf_bytes(&w));
     wire_read(&r, g, &last, -1);
-    CHECK(g->incoming.count == 2 && g->incoming.items[0].type == EVENT_SHOT && g->incoming.items[0].shot.advance == 15 &&
-              g->incoming.items[0].tick == 40 && g->incoming.items[1].tick == 50,
-          "another gets both, the shot to be run forward from its tick to now (%d heard, advance %u)", g->incoming.count,
-          g->incoming.items[0].shot.advance);
+    CHECK(g->incoming.count == 2 && g->incoming.items[0].type == EVENT_SHOT && g->incoming.items[0].shot.advance == 5 &&
+              g->incoming.items[0].tick == 50 && g->incoming.items[1].tick == 50,
+          "another gets both, the shot restamped with the relaying tick and run forward from it to now (%d heard, advance %u)",
+          g->incoming.count, g->incoming.items[0].shot.advance);
 
     events_clear(&g->incoming);
     w = netbuf_writer(packet, sizeof packet);

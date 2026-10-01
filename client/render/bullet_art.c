@@ -174,10 +174,12 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, d
 }
 
 // A grenade, a knife or a blade is not drawn as a streak when it flies, so no tracer
-// stands in for one either.
+// stands in for one either; nor do a shotgun's six pellets, which would fan out as
+// six long lines.
 static bool tracer_worthy(WeaponId weapon)
 {
     switch (weapon) {
+    case WEAPON_SPAS:
     case WEAPON_FRAG:
     case WEAPON_CLUSTER_NADE:
     case WEAPON_KNIFE:

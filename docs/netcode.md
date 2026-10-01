@@ -113,16 +113,20 @@ after reaching cover, as in every game that rewinds. What is left is what the
 shooter's screen could not know: a key the target changed, or a frame lost, inside the
 last round trip.
 
-Every other client runs the shot forward to its own tick, so the bullet is where the
-shooter has it by then, and the shooter's body, being the frame on show, is the
-shooter's one-way latency behind it; neither `cl_interp` nor the hearer's own ping
-widens that gap. It is not seen as a gap: a shot heard gets the flash, the smoke and
-the sound at the shooter's muzzle as drawn, which its unarmed step would never give,
-and a tracer along the flight nobody saw, from the muzzle to where the bullet turned
-up, or to where it ended if it ended on the way (EVENT_BULLET_TRACE), fading over
-about as many ticks as the flight took. A grenade that goes off on the way plays its
-explosion where it went off, as before. The shooter plays its own flash, sound and
-blood at once, and the health on the server's damage event.
+Every other client sees the shot on the one clock its picture runs on. The server
+relays a shot stamped with the tick it made the bullet, not the shooter's own: the shot
+came in with the state of the soldier that fired it, so the frame of that tick holds
+the shooter in the act, and a client applies the shot as that frame comes up, with
+nothing to run forward. The bullet leaves the muzzle of the soldier as drawn, and the
+shot gets the flash, the smoke and the sound there, which its unarmed step would never
+give. The price is that a shot is seen half the shooter's ping later than it could be,
+which decides nothing: the hit was judged on what the shooter saw. Only a shot whose
+packet was lost comes with its frame already past and is run forward from it; the
+flight nobody saw is then drawn as a tracer, from the muzzle as drawn to where the
+bullet turned up, or ended (EVENT_BULLET_TRACE), fading over about as many ticks as
+the flight took, and a grenade that goes off on the way plays its explosion where it
+went off. The shooter plays its own flash, sound and blood at once, and the health on
+the server's damage event.
 
 ## Things
 

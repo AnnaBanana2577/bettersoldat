@@ -225,8 +225,12 @@ void wire_collect(WireQueue *q, const Events *events, uint32_t tick, int only_ow
         bool heard = e->tick != 0;
         int owner = wire_owner(e);
         if (only_owner >= 0 && (heard || side != WIRE_OWNER || owner != only_owner)) continue; // a client: its own decisions alone
+        // The server stamps what it relays with its own tick too: a shot came in with the
+        // state of the soldier that fired it, so the frame of this tick holds the shooter
+        // in the act, and a client applying the shot as that frame comes up sees the
+        // bullet leave the muzzle of the soldier it draws, with nothing to run forward.
         Event stamped = *e;
-        if (!heard) stamped.tick = tick;
+        stamped.tick = tick;
         push(q, &stamped, heard && owner >= 0 ? (uint8_t)owner : WIRE_FROM_HERE);
     }
 }
