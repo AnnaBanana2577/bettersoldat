@@ -79,8 +79,7 @@ it sends, the receiver keeps the last number applied per sender and applies each
 so a lost packet is covered by the next and nothing needs a reliable channel. After
 heavy loss the backlog is capped, oldest held back, kills and pickups first. A client
 holds the server's events until the tick of their frame is on show (WirePending), and
-acknowledges what it has applied, so the few ticks in hand ride each packet again
-until they are due.
+acknowledges them as it receives them: what is held need not come again.
 
 **Reliable, rarely:** Hello, Welcome, Denied, and Chat, which carries commands and
 votes as text as well. Nothing else.

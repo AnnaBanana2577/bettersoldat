@@ -467,7 +467,7 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp)
         c->misses++;
     }
     wire_pending_apply(&c->pending, g, v);
-    c->event_last = c->pending.applied;
+    c->event_last = c->pending.received; // what is held here need not come again
 }
 
 void client_stream_collect(ClientStream *c, const Game *g, int me)

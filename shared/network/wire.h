@@ -67,15 +67,16 @@ void wire_read(NetBuf *b, Game *g, uint32_t *last, int only_owner);
 
 // The client's way in: what it hears is kept until its tick is due, so the server's
 // decisions land in the tick of the frame they happened in, which the view shows some
-// ticks after it arrives (stream.h). Each event is kept once by seq; one that arrives
-// before there is room for it waits for the resend.
+// ticks after it arrives (stream.h). Each event is kept once by seq, and the newest
+// kept is what the sender is told, so nothing held here comes again; one that arrives
+// before there is room for it is not kept, and so not acknowledged, and comes again.
 #define WIRE_PENDING 128
 
 typedef struct WirePending {
     Event items[WIRE_PENDING]; // by seq
     uint32_t seq[WIRE_PENDING]; // the seq held in each slot, 0 for none
-    uint32_t received;          // the newest seq read
-    uint32_t applied;           // the newest seq applied: what the sender is told
+    uint32_t received;          // the newest seq kept: the acknowledgement
+    uint32_t applied;           // the newest seq applied
 } WirePending;
 
 void wire_pending_init(WirePending *p);

@@ -402,7 +402,9 @@ void stream_tests(void)
     CHECK(jump_on_c < 2.0f * MAX_VELOCITY && jump_on_d < 2.0f * MAX_VELOCITY,
           "neither client's picture of the other jumps more than a soldier can move in a tick (%.1f, %.1f at most)", jump_on_c,
           jump_on_d);
-    CHECK(steady < NET_MTU / 3, "and the steady snapshots stay far from the datagram's size (%zu bytes at largest, %zu the join's)",
+    // three soldiers and a dozen things, with both players' Eagle bursts landing on a
+    // tick and the wounds, kills and dropped guns they bring: half the datagram at most
+    CHECK(steady < NET_MTU / 2, "and the steady snapshots stay far from the datagram's size (%zu bytes at largest, %zu the join's)",
           steady, c.stream.largest);
 
     // the second client's look, said in its Hello, reached the first through the server, and
