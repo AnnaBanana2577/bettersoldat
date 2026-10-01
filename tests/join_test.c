@@ -16,6 +16,7 @@
 typedef struct TestClient {
     NetLink link;
     uint16_t version;
+    char password[NET_PASSWORD_SIZE]; // said in the Hello
     bool connected, welcomed, denied, closed, mapped;
     MsgWelcome welcome;
     MsgMap map;
@@ -52,6 +53,7 @@ static void client_pump(TestClient *c)
         if (e.kind == NET_EVENT_CONNECT) {
             c->connected = true;
             MsgHello hello = {.version = c->version, .name = "Tester"};
+            snprintf(hello.password, sizeof hello.password, "%s", c->password);
             client_send(c, MSG_HELLO, route_hello, &hello);
         } else if (e.kind == NET_EVENT_DISCONNECT) {
             c->closed = true;
@@ -239,6 +241,24 @@ void join_tests(void)
     pump(&conns, g, four, 3, third_answered);
     CHECK(e.denied && !e.welcomed && strstr(e.denial.reason, "banned") != NULL, "and is denied: %s", e.denial.reason);
     net_close(&e.link);
+
+    // A password asked for (sv_password) must be said in the Hello. The ban on this
+    // address is lifted first, so the password alone decides.
+    memset(&conns.bans[0], 0, sizeof conns.bans[0]);
+    connections_set_password(&conns, "s3cret");
+    TestClient p;
+    TestClient *five[3] = {&a, &b, &p};
+    CHECK(client_open(&p, NET_VERSION), "a client connects to a server with a password, saying none");
+    pump(&conns, g, five, 3, third_answered);
+    CHECK(p.denied && !p.welcomed && strstr(p.denial.reason, "password") != NULL, "and is denied, told why (%s)", p.denial.reason);
+    net_close(&p.link);
+    CHECK(client_open(&p, NET_VERSION), "it connects again");
+    snprintf(p.password, sizeof p.password, "%s", "s3cret");
+    pump(&conns, g, five, 3, third_answered);
+    CHECK(p.welcomed && p.welcome.slot == 1, "and saying the password is welcomed into slot 1 (welcomed %d, denied %d: %s)",
+          p.welcomed, p.denied, p.denial.reason);
+    net_close(&p.link);
+    connections_set_password(&conns, "");
 
     net_close(&d.link);
     net_close(&a.link);

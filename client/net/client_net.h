@@ -17,6 +17,7 @@ typedef struct ClientNet {
     ClientNetState state;
     ClientStream stream;
     char name[NET_NAME_SIZE];
+    char password[NET_PASSWORD_SIZE]; // the server's, said in the Hello
     PlayerLook look;             // mine, as the app keeps it current: the Hello says it
     WeaponId primary, secondary; // the loadout of my first placing, likewise
     int slot;               // mine on the server, once welcomed; -1 before
@@ -42,9 +43,10 @@ typedef struct ClientNet {
 bool client_net_init(ClientNet *n);
 void client_net_shutdown(ClientNet *n);
 
-// Connects and, once the line is up, says Hello with `name`. Any line already open is
-// closed first.
-void client_net_connect(ClientNet *n, Console *con, const char *address, uint16_t port, const char *name);
+// Connects and, once the line is up, says Hello with `name` and `password` (empty
+// for none). Any line already open is closed first.
+void client_net_connect(ClientNet *n, Console *con, const char *address, uint16_t port, const char *name,
+                        const char *password);
 void client_net_disconnect(ClientNet *n, Console *con);
 
 // Everything the line has for the client right now. Snapshots go into `g`, as the

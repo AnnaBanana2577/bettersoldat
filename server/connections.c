@@ -215,6 +215,10 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
         deny(c, peer, reason);
         return;
     }
+    if (c->password[0] && strcmp(c->password, m.password) != 0) {
+        deny(c, peer, "wrong password");
+        return;
+    }
     if (slot_of(c, peer) >= 0) return; // said hello twice
     const Ban *ban = banned(c, peer->address.host);
     if (ban) {
@@ -391,6 +395,11 @@ static void map_query(Connections *c, ENetPeer *peer, const NetEvent *e)
     uint8_t buf[NET_MTU];
     size_t n = build(buf, sizeof buf, MSG_MAP_REPLY, route_map_reply, &m);
     if (n) net_send(peer, MSG_MAP_REPLY, buf, n);
+}
+
+void connections_set_password(Connections *c, const char *password)
+{
+    snprintf(c->password, sizeof c->password, "%s", password ? password : "");
 }
 
 void connections_broadcast(Connections *c, MsgKind kind, const uint8_t *data, size_t size)

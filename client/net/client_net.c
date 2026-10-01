@@ -17,10 +17,12 @@ void client_net_shutdown(ClientNet *n)
     net_shutdown();
 }
 
-void client_net_connect(ClientNet *n, Console *con, const char *address, uint16_t port, const char *name)
+void client_net_connect(ClientNet *n, Console *con, const char *address, uint16_t port, const char *name,
+                        const char *password)
 {
     if (n->link.host) client_net_disconnect(n, con);
     snprintf(n->name, sizeof n->name, "%s", name);
+    snprintf(n->password, sizeof n->password, "%s", password ? password : "");
     if (!net_connect(&n->link, address, port)) {
         console_print(con, "couldn't connect to %s:%u\n", address, port);
         return;
@@ -52,6 +54,7 @@ static void send_hello(ClientNet *n)
     MsgKind kind = MSG_HELLO;
     MsgHello m = {.version = NET_VERSION};
     snprintf(m.name, sizeof m.name, "%s", n->name);
+    snprintf(m.password, sizeof m.password, "%s", n->password);
     m.look = n->look;
     m.primary = n->primary;
     m.secondary = n->secondary;

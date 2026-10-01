@@ -161,7 +161,9 @@ static void page_join(Ui *ui, const char *status, bool joined)
     float x = PAGE_X, y = 120;
     label(x, y, "Server address (host:port)", DIM);
     field(ui, x, y + 18, 260, "cl_server", 63);
-    y += 60;
+    label(x, y + 50, "Password, if the server asks one", DIM);
+    field(ui, x, y + 68, 260, "cl_password", 31); // NET_PASSWORD_SIZE - 1
+    y += 110;
     if (!joined) {
         if (button(ui, x, y, 120, "Connect")) {
             const Cvar *cv = cvar_find(ui->con, "cl_server");

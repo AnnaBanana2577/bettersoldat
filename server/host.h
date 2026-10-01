@@ -50,6 +50,7 @@ typedef struct HostHooks {
 typedef struct Host {
     HostSettings settings;
     Console *console; // hears who came and went; may be NULL
+    const Cvar *password; // sv_password, if the console has it: read every pump, as a script may set it
     Game *game;       // large; on the heap
     NetLink link;
     Connections connections;

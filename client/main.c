@@ -92,6 +92,7 @@ typedef struct App {
     Cvar *swapeffect;     // vsync
     Cvar *fullscreen;     // 0 windowed, 1 fullscreen, 2 borderless
     Cvar *server;         // the address the main menu joins
+    Cvar *password;       // and the password it says there (cl_password)
     Cvar *sensitivity;
     Cvar *wireframe, *debug;
     Cvar *minimap, *info, *player_names, *console_length;
@@ -573,7 +574,7 @@ static void cmd_connect(Console *con, int argc, char **argv, void *user)
         *colon = '\0';
         port = (uint16_t)atoi(colon + 1);
     }
-    client_net_connect(&app->net, con, address, port, app->player_name->value);
+    client_net_connect(&app->net, con, address, port, app->player_name->value, app->password->value);
 }
 
 // The game hosted here is over: everyone on it is let go, the port freed.
@@ -632,7 +633,8 @@ static void cmd_host(Console *con, int argc, char **argv, void *user)
         app->host = NULL;
         return;
     }
-    client_net_connect(&app->net, con, "127.0.0.1", s.port, app->player_name->value);
+    const Cvar *password = cvar_find(con, "sv_password"); // the hosted game's own, to be let in
+    client_net_connect(&app->net, con, "127.0.0.1", s.port, app->player_name->value, password ? password->value : "");
 }
 
 // addbot [name] / addbot1 [name] / addbot2 [name]: a bot into the game hosted here, on
@@ -731,6 +733,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->swapeffect = cvar_register(con, "r_swapeffect", "0", CVAR_ARCHIVE, "wait for the display's refresh (vsync)");
     app->fullscreen = cvar_register(con, "r_fullscreen", "0", CVAR_ARCHIVE, "0 windowed, 1 fullscreen, 2 borderless window");
     app->server = cvar_register(con, "cl_server", "127.0.0.1:23073", CVAR_ARCHIVE, "the server the main menu joins, host:port");
+    app->password = cvar_register(con, "cl_password", "", CVAR_ARCHIVE, "the password the main menu joins with; empty for none");
     app->sensitivity = cvar_register(con, "cl_sensitivity", "1", CVAR_ARCHIVE, "the mouse's speed");
     app->wireframe = cvar_register(con, "r_wireframe", "0", 0, "draw the map's polygons as lines");
     app->debug = cvar_register(con, "r_debug", "0", 0, "spawn points, colliders, special polys, bones");
@@ -770,6 +773,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->sv_port = cvar_register(con, "sv_port", "23073", CVAR_ARCHIVE, "the UDP port a game hosted here listens on");
     app->sv_maps = cvar_register(con, "sv_maps", "", CVAR_ARCHIVE, "the maps in rotation, space-separated; the first plays first");
     app->sv_hostname = cvar_register(con, "sv_hostname", "bettersoldat server", CVAR_ARCHIVE, "the hosted game's name, on the scoreboard");
+    cvar_register(con, "sv_password", "", CVAR_ARCHIVE, "the hosted game's password; empty for none");
     app->sv_gamemode = cvar_register(con, "sv_gamemode", "0", CVAR_ARCHIVE, "0 the map's own, 1 deathmatch, 2 capture the flag");
     app->sv_timelimit = cvar_register(con, "sv_timelimit", "15", CVAR_ARCHIVE, "minutes a round lasts");
     app->sv_killlimit = cvar_register(con, "sv_killlimit", "10", CVAR_ARCHIVE, "the score that wins a round: kills, or captures in CTF");

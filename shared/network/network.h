@@ -25,9 +25,10 @@
 
 #include "game/entities.h"
 
-#define NET_VERSION 8
+#define NET_VERSION 9
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
+#define NET_PASSWORD_SIZE 32 // the server's password, with its terminator (sv_password, cl_password)
 #define NET_TEXT_SIZE 128 // a line of chat, a reason
 #define NET_MAP_SIZE 64  // a map's name, with its terminator
 #define NET_REASON_SIZE 26 // a kick vote's reason (the original's REASON_CHARS)
@@ -145,7 +146,7 @@ extern const int MATCH_COUNT;
 // and over, unreliably, a lost one replaced by the next; news goes once, in order.
 typedef enum MsgKind {
     MSG_INVALID,
-    MSG_HELLO,        // client -> server: the version and the name
+    MSG_HELLO,        // client -> server: the version, the name and the password
     MSG_WELCOME,      // server -> client: the slot, and the tick
     MSG_DENIED,       // server -> client: why not
     MSG_CHAT,         // either way: a line said, to everyone or the team; commands and votes too
@@ -164,6 +165,7 @@ extern const bool MSG_RELIABLE[MSG_COUNT];
 typedef struct MsgHello {
     uint16_t version;
     char name[NET_NAME_SIZE];
+    char password[NET_PASSWORD_SIZE]; // the server's (sv_password), or empty
     PlayerLook look;             // how the player dresses its soldier, for the game
     WeaponId primary, secondary; // the loadout of its first placing
 } MsgHello;

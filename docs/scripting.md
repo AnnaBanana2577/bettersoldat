@@ -51,7 +51,7 @@ players are known by on the wire; a slot is reused once its player has left.
 | `server.say(text [, color])` | a line to everyone, in the script colour, or `color`: `"RRGGBB"` or `{r, g, b}` |
 | `server.say_to(slot, text [, color])` | the same to one player |
 | `server.print(text)` | a line on the server's console only |
-| `server.command(text)` | a console command, as if typed: `"say hello"`, `"addbot1"`, `"nextmap"` |
+| `server.command(text)` | a console command, as if typed: `"say hello"`, `"addbot1"`, `"nextmap"`, `"sv_password x"` (the password to join, read live) |
 | `server.pause()`, `server.unpause()` | the game stands still, nobody moving and the clock stopped, or goes on; `true` if that changed anything |
 | `server.paused()` | whether it stands |
 | `server.next_map([map])` | the round ends now; on `map` if given, else the rotation's next |

@@ -30,6 +30,7 @@ void msg_hello(NetBuf *b, MsgHello *m)
 {
     net_u16(b, &m->version);
     net_string(b, m->name, sizeof m->name);
+    net_string(b, m->password, sizeof m->password);
     netfields_serialize(b, PLAYER_LOOK_FIELDS, PLAYER_LOOK_COUNT, &m->look, NULL);
     uint32_t primary = m->primary, secondary = m->secondary;
     net_range(b, &primary, WEAPON_COUNT - 1);

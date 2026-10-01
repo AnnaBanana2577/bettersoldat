@@ -59,6 +59,7 @@ static void add_bots(Host *h)
 bool host_open(Host *h, Console *console, const HostSettings *settings)
 {
     *h = (Host){.settings = *settings, .console = console, .rng = (uint64_t)time(NULL) ^ 0x5DEECE66Dull};
+    h->password = console ? cvar_find(console, "sv_password") : NULL;
     h->game = calloc(1, sizeof(Game));
     if (!h->game) return false;
     if (!context_load(&h->game->ctx, settings->assets, settings->map)) {
@@ -204,6 +205,7 @@ static bool round_change(Host *h)
 
 bool host_pump(Host *h, double dt)
 {
+    if (h->password) connections_set_password(&h->connections, h->password->value);
     h->accumulator += dt;
     if (h->accumulator > MAX_STALL) h->accumulator = MAX_STALL;
     connections_poll(&h->connections, h->game);

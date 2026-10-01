@@ -87,6 +87,7 @@ typedef struct Connections {
     uint16_t round;                // the round being played, from 1
     char map[NET_MAP_SIZE];        // on which map
     char hostname[NET_NAME_SIZE];  // the server's name, told with the map (sv_hostname)
+    char password[NET_PASSWORD_SIZE]; // what a Hello must say to join; empty asks none (sv_password)
     char maps_dir[512];            // where a voted map must be found, <assets>/maps; empty accepts any
     const char (*maps)[64];        // the server's list of maps (the original's MapsList), for the map window and
     int map_count;                 // the votes; NULL, and a voted map is looked for in maps_dir instead
@@ -102,6 +103,8 @@ typedef struct Connections {
 // `map` is the map being played, round 1. False if the streams couldn't be made.
 bool connections_init(Connections *c, NetLink *link, Console *console, const char *map);
 void connections_free(Connections *c);
+// The password a Hello must say from now on; empty for none. Whoever is on stays.
+void connections_set_password(Connections *c, const char *password);
 
 // A new round on `map`, the world already made anew: everyone joined is placed on their
 // team, their streams begin afresh, and everyone is told (MsgMap).

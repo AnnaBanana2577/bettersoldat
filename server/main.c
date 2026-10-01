@@ -40,6 +40,7 @@ typedef struct Server {
     Cvar *maps; // the rotation
     Cvar *port;
     Cvar *ip; // sv_ip: the address to listen on
+    Cvar *password; // sv_password
     Cvar *hostname;
     Cvar *gamemode, *timelimit, *killlimit;
     Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat;
@@ -205,6 +206,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
     sv->ip = cvar_register(con, "sv_ip", "", 0, "the address to listen on; empty for every one");
     sv->hostname = cvar_register(con, "sv_hostname", "bettersoldat server", 0, "the server's name, on the scoreboard");
+    sv->password = cvar_register(con, "sv_password", "", 0, "the password to join; empty for none. Read live, so a script may set it");
     sv->gamemode = cvar_register(con, "sv_gamemode", "0", 0, "0 the map's own, 1 deathmatch, 2 capture the flag");
     sv->timelimit = cvar_register(con, "sv_timelimit", "15", 0, "minutes a round lasts");
     sv->killlimit = cvar_register(con, "sv_killlimit", "10", 0, "the score that wins a round: kills, or captures in CTF");
