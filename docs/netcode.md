@@ -179,9 +179,11 @@ that gives the ping, and players counted now, not at the last heartbeat.
 The line is made bad outside the game: a network impairment tool on the loopback puts
 latency, jitter and loss between a client and a server on one machine, and the game's
 own counters say what came of it. The client's stream counts the snapshots that came
-late, the ticks it had no snapshot for, the nudges and jumps of its view clock and
-where `interp` stands (ClientStream); the server's counts the states it dropped
-(ServerStream). The headless tests hold the rest on the loopback alone: the rewind
+late, the ticks it had no snapshot for, the nudges and jumps of its view clock, where
+`interp` stands, and how far the snapshots moved the others from where stepping had
+them, which is the jitter the picture would show unsmoothed (ClientStream); `cl_netstats
+1` prints them on the console once a second, with the ping and the frames in hand. The
+server's counts the states it dropped (ServerStream). The headless tests hold the rest on the loopback alone: the rewind
 (tests/rewind_test.c), the streams and their sizes (tests/stream_test.c). Every commit
 that changes the netcode says what it measured, on what line.
 

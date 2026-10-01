@@ -386,9 +386,9 @@ typedef struct EventShot { uint8_t player; WeaponId weapon; Vec2 pos, vel; float
 typedef struct EventBulletSpawn { uint16_t id; uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; } EventBulletSpawn;
 typedef struct EventBulletEnd { uint16_t id; uint8_t owner; uint32_t shot; WeaponId weapon; Vec2 pos; bool impact; } EventBulletEnd;
 // A bullet heard of from elsewhere was run forward `ticks` on being made (EventShot's
-// advance), from the muzzle at `from` to `to`, where it is now or where it ended if
-// it did (`ended`): the flight nobody here saw, for the renderer to draw as a tracer.
-// Never leaves the machine that made it.
+// advance), to `to`, where it is now or where it ended if it did (`ended`): the flight
+// nobody here saw, for the renderer to draw as a tracer from `from`, the shooter's
+// muzzle as it is drawn here. Never leaves the machine that made it.
 typedef struct EventBulletTrace { uint8_t owner; WeaponId weapon; Vec2 from, to; uint8_t ticks; bool ended; } EventBulletTrace;
 typedef struct EventWallHit { uint16_t id; uint8_t owner; WeaponId weapon; Vec2 pos, vel; } EventWallHit;
 typedef struct EventRicochet { uint16_t id; uint8_t owner; Vec2 pos, vel; } EventRicochet;

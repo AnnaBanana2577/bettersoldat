@@ -41,7 +41,8 @@
 #define STREAM_INTERP_MAX 8        // ticks the view keeps behind the newest snapshot, at most
 #define STREAM_INTERP_SETTLE (5 * TICK_RATE) // no late snapshot for this long: a tick less behind
 #define STREAM_VIEW_SNAP 8         // a view this far from where it should be jumps there
-#define STREAM_VIEW_WINDOW 30      // ticks over which the frames in hand are watched before the clock is nudged
+#define STREAM_VIEW_WINDOW 60      // ticks over which the frames in hand are watched before the clock is nudged
+#define STREAM_VIEW_SLACK 2        // frames in hand beyond interp, at the leanest, before the view is nudged forward
 
 // --- the messages ------------------------------------------------------------------
 
@@ -163,6 +164,8 @@ typedef struct ClientStream {
     int32_t level_min;   // the fewest frames in hand over the window being watched
     int window;          // ticks of it left
     uint32_t skipped, held, resyncs; // the view clock's nudges forward and back, and its jumps
+    uint32_t applies;    // snapshots applied to the world
+    float correction;    // how far, all told, the applied snapshots moved the others from where stepping had them
     WirePending pending; // the server's events heard, each applied in the tick of its frame
     uint32_t last_word[MAX_PLAYERS]; // the snapshot tick each soldier was last heard of in
     // What a correction moved each soldier by, still to be shown: a new word snaps the

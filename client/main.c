@@ -102,6 +102,7 @@ typedef struct App {
     Cvar *primary, *secondary;                    // the loadout at the next spawn
     Cvar *smooth;                                 // milliseconds a correction of another player is smoothed over
     Cvar *interp;                                 // ticks the view keeps behind the newest snapshot, at least (cl_interp)
+    Cvar *netstats;                               // a line a second on the console of how the line is doing (cl_netstats)
     Cvar *volume;                                 // snd_volume, 0 to 100
     Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
@@ -169,6 +170,11 @@ typedef struct App {
     int frames;
     double frame_timer;
     int fps;
+    // the stream's counters as of the last second's report (cl_netstats)
+    struct {
+        uint32_t late, misses, held, skipped, resyncs, applies;
+        float correction;
+    } net_seen;
 } App;
 
 static void print_stdout(const char *text, void *user)
@@ -759,6 +765,8 @@ static bool console_open(App *app, int argc, char *argv[])
                                 "milliseconds a correction of another player is smoothed over; 0 snaps");
     app->interp = cvar_register(con, "cl_interp", "2", CVAR_ARCHIVE,
                                 "ticks the others are shown behind the newest snapshot, at least, so jitter doesn't show; raised by itself while snapshots come late");
+    app->netstats = cvar_register(con, "cl_netstats", "0", 0,
+                                  "1: a line a second on the console: ping, frames in hand, snapshots late and missed, the view clock's nudges, and how far the others were corrected");
     app->volume = cvar_register(con, "snd_volume", "50", CVAR_ARCHIVE, "the sound's volume, 0 to 100");
     const char *calls[RADIO_CALLS] = {"Enemy flagger", "Friendly flagger", "Enemy spotted"};
     const char *places[RADIO_CALLS] = {"up!", "middle!", "down!"};
@@ -1466,6 +1474,31 @@ static void hud_data_demo(HudData *d, int page)
     }
 }
 
+// How the line did over the last second (cl_netstats): the ping, how many frames the
+// view had in hand, the snapshots that came too late or not at all, the view clock's
+// nudges, and how far the snapshots moved the others from where stepping had them,
+// which is the jitter the picture would show unsmoothed.
+static void report_net(App *app)
+{
+    if (!client_net_joined(&app->net) || app->netstats->integer == 0) return;
+    const ClientStream *c = &app->net.stream;
+    const World *w = &app->game->world;
+    uint32_t applies = c->applies - app->net_seen.applies;
+    float corrected = applies ? (c->correction - app->net_seen.correction) / (float)applies : 0.0f;
+    console_print_color(app->console, HUD_COLOR_CLIENT,
+                        "net: ping %u ms, %d frames in hand (interp %d), late %u, missed %u, held %u, skipped %u, resync %u, corrected %.2f units a frame\n",
+                        w->soldiers[app->me].ping, (int32_t)(c->newest - w->tick), c->interp, c->late - app->net_seen.late,
+                        c->misses - app->net_seen.misses, c->held - app->net_seen.held, c->skipped - app->net_seen.skipped,
+                        c->resyncs - app->net_seen.resyncs, corrected);
+    app->net_seen.late = c->late;
+    app->net_seen.misses = c->misses;
+    app->net_seen.held = c->held;
+    app->net_seen.skipped = c->skipped;
+    app->net_seen.resyncs = c->resyncs;
+    app->net_seen.applies = c->applies;
+    app->net_seen.correction = c->correction;
+}
+
 // The frame rate, counted over each second: the original's FrameTiming.Fps.
 static void count_frame(App *app, double dt)
 {
@@ -1475,6 +1508,7 @@ static void count_frame(App *app, double dt)
     app->fps = app->frames;
     app->frames = 0;
     app->frame_timer = 0;
+    report_net(app);
 }
 
 // The fonts, the minimap and the menus, sized to the window; again whenever it changes.

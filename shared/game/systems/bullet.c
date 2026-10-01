@@ -123,18 +123,26 @@ static void bullet_integrate(const World *w, Bullet *b)
     b->forces = (Vec2){0};
 }
 
+// The muzzle of a soldier as it stands here, as the weapon pass places it (combat.c);
+// the shot's own position if the soldier is gone.
+static Vec2 muzzle_now(const Context *ctx, const World *w, const EventShot *shot)
+{
+    const Soldier *s = &w->soldiers[shot->player];
+    if (!s->active) return shot->pos;
+    Pose pose = soldier_pose(ctx->anims, s, s->pos);
+    Vec2 aim = vec2_normalize(vec2_sub(s->aim, pose.p[14]));
+    return vec2(pose.p[14].x - aim.x * 4.0f, pose.p[14].y - aim.y * 4.0f - 2.0f);
+}
+
 // A shot heard from another machine fires nothing here: its soldier steps unarmed, so
 // the flash, the smoke and the sound that the weapon pass gives a shot of its own are
 // given here instead, once per shooter per tick (a shotgun is one bang), at the muzzle
 // of the soldier as it stands.
-static void remote_fire(const Context *ctx, World *w, const EventShot *shot, Events *events)
+static void remote_fire(World *w, const EventShot *shot, Vec2 muzzle, Events *events)
 {
     Soldier *s = &w->soldiers[shot->player];
     if (!s->active) return;
     s->fired = true; // the gostek's muzzle flash
-    Pose pose = soldier_pose(ctx->anims, s, s->pos);
-    Vec2 aim = vec2_normalize(vec2_sub(s->aim, pose.p[14]));
-    Vec2 muzzle = vec2(pose.p[14].x - aim.x * 4.0f, pose.p[14].y - aim.y * 4.0f - 2.0f);
     event_emit(events, (Event){.type = EVENT_FIRE, .fire = {.player = shot->player, .weapon = shot->weapon, .pos = muzzle, .vel = shot->vel}});
 }
 
@@ -153,9 +161,11 @@ void bullets_update(const Context *ctx, World *w, const Events *last, Events *ev
         if (e->type != EVENT_SHOT) continue;
         const EventShot *shot = &e->shot;
         bool heard = e->tick != 0;
-        if (heard && !w->authority && !(flashed & (1u << shot->player))) {
+        bool shown = heard && !w->authority; // a client hearing of it: the flash and the tracer
+        Vec2 muzzle = shown ? muzzle_now(ctx, w, shot) : shot->pos;
+        if (shown && !(flashed & (1u << shot->player))) {
             flashed |= 1u << shot->player;
-            remote_fire(ctx, w, shot, events);
+            remote_fire(w, shot, muzzle, events);
         }
         int k = bullet_make(ctx, w, shot, events);
         if (k < 0) continue;
@@ -167,9 +177,10 @@ void bullets_update(const Context *ctx, World *w, const Events *last, Events *ev
             if (b->active) bullet_integrate(w, b);
         }
         b->lag = 0;
-        if (shot->advance > 0 && !w->authority) {
-            // the flight nobody here saw, for the tracer: to where it is, or where it ended
-            EventBulletTrace t = {.owner = shot->player, .weapon = shot->weapon, .from = shot->pos, .to = b->pos, .ticks = shot->advance, .ended = !b->active};
+        if (shot->advance > 0 && shown) {
+            // the flight nobody here saw, for the tracer: from the muzzle as the shooter is
+            // drawn, which is where the eye looks for it, to where the bullet is or ended
+            EventBulletTrace t = {.owner = shot->player, .weapon = shot->weapon, .from = muzzle, .to = b->pos, .ticks = shot->advance, .ended = !b->active};
             for (int i = before; i < events->count; i++) {
                 const Event *x = &events->items[i];
                 if (x->type == EVENT_BULLET_END && x->bullet_end.id == k) t.to = x->bullet_end.pos;

@@ -405,6 +405,7 @@ static void snapshot_apply(ClientStream *c, Game *g, int me, int k)
                 Vec2 jump = vec2_sub(before, s->pos);
                 c->blend[i] = placed ? vec2(0, 0) : vec2_add(c->blend[i], jump);
                 if (vec2_length(c->blend[i]) > STREAM_SNAP_DISTANCE) c->blend[i] = vec2(0, 0);
+                if (!placed) c->correction += vec2_length(jump);
             }
             break;
         }
@@ -433,7 +434,9 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp)
     // The view clock. The frames in hand are the newest's tick less the view's; the
     // view wants `interp` of them at the leanest moment of each window. Far off, it
     // jumps; else at a window's end it is nudged a tick back when it ran short, or
-    // forward by what it never needed.
+    // forward by what it never needed, with a frame or so of slack so that a line
+    // whose jitter is about a tick is not nudged to and fro. Each nudge is a frame
+    // shown twice or passed over, smoothed as a correction is.
     int32_t level = (int32_t)(c->newest - w->tick);
     if (level > STREAM_VIEW_SNAP + c->interp || level < -STREAM_VIEW_SNAP) {
         w->tick = c->newest > (uint32_t)c->interp ? c->newest - (uint32_t)c->interp : 0;
@@ -450,19 +453,21 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp)
             if (c->level_min < c->interp) {
                 w->tick--;
                 c->held++;
-            } else if (c->level_min > c->interp) {
+            } else if (c->level_min >= c->interp + STREAM_VIEW_SLACK) {
                 w->tick += (uint32_t)(c->level_min - c->interp);
                 c->skipped += (uint32_t)(c->level_min - c->interp);
             }
         }
     }
 
-    // the frame on show, and the server's word due by it
+    // the frame on show, and the server's word due by it; a frame shown again after a
+    // nudge back is applied again, so the others stand where it has them
     uint32_t v = w->tick;
     int k = (int)(v % STREAM_RING);
-    if (c->snap_tick[k] == v && v > c->applied) {
+    if (c->snap_tick[k] == v) {
         snapshot_apply(c, g, me, k);
-        c->applied = v;
+        c->applies++;
+        if (v > c->applied) c->applied = v;
     } else if (v > c->applied) {
         c->misses++;
     }
