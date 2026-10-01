@@ -442,13 +442,13 @@ void stream_tests(void)
     CHECK(c.game->world.soldiers[2].typing, "a player typing is seen typing by the others");
 
     // a correction of another player goes to the picture and is smoothed away
-    c.stream.blend[2] = vec2(20.0f, 0.0f);
+    c.stream.blend[2] = vec2(20.0f, 0.0f), c.stream.blend_vel[2] = vec2(0.0f, 0.0f);
     client_stream_smooth(&c.stream, 0.1f, 0.1f);
     CHECK(c.stream.blend[2].x > 1.5f && c.stream.blend[2].x < 2.5f, "nine tenths of a correction is gone after cl_smooth (%.2f left of 20)",
           c.stream.blend[2].x);
     client_stream_smooth(&c.stream, 1.0f, 0.1f);
     CHECK(c.stream.blend[2].x == 0.0f, "and all of it a while after");
-    c.stream.blend[2] = vec2(20.0f, 0.0f);
+    c.stream.blend[2] = vec2(20.0f, 0.0f), c.stream.blend_vel[2] = vec2(0.0f, 0.0f);
     client_stream_smooth(&c.stream, 0.016f, 0.0f);
     CHECK(c.stream.blend[2].x == 0.0f, "with cl_smooth 0 it snaps");
     const Soldier *second_seen = &c.game->world.soldiers[2];

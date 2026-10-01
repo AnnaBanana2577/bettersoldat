@@ -419,7 +419,7 @@ static void soldier_apply(ClientStream *c, Game *g, int i, int k, int steps, Eve
     }
     Vec2 jump = vec2_sub(before, s->pos);
     c->blend[i] = placed ? vec2(0, 0) : vec2_add(c->blend[i], jump);
-    if (vec2_length(c->blend[i]) > STREAM_SNAP_DISTANCE) c->blend[i] = vec2(0, 0);
+    if (placed || vec2_length(c->blend[i]) > STREAM_SNAP_DISTANCE) c->blend[i] = c->blend_vel[i] = vec2(0, 0);
     if (!placed) c->correction += vec2_length(jump);
 }
 
@@ -511,11 +511,23 @@ void client_stream_collect(ClientStream *c, const Game *g, int me)
 
 void client_stream_smooth(ClientStream *c, float dt, float seconds)
 {
-    // nine tenths gone after `seconds`: the factor per frame is that decay's dt-th part
-    float keep = seconds > 0.0f ? expf(-2.302585f * dt / seconds) : 0.0f;
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        c->blend[i] = vec2_scale(c->blend[i], keep);
-        if (vec2_length(c->blend[i]) < 0.05f) c->blend[i] = vec2(0, 0);
+        float over = seconds;
+        if (over > 0.0f && (float)c->lead[i] * (float)TICK_SECONDS > over) over = (float)c->lead[i] * (float)TICK_SECONDS;
+        if (over <= 0.0f) {
+            c->blend[i] = c->blend_vel[i] = vec2(0, 0);
+            continue;
+        }
+        // A critically damped spring, in closed form so any frame's dt is exact: from an
+        // offset x and a closing speed v, x(t) = (x + (v + wx) t) e^-wt. With w = 3.89 /
+        // over, an offset at rest is nine tenths gone after `over`.
+        float w = 3.89f / over;
+        float decay = expf(-w * dt);
+        Vec2 x = c->blend[i], v = c->blend_vel[i];
+        Vec2 b = vec2_add(v, vec2_scale(x, w));
+        c->blend[i] = vec2_scale(vec2_add(x, vec2_scale(b, dt)), decay);
+        c->blend_vel[i] = vec2_scale(vec2_sub(v, vec2_scale(b, w * dt)), decay);
+        if (vec2_length(c->blend[i]) < 0.05f && vec2_length(c->blend_vel[i]) < 1.0f) c->blend[i] = c->blend_vel[i] = vec2(0, 0);
     }
 }
 

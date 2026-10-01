@@ -37,7 +37,7 @@
 #define STREAM_RING 32          // states kept for deltas, each side
 #define STREAM_WHOLE_AFTER 24   // a baseline older than this many states or ticks: whole
 #define STREAM_RELEASE_TICKS 30 // no word for this long: the keys are let go
-#define STREAM_SNAP_DISTANCE 64.0f // a correction this far is a placing to the eye: shown at once, not smoothed
+#define STREAM_SNAP_DISTANCE 160.0f // a correction this far is a placing to the eye: shown at once, not smoothed
 #define STREAM_INTERP_MAX 8        // ticks the view keeps behind the newest snapshot, at most
 #define STREAM_INTERP_SETTLE (5 * TICK_RATE) // no late snapshot for this long: a tick less behind
 #define STREAM_VIEW_SNAP 8         // a view this far from where it should be jumps there
@@ -177,9 +177,12 @@ typedef struct ClientStream {
     WirePending pending; // the server's events heard, each applied in the tick of its frame
     uint32_t last_word[MAX_PLAYERS]; // the snapshot tick each soldier was last heard of in
     // What a correction moved each soldier by, still to be shown: a new word snaps the
-    // simulation but the picture glides, the offset shrinking to nothing over
-    // cl_smooth (client_stream_smooth). A correction past STREAM_SNAP_DISTANCE snaps.
+    // simulation but the picture glides, the offset easing to nothing over cl_smooth as
+    // a critically damped spring does, from rest and without overshoot, so the picture
+    // keeps its speed as well as its place at the moment of the word
+    // (client_stream_smooth). A correction past STREAM_SNAP_DISTANCE snaps.
     Vec2 blend[MAX_PLAYERS];
+    Vec2 blend_vel[MAX_PLAYERS]; // how fast the offset is closing
     WireQueue out;       // my decisions, for the server
     uint32_t event_ack;  // the newest of my events the server has applied
     uint32_t event_last; // the newest of the server's events applied here
@@ -211,8 +214,9 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp, bool
 // After the client's tick: its own decisions among the tick's events, for the server.
 void client_stream_collect(ClientStream *c, const Game *g, int me);
 
-// Each frame: the offsets shrink, nine tenths of them gone `seconds` after a
-// correction (none at all with 0). `dt` is the frame's seconds.
+// Each frame: the offsets ease away, nine tenths of a correction gone `seconds` after
+// it (none at all with 0), or after the lead the soldier is shown with if that is
+// longer, since the error was made over that long. `dt` is the frame's seconds.
 void client_stream_smooth(ClientStream *c, float dt, float seconds);
 
 // The client's state, its soldier `me` as it stands and its decisions pending, into

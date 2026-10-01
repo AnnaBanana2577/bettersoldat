@@ -99,8 +99,11 @@ ticks (ping_lead), which is how far their last word stands behind where they are
 now, so the picture is at now and not where everyone last was. A word that arrives
 late is stepped on the further and moves nothing that stepping had right, so the
 line's jitter never reaches the picture; what the word does move is what stepping
-could not foresee, a key pressed since, and that blends in over cl_smooth rather than
-snapping. No word for half a second releases the keys, so a quiet player falls and
+could not foresee, a key pressed since, and that blends in rather than snapping: the
+picture keeps its place and its speed at the moment of the word and eases to the
+corrected place as a critically damped spring does, nine tenths of the way over
+cl_smooth (100 ms) or over the lead if that is longer, since the error was made over
+that long (client_stream_smooth). No word for half a second releases the keys, so a quiet player falls and
 stops. The server's events ride the same clock: a client keeps them until their tick
 is on show. A shot heard has flown half my ping less half the shooter's longer than
 its stamp says from here (ping_shift), and is run forward by as much more, so it sits
