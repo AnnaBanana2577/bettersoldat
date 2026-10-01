@@ -8,9 +8,13 @@ bool net_init(void) { return enet_initialize() == 0; }
 
 void net_shutdown(void) { enet_deinitialize(); }
 
-bool net_listen(NetLink *l, uint16_t port, int max_peers)
+bool net_listen(NetLink *l, const char *ip, uint16_t port, int max_peers)
 {
     ENetAddress address = {.host = ENET_HOST_ANY, .port = port};
+    if (ip && ip[0] && enet_address_set_host(&address, ip) != 0) {
+        *l = (NetLink){0};
+        return false;
+    }
     *l = (NetLink){.host = enet_host_create(&address, (size_t)max_peers, NET_CHANNELS, 0, 0)};
     return l->host != NULL;
 }

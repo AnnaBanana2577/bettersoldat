@@ -20,6 +20,7 @@
 
 typedef struct HostSettings {
     uint16_t port;
+    char ip[128];                    // the address to listen on; empty for every one (sv_ip)
     char assets[512];
     char map[NET_MAP_SIZE];          // the first round's
     char maps[CONSOLE_VALUE_SIZE];   // the rotation, space-separated; empty plays `map` again

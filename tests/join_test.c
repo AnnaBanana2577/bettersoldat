@@ -116,7 +116,7 @@ void join_tests(void)
     g->world.soldiers[0].active = g->world.soldiers[1].active = false; // an empty server
 
     NetLink server;
-    CHECK(net_listen(&server, PORT, 8), "the server listens on %d", PORT);
+    CHECK(net_listen(&server, NULL, PORT, 8), "the server listens on %d", PORT);
     Connections conns;
     CHECK(connections_init(&conns, &server, NULL, "Arena"), "the connections are made");
 

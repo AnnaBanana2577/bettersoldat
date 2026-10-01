@@ -41,7 +41,10 @@ typedef struct NetEvent {
 bool net_init(void);
 void net_shutdown(void);
 
-bool net_listen(NetLink *l, uint16_t port, int max_peers);
+// Listens on `port`, on every address when `ip` is NULL or empty, else on that one
+// alone (an address, or a name to resolve: a host behind a UDP proxy that rewrites
+// addresses answers from the one it was reached on).
+bool net_listen(NetLink *l, const char *ip, uint16_t port, int max_peers);
 bool net_connect(NetLink *l, const char *address, uint16_t port);
 // Tells the peer(s) goodbye and gives them a moment to hear it, then closes.
 void net_close(NetLink *l);

@@ -39,6 +39,7 @@ typedef struct Server {
     Cvar *map;
     Cvar *maps; // the rotation
     Cvar *port;
+    Cvar *ip; // sv_ip: the address to listen on
     Cvar *hostname;
     Cvar *gamemode, *timelimit, *killlimit;
     Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat;
@@ -202,6 +203,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->map = cvar_register(con, "map", "Arena", 0, "the map to load");
     sv->maps = cvar_register(con, "sv_maps", "", 0, "the maps in rotation, space-separated; empty plays the map again");
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
+    sv->ip = cvar_register(con, "sv_ip", "", 0, "the address to listen on; empty for every one");
     sv->hostname = cvar_register(con, "sv_hostname", "bettersoldat server", 0, "the server's name, on the scoreboard");
     sv->gamemode = cvar_register(con, "sv_gamemode", "0", 0, "0 the map's own, 1 deathmatch, 2 capture the flag");
     sv->timelimit = cvar_register(con, "sv_timelimit", "15", 0, "minutes a round lasts");
@@ -245,6 +247,7 @@ static HostSettings settings_from_cvars(const Server *sv)
         .vote_percent = sv->votepercent->integer,
     };
     snprintf(s.assets, sizeof s.assets, "%s", sv->assets->value);
+    snprintf(s.ip, sizeof s.ip, "%s", sv->ip->value);
     snprintf(s.map, sizeof s.map, "%s", sv->map->value);
     snprintf(s.maps, sizeof s.maps, "%s", sv->maps->value);
     snprintf(s.hostname, sizeof s.hostname, "%s", sv->hostname->value);

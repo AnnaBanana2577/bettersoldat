@@ -177,7 +177,7 @@ void stream_tests(void)
     gs->world.soldiers[0].active = false;
     gs->world.history = calloc(1, sizeof(History));
     NetLink server;
-    CHECK(net_listen(&server, PORT, 8), "the server listens on %d", PORT);
+    CHECK(net_listen(&server, NULL, PORT, 8), "the server listens on %d", PORT);
     Connections conns;
     connections_init(&conns, &server, NULL, "Arena");
 

@@ -70,8 +70,8 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
     game_init(h->game, (uint64_t)time(NULL), match_settings(h, h->game->ctx.map));
     h->game->world.authority = true;
     h->game->world.history = calloc(1, sizeof(History)); // the snapshots' deltas are against it
-    if (!h->game->world.history || !net_listen(&h->link, settings->port, MAX_PLAYERS)) {
-        fprintf(stderr, "could not listen on port %d\n", settings->port);
+    if (!h->game->world.history || !net_listen(&h->link, settings->ip, settings->port, MAX_PLAYERS)) {
+        fprintf(stderr, "could not listen on %s%sport %d\n", settings->ip, settings->ip[0] ? " " : "", settings->port);
         free(h->game->world.history);
         context_destroy(&h->game->ctx);
         free(h->game);
@@ -111,7 +111,8 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
     add_bots(h);
 
     if (console) {
-        console_print(console, "hosting %s on port %d, %s, %d ticks a second\n", settings->map, settings->port,
+        console_print(console, "hosting %s on %s%sport %d, %s, %d ticks a second\n", settings->map, settings->ip,
+                      settings->ip[0] ? " " : "", settings->port,
                       h->game->match.settings.mode == MATCH_CTF ? "capture the flag" : "deathmatch", TICK_RATE);
     }
     return true;
