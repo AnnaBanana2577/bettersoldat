@@ -75,3 +75,8 @@ MenuAction menus_click(GameMenus *m, bool weapon_chosen);
 
 // A number key: the weapons menu's and team menu's shortcuts, the escape menu's.
 MenuAction menus_number_key(GameMenus *m, int digit);
+
+// Ctrl and a number, 1 to 4, while the weapons menu is open (the original's shortcut):
+// the secondary in that place of it (colt, knife, chainsaw, LAW); nothing for one the
+// server disallows, and nothing with the menu closed.
+MenuAction menus_secondary_key(GameMenus *m, int digit);

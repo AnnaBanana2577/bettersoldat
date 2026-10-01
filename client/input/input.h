@@ -28,6 +28,8 @@
 //   A / D  left / right    W  jump    S  crouch    X  prone    Space  jet
 //   left mouse  fire    right mouse / E  throw    R  reload    Q  change    F  drop
 //   K  suicide
+// And, not a bind: with the weapons menu open, Ctrl+1 to Ctrl+4 pick the secondary
+// (colt, knife, chainsaw, LAW), as the original's do.
 
 #include <SDL.h>
 

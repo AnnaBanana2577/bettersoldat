@@ -1120,6 +1120,7 @@ static void hud_data_demo(HudData *d, int page);
 static void apply_menu_action(App *app, MenuAction action)
 {
     Soldier *me = &app->game->world.soldiers[app->me];
+    if (action.kind != MENU_ACTION_NONE) audio_flat(&app->audio, "menuclick.wav"); // the original's, on anything a menu did
     switch (action.kind) {
     case MENU_ACTION_QUIT: // exit to the main menu: the line closed, the menus down
         console_execute(app->console, "disconnect");
@@ -1177,8 +1178,9 @@ static void apply_menu_action(App *app, MenuAction action)
     }
 }
 
-// An open menu takes the keys and clicks the original gives it: a digit chooses, a left
-// click picks. The radio menu takes the digits too. True if it took the event.
+// An open menu takes the keys and clicks the original gives it (ControlGame.pas): a
+// digit chooses, Ctrl and a digit chooses a secondary in the weapons menu, a left click
+// picks. The radio menu takes the digits too. True if it took the event.
 static bool menu_event(App *app, const SDL_Event *e)
 {
     GameMenus *m = &app->menus;
@@ -1191,7 +1193,8 @@ static bool menu_event(App *app, const SDL_Event *e)
     }
     if (!menus_any_active(m)) return false;
     if (digit_down) {
-        apply_menu_action(app, menus_number_key(m, digit));
+        bool ctrl = (e->key.keysym.mod & KMOD_CTRL) != 0;
+        apply_menu_action(app, ctrl ? menus_secondary_key(m, digit) : menus_number_key(m, digit));
         return true;
     }
     if (e->type == SDL_MOUSEBUTTONDOWN && e->button.button == SDL_BUTTON_LEFT) {

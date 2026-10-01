@@ -215,3 +215,10 @@ MenuAction menus_number_key(GameMenus *m, int digit)
     if (m->menus[MENU_ESC].active && digit >= 1) return menu_action(m, MENU_ESC, digit - 1);
     return (MenuAction){MENU_ACTION_NONE, 0};
 }
+
+MenuAction menus_secondary_key(GameMenus *m, int digit)
+{
+    if (!m->menus[MENU_LIMBO].active) return (MenuAction){MENU_ACTION_NONE, 0};
+    if (digit < 1 || digit > MAIN_WEAPONS - PRIMARY_WEAPONS) return (MenuAction){MENU_ACTION_NONE, 0};
+    return menu_action(m, MENU_LIMBO, PRIMARY_WEAPONS + digit - 1);
+}
