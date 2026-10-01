@@ -227,6 +227,15 @@ void soldier_copy_owned(const Anims *anims, Soldier *dst, const Soldier *src)
     dst->can_mercy = src->can_mercy;
 }
 
+Command soldier_last_command(const Soldier *s, bool quiet)
+{
+    return (Command){
+        .seq = s->cmd_seq,
+        .buttons = quiet ? 0 : (Buttons)(s->controls & ~(BUTTONS_ONE_SHOT & ~BUTTON_THROW)),
+        .aim = vec2_sub(s->aim, s->vel), // the step leads the aim by the velocity again
+    };
+}
+
 void soldier_copy_served(Soldier *dst, const Soldier *src)
 {
     dst->active = src->active;

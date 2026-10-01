@@ -44,11 +44,9 @@ typedef struct WireQueue {
 void wire_queue_init(WireQueue *q);
 
 // After a tick: every event the tick left that travels goes into the queue, stamped
-// with `tick`, a heard one too: the server relays a shot as of the tick it made the
-// bullet, which is the frame that holds the shooter firing, so a client sees the
-// bullet leave the soldier it draws. `only_owner` keeps just that owner's own decisions
-// (a client's); -1 keeps every wire event (the server's, which relays what it heard
-// too, remembering from whom).
+// with `tick` unless it carries its own. `only_owner` keeps just that owner's own
+// decisions (a client's); -1 keeps every wire event (the server's, which relays what it
+// heard too, remembering from whom).
 void wire_collect(WireQueue *q, const Events *events, uint32_t tick, int only_owner);
 
 // The pending events for a receiver: those past `ack`, up to `max` (WIRE_PER_PACKET at
@@ -87,5 +85,7 @@ void wire_read_pending(NetBuf *b, WirePending *p);
 // Applies, in order, every event due by `tick` into the game's mailbox, each once; one
 // stamped past `tick` waits, and so does everything after it. A number never received
 // below the newest is the receiver's own, which the sender leaves out, and is passed
-// over. A shot's advance is `tick` minus its own.
-void wire_pending_apply(WirePending *p, Game *g, uint32_t tick);
+// over. A shot's advance is `tick` minus its own, and `shift`, if given, is how many
+// ticks longer than that a shot of each player's has been flying as seen from here
+// (ping_shift), which moves its due tick back, or forward, by as much.
+void wire_pending_apply(WirePending *p, Game *g, uint32_t tick, const int8_t shift[MAX_PLAYERS]);

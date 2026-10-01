@@ -101,12 +101,11 @@ void explode(const Context *ctx, World *w, Bullet *b, uint16_t index, ExplosionK
         .explosion = {.id = index, .player = b->owner, .weapon = kind == EXPLOSION_M79 ? WEAPON_M79 : WEAPON_FRAG, .pos = b->pos, .radius = radius},
     });
 
-    Soldier *frame = history_targets(w, b->lag); // as the thrower saw them
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const Soldier *s = &w->soldiers[i];
         if (!s->active || s->team == TEAM_SPECTATOR) continue;
         if (s->dead) blast_corpse(ctx, w, b, i, kind, events);
-        else blast_soldier(ctx, w, b, i, target_soldier(w, frame, b->owner, i), kind, hit_soldier, hit_part, events);
+        else blast_soldier(ctx, w, b, i, bullet_target(ctx, w, b, i), kind, hit_soldier, hit_part, events); // as the thrower saw it
     }
 
     // the blast shoves the things it may: every point in range gets its previous

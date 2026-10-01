@@ -21,6 +21,7 @@ void msg_client_state(NetBuf *b, MsgClientState *m, const Soldier *base)
     netfields_serialize(b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m->owned, base);
     netfields_serialize(b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &m->owned, base);
     net_bool(b, &m->typing);
+    net_bool(b, &m->extrapolate);
 }
 
 static const SnapBase NO_BASE = {0};
@@ -54,16 +55,7 @@ void msg_snapshot(NetBuf *b, MsgSnapshot *m, const SnapBase *base)
     }
 }
 
-Command stream_command(const Soldier *s, bool quiet)
-{
-    return (Command){
-        .seq = s->cmd_seq,
-        // the one-shots are its owner's alone; the throw is held while a grenade is wound
-        // up, and the pose returns to the stance without it
-        .buttons = quiet ? 0 : (Buttons)(s->controls & ~(BUTTONS_ONE_SHOT & ~BUTTON_THROW)),
-        .aim = vec2_sub(s->aim, s->vel), // the step leads the aim by the velocity again
-    };
-}
+Command stream_command(const Soldier *s, bool quiet) { return soldier_last_command(s, quiet); }
 
 // --- the server's end --------------------------------------------------------------
 
@@ -101,6 +93,7 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     netfields_serialize(&b, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, &m.owned, base);
     netfields_serialize(&b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &m.owned, base);
     net_bool(&b, &m.typing);
+    net_bool(&b, &m.extrapolate);
     if (!netbuf_ok(&b) || soldier_out_of_bounds(&g->ctx, m.owned.pos)) {
         s->dropped++;
         return false;
@@ -128,6 +121,7 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     Soldier *soldier = &g->world.soldiers[slot];
     if (soldier->active && !soldier->dead && m.life == soldier->life) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
     soldier->typing = m.typing;
+    soldier->extrapolates = m.extrapolate;
     soldier->primary_choice = weapon_is_primary(m.owned.primary_choice) ? m.owned.primary_choice : WEAPON_EAGLE;
     soldier->secondary_choice = weapon_is_secondary(m.owned.secondary_choice) ? m.owned.secondary_choice : WEAPON_KNIFE;
     return true;
@@ -370,46 +364,29 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
     return true;
 }
 
-// The snapshot in ring slot `k` onto the world: the match, the soldiers, the things.
-static void snapshot_apply(ClientStream *c, Game *g, int me, int k)
+// The snapshot in ring slot `k` onto the world, all but the other soldiers: the match,
+// the things, `me`, and who is gone.
+static void frame_apply(ClientStream *c, Game *g, int me, int k)
 {
     World *w = &g->world;
     netfields_copy(MATCH_FIELDS, MATCH_COUNT, &g->match, &c->snap_match[k]); // the match is the server's
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
-        switch (c->snap_word[k][i]) {
-        case SNAP_GONE:
+        if (c->snap_word[k][i] == SNAP_GONE) {
             if (i != me) s->active = false;
-            break;
-        case SNAP_STATE: {
+        } else if (c->snap_word[k][i] == SNAP_STATE && i == me) {
+            // the server's word of me, but my look, loadout and typing are mine
             const Soldier *heard = &c->snaps[k][i];
             bool placed = heard->life != s->life;
-            Vec2 before = s->pos;
-            if (i == me) {
-                // the server's word of me, but my look, loadout and typing are mine
-                PlayerLook look = s->look;
-                WeaponId primary = s->primary_choice, secondary = s->secondary_choice;
-                bool typing = s->typing;
-                soldier_copy_served(s, heard);
-                s->look = look;
-                s->typing = typing;
-                s->primary_choice = primary;
-                s->secondary_choice = secondary;
-                if (placed) soldier_copy_owned(g->ctx.anims, s, heard);
-            } else {
-                soldier_copy_served(s, heard);
-                soldier_copy_owned(g->ctx.anims, s, heard);
-                s->remote = true;
-                // the correction goes to the picture, to be shown over a little while;
-                // a placing, or a jump too far to be a correction, shows at once
-                Vec2 jump = vec2_sub(before, s->pos);
-                c->blend[i] = placed ? vec2(0, 0) : vec2_add(c->blend[i], jump);
-                if (vec2_length(c->blend[i]) > STREAM_SNAP_DISTANCE) c->blend[i] = vec2(0, 0);
-                if (!placed) c->correction += vec2_length(jump);
-            }
-            break;
-        }
-        default: break; // SNAP_SAME: keep stepping it
+            PlayerLook look = s->look;
+            WeaponId primary = s->primary_choice, secondary = s->secondary_choice;
+            bool typing = s->typing;
+            soldier_copy_served(s, heard);
+            s->look = look;
+            s->typing = typing;
+            s->primary_choice = primary;
+            s->secondary_choice = secondary;
+            if (placed) soldier_copy_owned(g->ctx.anims, s, heard);
         }
     }
     for (int i = 0; i < MAX_THINGS; i++) {
@@ -419,10 +396,62 @@ static void snapshot_apply(ClientStream *c, Game *g, int me, int k)
     }
 }
 
-void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp)
+#define STREAM_STEPS_MAX (LEAD_MAX + 6) // a word is stepped on this far at most: past it, it stands
+
+// Soldier `i` as its word in ring slot `k` has it, stepped on `steps` ticks on its last
+// keys to where the tick on show wants it. The correction goes to the picture, to be
+// shown over a little while; a placing, or a jump too far to be a correction, shows at
+// once.
+static void soldier_apply(ClientStream *c, Game *g, int i, int k, int steps, Events *scratch)
+{
+    World *w = &g->world;
+    Soldier *s = &w->soldiers[i];
+    const Soldier *heard = &c->snaps[k][i];
+    bool placed = heard->life != s->life;
+    Vec2 before = s->pos;
+    soldier_copy_served(s, heard);
+    soldier_copy_owned(g->ctx.anims, s, heard);
+    s->remote = true;
+    if (steps > STREAM_STEPS_MAX) steps = STREAM_STEPS_MAX;
+    for (int n = 0; n < steps; n++) {
+        events_clear(scratch); // what the steps would say is said by nobody
+        soldier_step(&g->ctx, w, (uint8_t)i, soldier_last_command(s, false), scratch, false);
+    }
+    Vec2 jump = vec2_sub(before, s->pos);
+    c->blend[i] = placed ? vec2(0, 0) : vec2_add(c->blend[i], jump);
+    if (vec2_length(c->blend[i]) > STREAM_SNAP_DISTANCE) c->blend[i] = vec2(0, 0);
+    if (!placed) c->correction += vec2_length(jump);
+}
+
+// Every other soldier from its newest word no later than the tick on show plus its
+// lead, stepped on to there; one with no newer word keeps stepping as it is.
+static void soldiers_apply(ClientStream *c, Game *g, int me, uint32_t v)
+{
+    Events scratch;
+    events_clear(&scratch);
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (i == me) continue;
+        uint32_t want = v + c->lead[i];
+        uint32_t t = want < c->newest ? want : c->newest;
+        for (; t > c->word_applied[i] && c->newest - t < STREAM_RING; t--) {
+            int k = (int)(t % STREAM_RING);
+            if (c->snap_tick[k] != t || c->snap_word[k][i] != SNAP_STATE) continue;
+            soldier_apply(c, g, i, k, (int)(want - t), &scratch);
+            c->word_applied[i] = t;
+            break;
+        }
+    }
+}
+
+void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp, bool extrapolate)
 {
     if (c->newest == 0) return; // nothing heard yet: the world stands as the round left it
     World *w = &g->world;
+    c->extrapolate = extrapolate;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        c->lead[i] = extrapolate ? (uint8_t)ping_lead(w->soldiers[me].ping, w->soldiers[i].ping) : 0;
+        c->shift[i] = extrapolate ? (int8_t)ping_shift(w->soldiers[me].ping, w->soldiers[i].ping) : 0;
+    }
     if (interp < 0) interp = 0;
     if (interp > STREAM_INTERP_MAX) interp = STREAM_INTERP_MAX;
     if (c->interp < interp) c->interp = interp;
@@ -460,18 +489,18 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp)
         }
     }
 
-    // the frame on show, and the server's word due by it; a frame shown again after a
-    // nudge back is applied again, so the others stand where it has them
+    // the frame on show, the others from their newest words, and the server's word due
     uint32_t v = w->tick;
     int k = (int)(v % STREAM_RING);
     if (c->snap_tick[k] == v) {
-        snapshot_apply(c, g, me, k);
+        frame_apply(c, g, me, k);
         c->applies++;
         if (v > c->applied) c->applied = v;
     } else if (v > c->applied) {
         c->misses++;
     }
-    wire_pending_apply(&c->pending, g, v);
+    soldiers_apply(c, g, me, v);
+    wire_pending_apply(&c->pending, g, v, extrapolate ? c->shift : NULL);
     c->event_last = c->pending.received; // what is held here need not come again
 }
 
@@ -502,7 +531,8 @@ size_t client_stream_state(ClientStream *c, const Soldier *me, uint8_t *buf, siz
 
     NetBuf b = netbuf_writer(buf, size);
     MsgKind kind = MSG_CLIENT_STATE;
-    MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .life = me->life, .owned = *me, .typing = me->typing};
+    MsgClientState m = {.round = c->round, .seq = seq, .base = base_seq, .ack = c->newest, .event_ack = c->event_last, .life = me->life,
+                        .owned = *me, .typing = me->typing, .extrapolate = c->extrapolate};
     msg_kind(&b, &kind);
     msg_client_state(&b, &m, base);
     wire_write(&b, &c->out, c->event_ack, -1, WIRE_PER_PACKET);

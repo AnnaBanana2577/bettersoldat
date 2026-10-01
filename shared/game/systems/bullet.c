@@ -28,6 +28,7 @@ static int bullet_make(const Context *ctx, World *w, const EventShot *shot, Even
             .style = info->stats.style,
             .weapon = shot->weapon,
             .owner = shot->player,
+            .now = s->extrapolates, // judged as its shooter drew the others (bullet_target)
             .spawn_cmd = s->cmd_seq,
             .shot_id = shot->shot,
             .pos = shot->pos,
@@ -161,32 +162,19 @@ void bullets_update(const Context *ctx, World *w, const Events *last, Events *ev
         if (e->type != EVENT_SHOT) continue;
         const EventShot *shot = &e->shot;
         bool heard = e->tick != 0;
-        bool shown = heard && !w->authority; // a client hearing of it: the flash and the tracer
-        Vec2 muzzle = shown ? muzzle_now(ctx, w, shot) : shot->pos;
-        if (shown && !(flashed & (1u << shot->player))) {
+        if (heard && !w->authority && !(flashed & (1u << shot->player))) { // a client hearing of it: the flash
             flashed |= 1u << shot->player;
-            remote_fire(w, shot, muzzle, events);
+            remote_fire(w, shot, muzzle_now(ctx, w, shot), events);
         }
         int k = bullet_make(ctx, w, shot, events);
         if (k < 0) continue;
         Bullet *b = &w->bullets[k];
-        int before = events->count;
         for (int a = 0; a < shot->advance && b->active; a++) {
             b->lag = (uint8_t)(shot->advance - a);
             bullet_update(ctx, w, b, (uint16_t)k, events);
             if (b->active) bullet_integrate(w, b);
         }
         b->lag = 0;
-        if (shot->advance > 0 && shown) {
-            // the flight nobody here saw, for the tracer: from the muzzle as the shooter is
-            // drawn, which is where the eye looks for it, to where the bullet is or ended
-            EventBulletTrace t = {.owner = shot->player, .weapon = shot->weapon, .from = muzzle, .to = b->pos, .ticks = shot->advance, .ended = !b->active};
-            for (int i = before; i < events->count; i++) {
-                const Event *x = &events->items[i];
-                if (x->type == EVENT_BULLET_END && x->bullet_end.id == k) t.to = x->bullet_end.pos;
-            }
-            event_emit(events, (Event){.type = EVENT_BULLET_TRACE, .bullet_trace = t});
-        }
     }
 
     for (int i = 0; i < MAX_BULLETS; i++) {

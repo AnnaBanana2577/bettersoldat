@@ -103,6 +103,7 @@ typedef struct App {
     Cvar *smooth;                                 // milliseconds a correction of another player is smoothed over
     Cvar *interp;                                 // ticks the view keeps behind the newest snapshot, at least (cl_interp)
     Cvar *netstats;                               // a line a second on the console of how the line is doing (cl_netstats)
+    Cvar *extrapolate;                            // the others shown at now, stepped on by the pings (cl_extrapolate)
     Cvar *volume;                                 // snd_volume, 0 to 100
     Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
@@ -763,8 +764,10 @@ static bool console_open(App *app, int argc, char *argv[])
     app->secondary = cvar_register(con, "cl_player_secwep", "1", CVAR_ARCHIVE, "0 USSOCOM, 1 knife, 2 chainsaw, 3 LAW");
     app->smooth = cvar_register(con, "cl_smooth", "100", CVAR_ARCHIVE,
                                 "milliseconds a correction of another player is smoothed over; 0 snaps");
-    app->interp = cvar_register(con, "cl_interp", "2", CVAR_ARCHIVE,
+    app->interp = cvar_register(con, "cl_interp", "0", CVAR_ARCHIVE,
                                 "ticks the others are shown behind the newest snapshot, at least, so jitter doesn't show; raised by itself while snapshots come late");
+    app->extrapolate = cvar_register(con, "cl_extrapolate", "1", CVAR_ARCHIVE,
+                                     "1: the others are shown where they are by now, stepped on from their last word by half my ping and half theirs, and their shots with them; 0: where they were last heard of");
     app->netstats = cvar_register(con, "cl_netstats", "0", 0,
                                   "1: a line a second on the console: ping, frames in hand, snapshots late and missed, the view clock's nudges, and how far the others were corrected");
     app->volume = cvar_register(con, "snd_volume", "50", CVAR_ARCHIVE, "the sound's volume, 0 to 100");
@@ -1029,7 +1032,7 @@ static void tick(App *app)
     bool online = client_net_joined(&app->net);
     Command cmds[MAX_PLAYERS] = {0};
     w->soldiers[app->me].typing = app->hud_data.chat_type != HUD_CHAT_NONE; // the dots over my head, for the others
-    if (online) client_stream_begin_tick(&app->net.stream, app->game, app->me, app->interp->integer);
+    if (online) client_stream_begin_tick(&app->net.stream, app->game, app->me, app->interp->integer, app->extrapolate->integer != 0);
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
         s->remote = online && i != app->me;

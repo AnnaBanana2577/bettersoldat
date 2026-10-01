@@ -37,7 +37,6 @@ WireSide wire_side(EventType type)
     case EVENT_POLY_EFFECT:
     case EVENT_CORPSE_HIT:
     case EVENT_ANTIC:
-    case EVENT_BULLET_TRACE:
     case EVENT_ECHO_TEST: return WIRE_LOCAL;
     }
     return WIRE_LOCAL;
@@ -225,12 +224,8 @@ void wire_collect(WireQueue *q, const Events *events, uint32_t tick, int only_ow
         bool heard = e->tick != 0;
         int owner = wire_owner(e);
         if (only_owner >= 0 && (heard || side != WIRE_OWNER || owner != only_owner)) continue; // a client: its own decisions alone
-        // The server stamps what it relays with its own tick too: a shot came in with the
-        // state of the soldier that fired it, so the frame of this tick holds the shooter
-        // in the act, and a client applying the shot as that frame comes up sees the
-        // bullet leave the muzzle of the soldier it draws, with nothing to run forward.
         Event stamped = *e;
-        stamped.tick = tick;
+        if (!heard) stamped.tick = tick;
         push(q, &stamped, heard && owner >= 0 ? (uint8_t)owner : WIRE_FROM_HERE);
     }
 }
@@ -290,7 +285,7 @@ void wire_read_pending(NetBuf *b, WirePending *p)
     }
 }
 
-void wire_pending_apply(WirePending *p, Game *g, uint32_t tick)
+void wire_pending_apply(WirePending *p, Game *g, uint32_t tick, const int8_t shift[MAX_PLAYERS])
 {
     for (uint32_t seq = p->applied + 1; seq <= p->received; seq++) {
         uint32_t k = seq % WIRE_PENDING;
@@ -302,9 +297,12 @@ void wire_pending_apply(WirePending *p, Game *g, uint32_t tick)
             continue;
         }
         Event e = p->items[k];
-        if (e.tick > tick) return; // not yet
+        int64_t due = e.tick;
+        if (shift && e.type == EVENT_SHOT) due -= shift[e.shot.player];
+        if (due > (int64_t)tick) return; // not yet
         p->seq[k] = 0;
         p->applied = seq;
+        if (e.type == EVENT_SHOT && due >= 1) e.tick = (uint32_t)due; // the stamp as seen from here
         shot_advance(&e, tick);
         game_hear(g, e);
     }

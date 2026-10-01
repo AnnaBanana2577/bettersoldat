@@ -47,7 +47,10 @@ static void spawn_child(const Context *ctx, World *w, const Bullet *parent, Vec2
                         Events *events)
 {
     int k = bullet_spawn(ctx, w, pos, vel, weapon, parent->owner, damage, events);
-    if (k >= 0) w->bullets[k].lag = parent->lag;
+    if (k >= 0) {
+        w->bullets[k].lag = parent->lag;
+        w->bullets[k].now = parent->now;
+    }
 }
 
 // The fragments scatter by the grenade's own numbers, not the world's dice, so every
@@ -317,7 +320,7 @@ typedef struct Candidates {
 // TargetableSprite and FilterSpritesByDistance: who the bullet may hit, nearest first.
 // The corpses are among them, so long as the body has been started (a soldier the
 // server has just killed has none for a tick).
-static Candidates candidates(const World *w, const Soldier *frame, const Bullet *b)
+static Candidates candidates(const Context *ctx, World *w, const Bullet *b)
 {
     int owner_vulnerable_after;
     switch (b->style) {
@@ -330,7 +333,8 @@ static Candidates candidates(const World *w, const Soldier *frame, const Bullet 
     Candidates c = {0};
     float dists[MAX_PLAYERS];
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        const Soldier *s = i == b->owner ? &w->soldiers[i] : &frame[i];
+        if (!w->soldiers[i].active) continue;
+        const Soldier *s = bullet_target(ctx, w, b, i); // as the shooter saw it
         if (!s->active || s->team == TEAM_SPECTATOR || i == b->hit_body) continue;
         if (i == b->owner && b->timeout >= owner_vulnerable_after) continue;
         if (w->soldiers[i].dead && !w->ragdolls[i].active) continue;
@@ -384,15 +388,14 @@ static bool body_collide(const Context *ctx, World *w, Bullet *b, uint16_t index
 
     const WeaponStats *stats = &ctx->weapons.info[b->weapon].stats;
     const Soldier *owner = &w->soldiers[b->owner];
-    Soldier *frame = history_targets(w, b->lag); // as the shooter saw them
     bool melee = b->style == BULLET_PUNCH || b->style == BULLET_KNIFE;
     float radius = b->style == BULLET_FRAG_GRENADE ? PART_RADIUS + 1.0f : PART_RADIUS;
-    Candidates c = candidates(w, frame, b);
+    Candidates c = candidates(ctx, w, b);
     bool hit = false;
 
     for (int n = 0; n < c.count; n++) {
         int ti = c.index[n];
-        const Soldier *target = target_soldier(w, frame, b->owner, ti);
+        const Soldier *target = bullet_target(ctx, w, b, ti); // as the shooter saw it
         Soldier *live = &w->soldiers[ti]; // the one the wound and the shove land on
         if (melee && ti == b->owner) continue;
 

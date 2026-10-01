@@ -6,7 +6,6 @@
 #define M_PI 3.14159265358979323846
 #endif
 #include <stdio.h>
-#include <string.h>
 
 #include "game/systems/systems.h"
 #include "render/textures.h"
@@ -173,65 +172,9 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, d
     }
 }
 
-// A grenade, a knife or a blade is not drawn as a streak when it flies, so no tracer
-// stands in for one either; nor do a shotgun's six pellets, which would fan out as
-// six long lines.
-static bool tracer_worthy(WeaponId weapon)
-{
-    switch (weapon) {
-    case WEAPON_SPAS:
-    case WEAPON_FRAG:
-    case WEAPON_CLUSTER_NADE:
-    case WEAPON_KNIFE:
-    case WEAPON_CHAINSAW:
-    case WEAPON_FLAMER:
-    case WEAPON_NONE: return false;
-    default: return true;
-    }
-}
-
-void bullet_art_tick(BulletArt *b, const Events *events)
-{
-    int kept = 0;
-    for (int i = 0; i < b->tracer_count; i++) {
-        Tracer *t = &b->tracers[i];
-        t->age += 1.0f;
-        if (t->age < t->life) b->tracers[kept++] = *t;
-    }
-    b->tracer_count = kept;
-    for (int i = 0; i < events->count; i++) {
-        const Event *e = &events->items[i];
-        if (e->type != EVENT_BULLET_TRACE || !tracer_worthy(e->bullet_trace.weapon)) continue;
-        if (vec2_length(vec2_sub(e->bullet_trace.to, e->bullet_trace.from)) < TRACER_SHORTEST) continue;
-        if (b->tracer_count == TRACERS) { // full: the oldest goes
-            memmove(b->tracers, b->tracers + 1, (TRACERS - 1) * sizeof b->tracers[0]);
-            b->tracer_count--;
-        }
-        b->tracers[b->tracer_count++] = (Tracer){
-            .from = e->bullet_trace.from, .to = e->bullet_trace.to, .weapon = e->bullet_trace.weapon,
-            .life = clampf((float)e->bullet_trace.ticks, TRACER_LIFE_MIN, TRACER_LIFE_MAX),
-        };
-    }
-}
-
-// The weapon's own streak stretched the length of the flight, fading as it ages.
-static void tracer_draw(const BulletArt *b, const Tracer *t, float alpha)
-{
-    Sprite own = b->weapons[t->weapon];
-    if (own.tex.handle == 0) own = b->weapons[WEAPON_COLT];
-    if (own.tex.handle == 0) own = b->shared[BULLET_ART_STREAK];
-    if (own.tex.handle == 0 || own.width <= 0.0f) return;
-    Vec2 path = vec2_sub(t->to, t->from);
-    float length = vec2_length(path);
-    float left = 1.0f - clampf((t->age + alpha) / t->life, 0.0f, 1.0f);
-    uint8_t a = (uint8_t)(BULLET_ALPHA * left);
-    draw_sprite(own, t->from, vec2(0, 0), vec2(length / own.width, 1.0f), atan2f(path.y, path.x), (Rgba){255, 255, 255, a});
-}
-
 void bullets_draw(const BulletArt *b, const Bullet *bullets, float alpha, double seconds)
 {
     if (!b->loaded) return;
-    for (int i = 0; i < b->tracer_count; i++) tracer_draw(b, &b->tracers[i], alpha);
     for (int i = 0; i < MAX_BULLETS; i++)
         if (bullets[i].active) bullet_draw(b, &bullets[i], alpha, seconds);
 }

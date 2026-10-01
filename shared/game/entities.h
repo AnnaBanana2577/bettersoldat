@@ -275,6 +275,10 @@ typedef struct Soldier {
     // This machine's alone, never on the wire: the soldier is heard of, not played
     // here, so its keys move it between words but fire nothing.
     bool remote;
+    // The server's alone, from the client's state: its player shows the others
+    // extrapolated to now (cl_extrapolate), so its shots are judged at now too, each
+    // target shifted by half the difference of the two pings (bullet_target).
+    bool extrapolates;
     // The chain's and the hair's points past the pose's 20 (gostek.po's 21 to 24): the
     // neck and the head's top, and the pendant and the dreadlocks' end swinging below
     // them, each machine's own verlet (TSprite.UpdatePose, DoVerletTimeStepFor).
@@ -298,6 +302,7 @@ typedef struct Bullet {
     WeaponId weapon;
     uint8_t owner;
     uint8_t lag;        // ticks behind the present it meets the soldiers, as its shooter saw them
+    bool now;           // its shooter shows the others at now: it meets each shifted by the pings' difference instead
     uint32_t spawn_cmd; // the command of its owner that fired it
     uint32_t shot_id;   // its owner's count of its bullets: the same number on every machine
     Vec2 pos, old_pos;
@@ -385,11 +390,6 @@ typedef struct EventFire { uint8_t player; WeaponId weapon; Vec2 pos, vel; } Eve
 typedef struct EventShot { uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; uint32_t shot; bool self; uint8_t advance; } EventShot;
 typedef struct EventBulletSpawn { uint16_t id; uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; } EventBulletSpawn;
 typedef struct EventBulletEnd { uint16_t id; uint8_t owner; uint32_t shot; WeaponId weapon; Vec2 pos; bool impact; } EventBulletEnd;
-// A bullet heard of from elsewhere was run forward `ticks` on being made (EventShot's
-// advance), to `to`, where it is now or where it ended if it did (`ended`): the flight
-// nobody here saw, for the renderer to draw as a tracer from `from`, the shooter's
-// muzzle as it is drawn here. Never leaves the machine that made it.
-typedef struct EventBulletTrace { uint8_t owner; WeaponId weapon; Vec2 from, to; uint8_t ticks; bool ended; } EventBulletTrace;
 typedef struct EventWallHit { uint16_t id; uint8_t owner; WeaponId weapon; Vec2 pos, vel; } EventWallHit;
 typedef struct EventRicochet { uint16_t id; uint8_t owner; Vec2 pos, vel; } EventRicochet;
 typedef struct EventColliderHit { uint16_t id; uint8_t owner; Vec2 pos, vel; } EventColliderHit;
@@ -484,7 +484,6 @@ typedef enum EventType {
     EVENT_MATCH_END,
     EVENT_FLAG_DROP,
     EVENT_ANTIC,
-    EVENT_BULLET_TRACE,
     EVENT_ECHO_TEST,
 } EventType;
 
@@ -496,7 +495,6 @@ typedef struct Event {
         EventShot shot;
         EventBulletSpawn bullet_spawn;
         EventBulletEnd bullet_end;
-        EventBulletTrace bullet_trace;
         EventWallHit wall_hit;
         EventRicochet ricochet;
         EventColliderHit collider_hit;
@@ -552,9 +550,16 @@ typedef struct Events {
 // History: where everyone was over the last second, kept on the server so a shot is
 // judged against the soldiers as its shooter saw them.
 
+#define LEAD_MAX 10 // ticks a soldier is shown, or judged, ahead of its last word at most
+
 typedef struct History {
     Soldier frames[HISTORY_TICKS][MAX_PLAYERS]; // by tick modulo the ring
     Thing things[HISTORY_TICKS][MAX_THINGS];    // and the things, for the snapshots' deltas
     uint32_t tick; // the newest frame's
     uint32_t count;
+    // The other way: each soldier stepped on from the present on its last keys, as a
+    // client showing it at now has it, worked out as asked and kept for the tick.
+    Soldier future[MAX_PLAYERS][LEAD_MAX];
+    uint32_t future_tick[MAX_PLAYERS];
+    int future_count[MAX_PLAYERS];
 } History;

@@ -80,6 +80,11 @@ void soldier_step(const Context *ctx, World *w, uint8_t index, Command cmd, Even
 
 bool soldier_out_of_bounds(const Context *ctx, Vec2 pos);
 
+// The command a soldier heard of steps on between words: its last keys and aim,
+// one-shot buttons cleared so a throw is not thrown again (the throw itself is held
+// while a grenade is wound up), or no keys at all once `quiet`.
+Command soldier_last_command(const Soldier *s, bool quiet);
+
 // Suicide is a hit on oneself, applied like any other, and a brutal one.
 Hit suicide_hit(const World *w, uint8_t index);
 
@@ -454,6 +459,26 @@ Soldier *history_targets(World *w, uint8_t lag);
 // One of the soldiers a bullet meets, out of the frame history_targets gave. Its own
 // shooter is taken from the present.
 Soldier *target_soldier(World *w, Soldier *frame, uint8_t owner, int i);
+
+// The soldier a bullet meets, as its shooter saw it: the frame the shooter had at this
+// step, `lag` ticks behind the present, out of the history; and if the shooter shows
+// the others at now (Bullet.now), that frame's soldier stepped on by the lead the
+// shooter stepped it by, half its own ping and half the target's in ticks (ping_lead),
+// which the server reproduces, the step being the same everywhere, out of the frame
+// where the frame is kept and on from the present where it is not yet (history_future).
+// The shooter itself is taken from the present. Without a history (a client's world)
+// the present stands for everything.
+const Soldier *bullet_target(const Context *ctx, World *w, const Bullet *b, int i);
+
+// How far ahead of its last word a soldier is shown at now: half my ping and half
+// theirs, in ticks, LEAD_MAX at most. And the difference: half mine less half theirs,
+// which is how much longer a shot of theirs has been flying than its stamp says here.
+int ping_lead(uint16_t mine, uint16_t theirs);
+int ping_shift(uint16_t mine, uint16_t theirs);
+
+// Soldier `i` stepped `ahead` ticks on from the present on its last keys, out of the
+// history's cache for this tick, worked out as far as asked.
+const Soldier *history_future(const Context *ctx, World *w, int i, int ahead);
 
 // --- rand.c ------------------------------------------------------------------------
 

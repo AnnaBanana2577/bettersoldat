@@ -25,7 +25,7 @@
 
 #include "game/entities.h"
 
-#define NET_VERSION 10
+#define NET_VERSION 11
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
 #define NET_PASSWORD_SIZE 32 // the server's password, with its terminator (sv_password, cl_password)

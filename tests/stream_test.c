@@ -94,13 +94,13 @@ static bool aim_at_bot; // the client aims at the bot's chest instead of right
 
 // One tick of the client: its soldier on `buttons`, aiming right; the others on their
 // word. Then its state to the server.
-static int client_interp = 2; // ticks the test's client keeps behind the newest snapshot
+static int client_interp = 0; // ticks the test's client keeps behind the newest snapshot: none, as the default
 
 static void client_tick(StreamClient *c, Buttons buttons)
 {
     World *w = &c->game->world;
     Command cmds[MAX_PLAYERS] = {0};
-    client_stream_begin_tick(&c->stream, c->game, c->slot, client_interp);
+    client_stream_begin_tick(&c->stream, c->game, c->slot, client_interp, true);
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
         s->remote = i != c->slot;
