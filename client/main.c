@@ -95,6 +95,7 @@ typedef struct App {
     Cvar *password;       // and the password it says there (cl_password)
     Cvar *sensitivity;
     Cvar *wireframe, *debug;
+    Cvar *forcebg, *forcebg_color1, *forcebg_color2; // the sky in colours of my own instead of the map's (r_forcebg)
     Cvar *minimap, *info, *player_names, *console_length;
     Cvar *player_name;
     Cvar *shirt, *pants, *skin, *hair, *jet;      // the look's colours, "RRGGBB"
@@ -743,6 +744,9 @@ static bool console_open(App *app, int argc, char *argv[])
     app->server = cvar_register(con, "cl_server", "127.0.0.1:23073", CVAR_ARCHIVE, "the server the main menu joins, host:port");
     app->password = cvar_register(con, "cl_password", "", CVAR_ARCHIVE, "the password the main menu joins with; empty for none");
     app->sensitivity = cvar_register(con, "cl_sensitivity", "1", CVAR_ARCHIVE, "the mouse's speed");
+    app->forcebg = cvar_register(con, "r_forcebg", "0", CVAR_ARCHIVE, "1: the sky in r_forcebg_color1 and 2 on every map instead of the map's own colours");
+    app->forcebg_color1 = cvar_register(con, "r_forcebg_color1", "000000", CVAR_ARCHIVE, "the forced sky's colour at the top, RRGGBB");
+    app->forcebg_color2 = cvar_register(con, "r_forcebg_color2", "000000", CVAR_ARCHIVE, "the forced sky's colour at the bottom, RRGGBB");
     app->wireframe = cvar_register(con, "r_wireframe", "0", 0, "draw the map's polygons as lines");
     app->debug = cvar_register(con, "r_debug", "0", 0, "spawn points, colliders, special polys, bones");
     app->minimap = cvar_register(con, "ui_minimap", "0", CVAR_ARCHIVE, "the minimap");
@@ -887,6 +891,8 @@ static void apply_window_mode(App *app)
     app->fullscreen->modified = app->width->modified = app->height->modified = false;
 }
 
+static Rect window_rect(const App *app);
+
 static void apply_cvars(App *app)
 {
     if (app->fullscreen->modified || app->width->modified || app->height->modified) apply_window_mode(app);
@@ -901,6 +907,9 @@ static void apply_cvars(App *app)
     audio_volume(&app->audio, v * v * 0.48f);
     app->render_options.wireframe = app->wireframe->integer != 0;
     app->render_options.debug = app->debug->integer != 0;
+    // the sky's colours: the map's, or mine; the minimap carries them too, so it is built again on a change
+    if (map_view_force_background(&app->render.map_view, app->forcebg->integer != 0, cvar_color(app->forcebg_color1), cvar_color(app->forcebg_color2)))
+        map_view_build_minimap(&app->render.map_view, window_rect(app).height);
     Soldier *me = &app->game->world.soldiers[app->me];
     me->look = look_from_cvars(app);
     me->primary_choice = (WeaponId)clampi(app->primary->integer, WEAPON_EAGLE, WEAPON_MINIGUN);

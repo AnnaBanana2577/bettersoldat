@@ -119,14 +119,16 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
         return;
     }
 
-    gfx_clear(camera->pos.y > 0 ? v->map->bg_bottom : v->map->bg_top); // the original's choice
+    Rgba sky_top, sky_bottom;
+    map_view_background(v, &sky_top, &sky_bottom);
+    gfx_clear(camera->pos.y > 0 ? sky_bottom : sky_top); // the original's choice
     gfx_transform(camera_transform(camera));
 
     // the original's RenderFrame order: the bullets behind the soldiers, the things'
     // sprites just in front of them, the sparks (explosions among them) under the middle
     // scenery, the things' quads (cloth, kits) over it, and the terrain and the front
     // scenery over everything
-    map_draw_background(v->map, camera);
+    map_draw_background(v, camera);
     map_draw_background_polys(v);
     map_draw_scenery(v, 0);
     bullets_draw(&r->bullet_art, state->bullets, state->alpha, seconds);

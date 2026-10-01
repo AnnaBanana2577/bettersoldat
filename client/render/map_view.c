@@ -67,23 +67,48 @@ void map_draw_terrain(const MapView *v)
     gfx_draw_buffer(v->polys.buffer, v->texture, v->polys.background_count, v->polys.terrain_count);
 }
 
+static bool same_color(Rgba a, Rgba b) { return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a; }
+
+bool map_view_force_background(MapView *v, bool force, Rgba top, Rgba bottom)
+{
+    top.a = bottom.a = 255;
+    bool same = v->force_bg == force && (!force || (same_color(v->forced_top, top) && same_color(v->forced_bottom, bottom)));
+    v->force_bg = force;
+    v->forced_top = top;
+    v->forced_bottom = bottom;
+    return !same;
+}
+
+void map_view_background(const MapView *v, Rgba *top, Rgba *bottom)
+{
+    if (v->force_bg) {
+        *top = v->forced_top;
+        *bottom = v->forced_bottom;
+    } else {
+        *top = v->map ? v->map->bg_top : (Rgba){0, 0, 0, 255};
+        *bottom = v->map ? v->map->bg_bottom : (Rgba){0, 0, 0, 255};
+    }
+    top->a = bottom->a = 255; // as the original forces them
+}
+
 // The sky gradient. The original anchors it in world space vertically, spanning +/-d
 // about the origin, and stretches it across the view, so it scrolls with the camera.
-void map_draw_background(const Map *map, const GameCamera *camera)
+void map_draw_background(const MapView *v, const GameCamera *camera)
 {
+    const Map *map = v->map;
     float d = (float)MAX_SECTOR * fmaxf((float)map->sectors_division, ceilf(0.5f * GAME_HEIGHT / (float)MAX_SECTOR));
     float half_width = camera_view_size(camera).x / 2;
     float x0 = camera->pos.x - half_width, x1 = camera->pos.x + half_width;
-    Rgba top = map->bg_top, bottom = map->bg_bottom;
-    top.a = bottom.a = 255; // as the original forces them
+    Rgba top, bottom;
+    map_view_background(v, &top, &bottom);
 
-    GfxVertex v[4] = {
+    GfxVertex quad[4] = {
         gfx_vertex(x0, -d, 0, 0, top),
         gfx_vertex(x1, -d, 0, 0, top),
         gfx_vertex(x1, d, 0, 0, bottom),
         gfx_vertex(x0, d, 0, 0, bottom),
     };
-    gfx_draw_quad(gfx_white(), v);
+    gfx_draw_quad(gfx_white(), quad);
 }
 
 // The quad reproduces the original's GfxMat3Transform: the map's position is the prop's
@@ -133,7 +158,7 @@ void map_draw_wireframe(const Map *map, const GameCamera *camera)
 void map_view_draw(const MapView *v, const GameCamera *camera, unsigned parts)
 {
     if (!v->map) return;
-    if (parts & MAP_PART_BACKGROUND) map_draw_background(v->map, camera);
+    if (parts & MAP_PART_BACKGROUND) map_draw_background(v, camera);
     if (parts & MAP_PART_POLYGONS) map_draw_background_polys(v);
     if (parts & MAP_PART_SCENERY) {
         map_draw_scenery(v, 0);
@@ -209,8 +234,8 @@ void map_view_build_minimap(MapView *v, float render_height)
     gfx_clear((Rgba){0, 0, 0, 0});
 
     float d = (float)MAX_SECTOR * fmaxf((float)map->sectors_division, ceilf(0.5f * GAME_HEIGHT / (float)MAX_SECTOR));
-    Rgba top = map->bg_top, bottom = map->bg_bottom;
-    top.a = bottom.a = 255;
+    Rgba top, bottom;
+    map_view_background(v, &top, &bottom);
     gfx_transform(mat3_ortho(0, 1, low.y, high.y));
     GfxVertex above[4] = {
         gfx_vertex(0, fminf(-d, low.y), 0, 0, top), gfx_vertex(1, fminf(-d, low.y), 0, 0, top),

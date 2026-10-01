@@ -31,6 +31,10 @@ typedef struct Minimap {
 
 typedef struct MapView {
     const Map *map;      // borrowed; the owner outlives the view
+    // The sky's colours forced (r_forcebg): the player's own top and bottom instead of
+    // the map's, in the sky, the clear and the minimap alike.
+    bool force_bg;
+    Rgba forced_top, forced_bottom;
     GfxTexture texture;  // handle 0 draws the polygons untextured
     GfxTexture *scenery; // one per Map.scenery entry, handle 0 where it failed to load
     MapPolys polys;
@@ -51,6 +55,13 @@ typedef enum MapPart {
 void map_view_load(MapView *v, const char *base, const Map *map);
 void map_view_unload(MapView *v);
 
+// The sky's colours as the player wants them: the map's own, or with `force` the two
+// given, top and bottom. True if that changed, which calls for the minimap to be built
+// again. Survives a map change.
+bool map_view_force_background(MapView *v, bool force, Rgba top, Rgba bottom);
+// The sky's colours in use, top and bottom, opaque.
+void map_view_background(const MapView *v, Rgba *top, Rgba *bottom);
+
 // The map and nothing else, in the original's layer order. Under the camera's
 // transform.
 void map_view_draw(const MapView *v, const GameCamera *camera, unsigned parts);
@@ -68,7 +79,7 @@ void map_view_bounds(const Map *map, Vec2 *low, Vec2 *high);
 
 // The layers one at a time, for the renderer to slot the living between. Under the
 // camera's transform.
-void map_draw_background(const Map *map, const GameCamera *camera);
+void map_draw_background(const MapView *v, const GameCamera *camera);
 void map_draw_background_polys(const MapView *v);
 void map_draw_terrain(const MapView *v);
 void map_draw_scenery(const MapView *v, uint8_t layer); // 0 behind the map, 1 in front, 2 in front of the players

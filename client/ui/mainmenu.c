@@ -556,7 +556,22 @@ static void page_options(Ui *ui)
         text_color(TEXT);
         text_draw(shown, x + 195 - text_width(shown) / 2, y);
     }
-    y += ROW + 6;
+    y += ROW;
+    label(x, y, "Map sky", DIM);
+    cycler(ui, x + 110, y - 3, "r_forcebg", 0, 1, cvar_int(con, "r_forcebg", 0, 1) ? "My colours" : "The map's");
+    y += ROW;
+    if (cvar_int(con, "r_forcebg", 0, 1)) { // the two colours, top and bottom, as the look's are edited
+        static const char *const SKY[][2] = {{"Sky top", "r_forcebg_color1"}, {"Sky bottom", "r_forcebg_color2"}};
+        for (size_t i = 0; i < sizeof SKY / sizeof SKY[0]; i++) {
+            label(x, y, SKY[i][0], DIM);
+            field(ui, x + 110, y - 3, 90, SKY[i][1], 6);
+            Rgba c = cvar_color(con, SKY[i][1]);
+            c.a = 255;
+            rect(x + 210, y - 3, x + 210 + ROW - 4, y - 3 + ROW - 4, c);
+            y += ROW;
+        }
+    }
+    y += 6;
     label(x, y, "Everything here is saved to config.cfg when the game closes.", DIM);
 }
 
