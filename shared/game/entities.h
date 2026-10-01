@@ -192,7 +192,6 @@ typedef struct Soldier {
     // Counts the times the server has placed this soldier: a spawn, a respawn, a
     // correction, so word from before a placing is never taken for word from after it.
     uint8_t life;
-    uint8_t view_lag; // ticks behind the present its client shows the others; its shots inherit it
     // How it died, so any client can start the corpse from this state alone.
     Vec2 death_pos;
     Vec2 death_vel;
@@ -386,6 +385,11 @@ typedef struct EventFire { uint8_t player; WeaponId weapon; Vec2 pos, vel; } Eve
 typedef struct EventShot { uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; uint32_t shot; bool self; uint8_t advance; } EventShot;
 typedef struct EventBulletSpawn { uint16_t id; uint8_t player; WeaponId weapon; Vec2 pos, vel; float damage; } EventBulletSpawn;
 typedef struct EventBulletEnd { uint16_t id; uint8_t owner; uint32_t shot; WeaponId weapon; Vec2 pos; bool impact; } EventBulletEnd;
+// A bullet heard of from elsewhere was run forward `ticks` on being made (EventShot's
+// advance), from the muzzle at `from` to `to`, where it is now or where it ended if
+// it did (`ended`): the flight nobody here saw, for the renderer to draw as a tracer.
+// Never leaves the machine that made it.
+typedef struct EventBulletTrace { uint8_t owner; WeaponId weapon; Vec2 from, to; uint8_t ticks; bool ended; } EventBulletTrace;
 typedef struct EventWallHit { uint16_t id; uint8_t owner; WeaponId weapon; Vec2 pos, vel; } EventWallHit;
 typedef struct EventRicochet { uint16_t id; uint8_t owner; Vec2 pos, vel; } EventRicochet;
 typedef struct EventColliderHit { uint16_t id; uint8_t owner; Vec2 pos, vel; } EventColliderHit;
@@ -480,6 +484,7 @@ typedef enum EventType {
     EVENT_MATCH_END,
     EVENT_FLAG_DROP,
     EVENT_ANTIC,
+    EVENT_BULLET_TRACE,
     EVENT_ECHO_TEST,
 } EventType;
 
@@ -491,6 +496,7 @@ typedef struct Event {
         EventShot shot;
         EventBulletSpawn bullet_spawn;
         EventBulletEnd bullet_end;
+        EventBulletTrace bullet_trace;
         EventWallHit wall_hit;
         EventRicochet ricochet;
         EventColliderHit collider_hit;

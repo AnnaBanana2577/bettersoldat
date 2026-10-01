@@ -77,26 +77,52 @@ changes. The server's wire events since the client's last acknowledgement.
 Events are not delta-compressed; they are new by nature. Each side numbers the events
 it sends, the receiver keeps the last number applied per sender and applies each once,
 so a lost packet is covered by the next and nothing needs a reliable channel. After
-heavy loss the backlog is capped, oldest held back, kills and pickups first.
+heavy loss the backlog is capped, oldest held back, kills and pickups first. A client
+holds the server's events until the tick of their frame is on show (WirePending), and
+acknowledges what it has applied, so the few ticks in hand ride each packet again
+until they are due.
 
 **Reliable, rarely:** Hello, Welcome, Denied, and Chat, which carries commands and
 votes as text as well. Nothing else.
 
 ## Time
 
-One clock, the server's tick, carried on every snapshot; a client adopts it. Now is
-now: a client runs its own soldier at the present with no delay and no correction,
-and shows everyone else where the game last heard they were, stepped forward with
-their last controls through the ordinary `soldier_step` with `armed` false, so a
-remote soldier moves but never fires from its keys. Its bullets come as events. New
-word about a soldier blends in over a few ticks rather than snapping. No word for half
-a second releases the keys, so a quiet player falls and stops.
+One clock, the server's tick, carried on every snapshot. A client's tick is the tick
+of the frame it shows. It runs its own soldier at the present with no delay and no
+correction, and shows everyone else as the snapshot of that tick has them, kept
+`cl_interp` ticks (two, by default) behind the newest snapshot it holds, so the frame
+for each tick is in hand when the tick comes and the line's jitter never reaches the
+picture (client_stream_begin_tick). A snapshot that comes after its tick has passed
+raises that distance for a while. A tick whose snapshot is missing steps everyone on
+with their last controls through the ordinary `soldier_step` with `armed` false, so a
+remote soldier moves but never fires from its keys, and the word that follows blends in
+over cl_smooth rather than snapping. The clock runs free and is nudged a tick at a time
+when the frames in hand run consistently over or under; at `cl_interp 0` each snapshot
+shows as it arrives, which is what the original does. No word for half a second
+releases the keys, so a quiet player falls and stops. The server's events ride the same
+clock: a client keeps them until the tick of their frame is on show, so a kill is seen
+as the frame that holds it comes up.
 
-A shot is an event from the owner. The server applies it at the shooter's tick and
-runs the bullet forward to its own present; every other client runs it forward by
-the shooter's ping plus its own, as the original does. Hits are judged on the server
-where its bullets meet its soldiers, all at the present. Advancing the bullet is the
-lag compensation; nothing is rewound. The shooter plays the flash, the sound and the
+A shot is an event from the owner, stamped with its tick, which names the frame the
+shooter was looking at. The server runs the bullet forward from that tick to its own
+present and, each step of the way, judges it against the frame the shooter's screen
+held at that step, out of the history ring (history_targets), until it has caught up
+and meets the present like any other bullet. So what landed on the shooter's screen
+lands on the server however far the target has moved since, and the round trip never
+cheats the shooter of a hit; the price falls on the target, who can be hit a round trip
+after reaching cover, as in every game that rewinds. What is left is what the
+shooter's screen could not know: a key the target changed, or a frame lost, inside the
+last round trip.
+
+Every other client runs the shot forward to its own tick, so the bullet is where the
+shooter has it by then, and the shooter's body, being the frame on show, is the
+shooter's one-way latency behind it; neither `cl_interp` nor the hearer's own ping
+widens that gap. It is not seen as a gap: a shot heard gets the flash, the smoke and
+the sound at the shooter's muzzle as drawn, which its unarmed step would never give,
+and a tracer along the flight nobody saw, from the muzzle to where the bullet turned
+up, or to where it ended if it ended on the way (EVENT_BULLET_TRACE), fading over
+about as many ticks as the flight took. A grenade that goes off on the way plays its
+explosion where it went off, as before. The shooter plays its own flash, sound and
 blood at once, and the health on the server's damage event.
 
 ## Things
@@ -151,11 +177,14 @@ that gives the ping, and players counted now, not at the last heartbeat.
 
 ## Measured, not believed
 
-A fake link in-process, with latency, jitter and loss, runs a server and clients in
-one test binary, so the claims here become numbers in the log: how far a soldier sits
-from where its owner put it under 30% loss; how many of the shots a client saw itself
-land were ruled hits; bytes per second each way with six soldiers in view. Every
-commit that changes the netcode says what it measured, on what line.
+The line is made bad outside the game: a network impairment tool on the loopback puts
+latency, jitter and loss between a client and a server on one machine, and the game's
+own counters say what came of it. The client's stream counts the snapshots that came
+late, the ticks it had no snapshot for, the nudges and jumps of its view clock and
+where `interp` stands (ClientStream); the server's counts the states it dropped
+(ServerStream). The headless tests hold the rest on the loopback alone: the rewind
+(tests/rewind_test.c), the streams and their sizes (tests/stream_test.c). Every commit
+that changes the netcode says what it measured, on what line.
 
 ## The order of work
 
@@ -199,7 +228,15 @@ commit that changes the netcode says what it measured, on what line.
    dropped. The client's tick keeps to the server's from the snapshots. Measured on
    the loopback: a client's shots made on the server and numbered as its own, a bot's
    shots made on the client with its count in step, the server's wounds heard by the
-   wounded.
+   wounded. The judging came later: as first built, an advanced bullet met the
+   soldiers at the server's present, which is the round trip past where the shooter
+   saw them, so a moving target was missed by more than a hitbox at any ordinary
+   ping, and the field meant to carry the shooter's view lag was never set. It now
+   meets the shooter's frames out of the history ring, as the Time section says, and
+   tests/rewind_test.c holds that a shot landed on the shooter's screen lands on the
+   server a sixth of a second later with the target run on past it, and that the same
+   aim judged at the present misses. The view's distance behind the newest snapshot
+   (cl_interp) and the tracers came with it.
 7. Things, flags, kits, the match, rounds, chat. Built in part: the things ride the
    snapshot as the soldiers do, a word per slot and a delta against what the client
    received, out of the history ring which keeps them too; a client takes what a thing

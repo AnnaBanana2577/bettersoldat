@@ -37,6 +37,7 @@ WireSide wire_side(EventType type)
     case EVENT_POLY_EFFECT:
     case EVENT_CORPSE_HIT:
     case EVENT_ANTIC:
+    case EVENT_BULLET_TRACE:
     case EVENT_ECHO_TEST: return WIRE_LOCAL;
     }
     return WIRE_LOCAL;
@@ -253,6 +254,58 @@ void wire_write(NetBuf *b, const WireQueue *q, uint32_t ack, int receiver, int m
     }
 }
 
+// The advance a heard shot gets at `now`: from its own tick to then, half a second at most.
+static void shot_advance(Event *e, uint32_t now)
+{
+    if (e->tick == 0) e->tick = 1; // heard, whatever it said: never mistaken for this tick's
+    if (e->type != EVENT_SHOT) return;
+    uint32_t behind = now > e->tick ? now - e->tick : 0;
+    e->shot.advance = (uint8_t)(behind > WIRE_ADVANCE_MAX ? WIRE_ADVANCE_MAX : behind);
+}
+
+void wire_pending_init(WirePending *p) { memset(p, 0, sizeof *p); }
+
+void wire_read_pending(NetBuf *b, WirePending *p)
+{
+    uint32_t count = 0;
+    net_range(b, &count, WIRE_PER_PACKET);
+    for (uint32_t i = 0; i < count && netbuf_ok(b); i++) {
+        Event e = {0};
+        uint32_t seq = 0;
+        net_u32(b, &seq);
+        net_u32(b, &e.tick);
+        wire_event(b, &e);
+        if (!netbuf_ok(b)) continue;
+        // the first heard begins the count: what came before a newcomer is nobody's news
+        if (p->received == 0 && p->applied == 0 && seq > 0) p->applied = seq - 1;
+        if (seq <= p->applied || seq >= p->applied + WIRE_PENDING) continue;
+        if (p->seq[seq % WIRE_PENDING] == seq) continue; // a resend of one still waiting
+        p->items[seq % WIRE_PENDING] = e;
+        p->seq[seq % WIRE_PENDING] = seq;
+        if (seq > p->received) p->received = seq;
+    }
+}
+
+void wire_pending_apply(WirePending *p, Game *g, uint32_t tick)
+{
+    for (uint32_t seq = p->applied + 1; seq <= p->received; seq++) {
+        uint32_t k = seq % WIRE_PENDING;
+        // A packet carries everything past the acknowledgement but the receiver's own
+        // decisions, so a number missing below the newest received is one of those, not
+        // a loss, and is passed over.
+        if (p->seq[k] != seq) {
+            p->applied = seq;
+            continue;
+        }
+        Event e = p->items[k];
+        if (e.tick > tick) return; // not yet
+        p->seq[k] = 0;
+        p->applied = seq;
+        shot_advance(&e, tick);
+        game_hear(g, e);
+    }
+}
+
 void wire_read(NetBuf *b, Game *g, uint32_t *last, int only_owner)
 {
     uint32_t count = 0;
@@ -266,12 +319,7 @@ void wire_read(NetBuf *b, Game *g, uint32_t *last, int only_owner)
         if (!netbuf_ok(b) || seq <= *last) continue;
         *last = seq;
         if (only_owner >= 0 && (wire_side(e.type) != WIRE_OWNER || wire_owner(&e) != only_owner)) continue;
-        if (e.tick == 0) e.tick = 1; // heard, whatever it said: never mistaken for this tick's
-        if (e.type == EVENT_SHOT) {
-            uint32_t now = g->world.tick;
-            uint32_t behind = now > e.tick ? now - e.tick : 0;
-            e.shot.advance = (uint8_t)(behind > WIRE_ADVANCE_MAX ? WIRE_ADVANCE_MAX : behind);
-        }
+        shot_advance(&e, g->world.tick);
         game_hear(g, e);
     }
 }

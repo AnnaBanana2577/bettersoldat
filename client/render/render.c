@@ -24,6 +24,7 @@ void render_destroy(Render *r)
 void render_tick(Render *r, const Context *ctx, const World *w, const Events *events)
 {
     sparks_tick(&r->sparks, ctx, w, events);
+    bullet_art_tick(&r->bullet_art, events);
 }
 
 static void draw_soldiers(const Render *r, const RenderState *state)

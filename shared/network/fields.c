@@ -76,7 +76,6 @@ const NetField SOLDIER_SERVED_FIELDS[] = {
     NETFIELD(Soldier, antic_seq, NET_U, 8),
     NETFIELD(Soldier, rng, NET_U, 64),
     NETFIELD(Soldier, cmd_seq, NET_U, 32),
-    NETFIELD(Soldier, view_lag, NET_U, 8),
     NETFIELD(Soldier, shot_count, NET_U, 32),
     NETFIELD_ENUM(Soldier, primary_choice, WEAPON_COUNT - 1),
     NETFIELD_ENUM(Soldier, secondary_choice, WEAPON_COUNT - 1),

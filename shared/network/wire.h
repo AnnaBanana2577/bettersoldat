@@ -64,3 +64,25 @@ uint32_t wire_queue_present(const WireQueue *q);
 // shot's. With `only_owner` a slot, only that owner's own decisions are taken and the
 // rest are dropped: a client speaks for its soldier alone. -1 takes everything.
 void wire_read(NetBuf *b, Game *g, uint32_t *last, int only_owner);
+
+// The client's way in: what it hears is kept until its tick is due, so the server's
+// decisions land in the tick of the frame they happened in, which the view shows some
+// ticks after it arrives (stream.h). Each event is kept once by seq; one that arrives
+// before there is room for it waits for the resend.
+#define WIRE_PENDING 128
+
+typedef struct WirePending {
+    Event items[WIRE_PENDING]; // by seq
+    uint32_t seq[WIRE_PENDING]; // the seq held in each slot, 0 for none
+    uint32_t received;          // the newest seq read
+    uint32_t applied;           // the newest seq applied: what the sender is told
+} WirePending;
+
+void wire_pending_init(WirePending *p);
+// Reads what wire_write wrote into the ring; nothing is applied yet.
+void wire_read_pending(NetBuf *b, WirePending *p);
+// Applies, in order, every event due by `tick` into the game's mailbox, each once; one
+// stamped past `tick` waits, and so does everything after it. A number never received
+// below the newest is the receiver's own, which the sender leaves out, and is passed
+// over. A shot's advance is `tick` minus its own.
+void wire_pending_apply(WirePending *p, Game *g, uint32_t tick);

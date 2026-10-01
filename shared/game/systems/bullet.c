@@ -28,7 +28,6 @@ static int bullet_make(const Context *ctx, World *w, const EventShot *shot, Even
             .style = info->stats.style,
             .weapon = shot->weapon,
             .owner = shot->player,
-            .lag = s->view_lag,
             .spawn_cmd = s->cmd_seq,
             .shot_id = shot->shot,
             .pos = shot->pos,
@@ -124,17 +123,58 @@ static void bullet_integrate(const World *w, Bullet *b)
     b->forces = (Vec2){0};
 }
 
+// A shot heard from another machine fires nothing here: its soldier steps unarmed, so
+// the flash, the smoke and the sound that the weapon pass gives a shot of its own are
+// given here instead, once per shooter per tick (a shotgun is one bang), at the muzzle
+// of the soldier as it stands.
+static void remote_fire(const Context *ctx, World *w, const EventShot *shot, Events *events)
+{
+    Soldier *s = &w->soldiers[shot->player];
+    if (!s->active) return;
+    s->fired = true; // the gostek's muzzle flash
+    Pose pose = soldier_pose(ctx->anims, s, s->pos);
+    Vec2 aim = vec2_normalize(vec2_sub(s->aim, pose.p[14]));
+    Vec2 muzzle = vec2(pose.p[14].x - aim.x * 4.0f, pose.p[14].y - aim.y * 4.0f - 2.0f);
+    event_emit(events, (Event){.type = EVENT_FIRE, .fire = {.player = shot->player, .weapon = shot->weapon, .pos = muzzle, .vel = shot->vel}});
+}
+
 void bullets_update(const Context *ctx, World *w, const Events *last, Events *events)
 {
-    // the shots asked for, in the order they were asked, before anything flies; one
-    // heard from elsewhere is run forward to where its shooter has it by now
+    // The shots asked for, in the order they were asked, before anything flies. One
+    // heard from elsewhere is run forward to where its shooter has it by now, and each
+    // step of the way is judged against the frame the shooter's screen held at that
+    // step, which is `advance - a` ticks behind the present (history_targets); caught
+    // up, it meets the present like any other. A bullet it makes on the way (a
+    // cluster's) keeps the lag it was made with, and so stays as far behind as it is
+    // judged, which comes to the same thing.
+    uint32_t flashed = 0; // the shooters given a flash this pass, by slot
     EventCursor pending = events_pending(last, events, PASS_BULLETS);
     for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
         if (e->type != EVENT_SHOT) continue;
-        int k = bullet_make(ctx, w, &e->shot, events);
-        for (int a = 0; k >= 0 && a < e->shot.advance && w->bullets[k].active; a++) {
-            bullet_update(ctx, w, &w->bullets[k], (uint16_t)k, events);
-            if (w->bullets[k].active) bullet_integrate(w, &w->bullets[k]);
+        const EventShot *shot = &e->shot;
+        bool heard = e->tick != 0;
+        if (heard && !w->authority && !(flashed & (1u << shot->player))) {
+            flashed |= 1u << shot->player;
+            remote_fire(ctx, w, shot, events);
+        }
+        int k = bullet_make(ctx, w, shot, events);
+        if (k < 0) continue;
+        Bullet *b = &w->bullets[k];
+        int before = events->count;
+        for (int a = 0; a < shot->advance && b->active; a++) {
+            b->lag = (uint8_t)(shot->advance - a);
+            bullet_update(ctx, w, b, (uint16_t)k, events);
+            if (b->active) bullet_integrate(w, b);
+        }
+        b->lag = 0;
+        if (shot->advance > 0 && !w->authority) {
+            // the flight nobody here saw, for the tracer: to where it is, or where it ended
+            EventBulletTrace t = {.owner = shot->player, .weapon = shot->weapon, .from = shot->pos, .to = b->pos, .ticks = shot->advance, .ended = !b->active};
+            for (int i = before; i < events->count; i++) {
+                const Event *x = &events->items[i];
+                if (x->type == EVENT_BULLET_END && x->bullet_end.id == k) t.to = x->bullet_end.pos;
+            }
+            event_emit(events, (Event){.type = EVENT_BULLET_TRACE, .bullet_trace = t});
         }
     }
 

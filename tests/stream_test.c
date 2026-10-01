@@ -94,10 +94,13 @@ static bool aim_at_bot; // the client aims at the bot's chest instead of right
 
 // One tick of the client: its soldier on `buttons`, aiming right; the others on their
 // word. Then its state to the server.
+static int client_interp = 2; // ticks the test's client keeps behind the newest snapshot
+
 static void client_tick(StreamClient *c, Buttons buttons)
 {
     World *w = &c->game->world;
     Command cmds[MAX_PLAYERS] = {0};
+    client_stream_begin_tick(&c->stream, c->game, c->slot, client_interp);
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
         s->remote = i != c->slot;
@@ -187,7 +190,7 @@ void stream_tests(void)
     CHECK(net_connect(&c.link, "127.0.0.1", PORT), "the client connects");
 
     // the join, and the first snapshot
-    for (int round = 0; round < ROUNDS && c.snapshots == 0; round++) play(&conns, gs, &c, 1, 0, 0);
+    for (int round = 0; round < ROUNDS && c.stream.applied == 0; round++) play(&conns, gs, &c, 1, 0, 0);
     CHECK(c.welcomed && c.slot == 0, "the client is welcomed into slot 0");
     CHECK(c.round == 1 && strcmp(c.map, "Arena") == 0 && c.game, "and told the round: %u on %s", c.round, c.map);
     Soldier *mine = &c.game->world.soldiers[0], *theirs = &gs->world.soldiers[0];

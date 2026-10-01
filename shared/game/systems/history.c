@@ -1,9 +1,10 @@
 // Where everyone was over the last second, kept on the server so a shot is judged
-// against the soldiers as its shooter saw them. A client shows the others some ticks
-// behind the server's present and says which tick with every packet; a bullet it fires
-// carries that lag and meets the soldiers from that many ticks ago, out of this ring,
-// for as long as it flies. A world without a history (a client's) judges against what
-// it shows, which is the same thing.
+// against the soldiers as its shooter saw them. A client's tick is the server tick of
+// the frame it shows, and a shot it fires is stamped with it; the server runs the
+// bullet forward from that tick to its present, and each step of the way judges it
+// against the frame the shooter's screen held at that step, out of this ring, until it
+// has caught up and meets the present (bullets_update). A world without a history (a
+// client's) judges against what it shows, which is the same thing.
 
 #include <string.h>
 
@@ -29,11 +30,15 @@ const Thing *history_things_at(const World *w, uint32_t tick)
     return history_has(w->history, tick) ? w->history->things[tick % HISTORY_TICKS] : NULL;
 }
 
+// The present is the soldiers as they stand after this tick's step, which the frame
+// recorded at the tick's end will hold: a lag of 1 is the frame before it, which is the
+// last one recorded.
 Soldier *history_targets(World *w, uint8_t lag)
 {
     History *h = w->history;
-    if (!h || lag == 0 || lag >= h->count || lag > w->tick) return w->soldiers;
-    return h->frames[(w->tick - lag) % HISTORY_TICKS];
+    if (!h || lag == 0 || lag > w->tick + 1) return w->soldiers;
+    uint32_t frame = w->tick + 1 - lag;
+    return history_has(h, frame) ? h->frames[frame % HISTORY_TICKS] : w->soldiers;
 }
 
 // A client sees the others its lag ago but itself where it is, so the shooter is taken

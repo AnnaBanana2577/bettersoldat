@@ -253,6 +253,7 @@ void client_stream_reset(ClientStream *c, uint16_t round)
     if (snaps) memset(snaps, 0, STREAM_RING * sizeof *snaps);
     if (things) memset(things, 0, STREAM_RING * sizeof *things);
     wire_queue_init(&c->out);
+    wire_pending_init(&c->pending);
 }
 
 #define THING_TOLERANCE 10.0f // a thing's points are taken only when they disagree by more than this
@@ -279,6 +280,7 @@ static void thing_apply(Thing *t, const Thing *heard)
 
 bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, size_t size)
 {
+    (void)me; // the snapshot is applied later, by the tick that shows it (client_stream_begin_tick)
     NetBuf b = netbuf_reader(data, size);
     MsgKind kind;
     MsgSnapshot m;
@@ -330,31 +332,57 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
         return false;
     }
 
-    World *w = &g->world;
-    netfields_copy(MATCH_FIELDS, MATCH_COUNT, &g->match, &m.match); // the match is the server's
-    // the world's tick keeps to the server's: a snapshot is of its tick, and arrives
-    // about as far after it as my states take to get there, so now is its tick. Off by
-    // a little the ticks drift back; off by more they snap.
-    int32_t off = (int32_t)(w->tick - m.tick);
-    if (off > 2 || off < -2) w->tick = m.tick;
-
-    // the server's decisions, each once, into the mailbox for the next tick's passes
-    uint32_t event_last = c->event_last;
-    wire_read(&b, g, &event_last, -1);
+    // the server's decisions, each once, kept for the tick of their frame
+    wire_read_pending(&b, &c->pending);
     if (!netbuf_done(&b)) {
         c->dropped++;
         return false;
     }
-    c->event_last = event_last;
     if (m.client_event_ack > c->event_ack) c->event_ack = m.client_event_ack;
     for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (m.word[i] == SNAP_STATE) {
+            c->last_word[i] = m.tick;
+            if (m.names[i][0]) snprintf(c->names[i], NET_NAME_SIZE, "%s", m.names[i]);
+        } else if (m.word[i] == SNAP_SAME && g->world.soldiers[i].active) {
+            c->held_back++;
+        }
+    }
+    if (size > c->largest) c->largest = size;
+    // one that comes after the view has passed its tick was too late to show: the view
+    // keeps further behind for a while, a tick more each second at most
+    if (c->applied && m.tick < g->world.tick) {
+        c->late++;
+        c->late_tick = m.tick;
+        if (c->interp < STREAM_INTERP_MAX && (c->grew_tick == 0 || m.tick - c->grew_tick > TICK_RATE)) {
+            c->interp++;
+            c->grew_tick = m.tick;
+        }
+    }
+
+    memcpy(c->snaps[m.tick % STREAM_RING], m.soldiers, sizeof m.soldiers);
+    memcpy(c->snap_word[m.tick % STREAM_RING], m.word, sizeof m.word);
+    memcpy(c->snap_things[m.tick % STREAM_RING], m.things, sizeof m.things);
+    memcpy(c->snap_thing_word[m.tick % STREAM_RING], m.thing_word, sizeof m.thing_word);
+    c->snap_match[m.tick % STREAM_RING] = m.match;
+    c->snap_tick[m.tick % STREAM_RING] = m.tick;
+    c->newest = m.tick;
+    if (m.client_ack > c->server_ack) c->server_ack = m.client_ack;
+    return true;
+}
+
+// The snapshot in ring slot `k` onto the world: the match, the soldiers, the things.
+static void snapshot_apply(ClientStream *c, Game *g, int me, int k)
+{
+    World *w = &g->world;
+    netfields_copy(MATCH_FIELDS, MATCH_COUNT, &g->match, &c->snap_match[k]); // the match is the server's
+    for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
-        switch (m.word[i]) {
+        switch (c->snap_word[k][i]) {
         case SNAP_GONE:
             if (i != me) s->active = false;
             break;
         case SNAP_STATE: {
-            const Soldier *heard = &m.soldiers[i];
+            const Soldier *heard = &c->snaps[k][i];
             bool placed = heard->life != s->life;
             Vec2 before = s->pos;
             if (i == me) {
@@ -378,31 +406,68 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
                 c->blend[i] = placed ? vec2(0, 0) : vec2_add(c->blend[i], jump);
                 if (vec2_length(c->blend[i]) > STREAM_SNAP_DISTANCE) c->blend[i] = vec2(0, 0);
             }
-            c->last_word[i] = m.tick;
-            if (m.names[i][0]) snprintf(c->names[i], NET_NAME_SIZE, "%s", m.names[i]);
             break;
         }
-        default: // SNAP_SAME: keep stepping it
-            if (s->active) c->held_back++;
-            break;
+        default: break; // SNAP_SAME: keep stepping it
         }
     }
-    if (size > c->largest) c->largest = size;
     for (int i = 0; i < MAX_THINGS; i++) {
         Thing *t = &w->things[i];
-        if (m.thing_word[i] == SNAP_GONE && t->style != THING_NONE) thing_kill(t);
-        else if (m.thing_word[i] == SNAP_STATE) thing_apply(t, &m.things[i]);
+        if (c->snap_thing_word[k][i] == SNAP_GONE && t->style != THING_NONE) thing_kill(t);
+        else if (c->snap_thing_word[k][i] == SNAP_STATE) thing_apply(t, &c->snap_things[k][i]);
+    }
+}
+
+void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp)
+{
+    if (c->newest == 0) return; // nothing heard yet: the world stands as the round left it
+    World *w = &g->world;
+    if (interp < 0) interp = 0;
+    if (interp > STREAM_INTERP_MAX) interp = STREAM_INTERP_MAX;
+    if (c->interp < interp) c->interp = interp;
+    if (c->interp > interp && c->newest - c->late_tick > STREAM_INTERP_SETTLE) { // quiet long enough: a tick closer
+        c->interp--;
+        c->late_tick = c->newest;
     }
 
-    memcpy(c->snaps[m.tick % STREAM_RING], m.soldiers, sizeof m.soldiers);
-    memcpy(c->snap_word[m.tick % STREAM_RING], m.word, sizeof m.word);
-    memcpy(c->snap_things[m.tick % STREAM_RING], m.things, sizeof m.things);
-    memcpy(c->snap_thing_word[m.tick % STREAM_RING], m.thing_word, sizeof m.thing_word);
-    c->snap_match[m.tick % STREAM_RING] = m.match;
-    c->snap_tick[m.tick % STREAM_RING] = m.tick;
-    c->newest = m.tick;
-    if (m.client_ack > c->server_ack) c->server_ack = m.client_ack;
-    return true;
+    // The view clock. The frames in hand are the newest's tick less the view's; the
+    // view wants `interp` of them at the leanest moment of each window. Far off, it
+    // jumps; else at a window's end it is nudged a tick back when it ran short, or
+    // forward by what it never needed.
+    int32_t level = (int32_t)(c->newest - w->tick);
+    if (level > STREAM_VIEW_SNAP + c->interp || level < -STREAM_VIEW_SNAP) {
+        w->tick = c->newest > (uint32_t)c->interp ? c->newest - (uint32_t)c->interp : 0;
+        level = c->interp;
+        c->window = 0;
+        c->resyncs++;
+    }
+    if (c->window <= 0) {
+        c->level_min = level;
+        c->window = STREAM_VIEW_WINDOW;
+    } else {
+        if (level < c->level_min) c->level_min = level;
+        if (--c->window == 0) {
+            if (c->level_min < c->interp) {
+                w->tick--;
+                c->held++;
+            } else if (c->level_min > c->interp) {
+                w->tick += (uint32_t)(c->level_min - c->interp);
+                c->skipped += (uint32_t)(c->level_min - c->interp);
+            }
+        }
+    }
+
+    // the frame on show, and the server's word due by it
+    uint32_t v = w->tick;
+    int k = (int)(v % STREAM_RING);
+    if (c->snap_tick[k] == v && v > c->applied) {
+        snapshot_apply(c, g, me, k);
+        c->applied = v;
+    } else if (v > c->applied) {
+        c->misses++;
+    }
+    wire_pending_apply(&c->pending, g, v);
+    c->event_last = c->pending.applied;
 }
 
 void client_stream_collect(ClientStream *c, const Game *g, int me)

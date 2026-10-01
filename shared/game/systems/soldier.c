@@ -254,7 +254,6 @@ void soldier_copy_served(Soldier *dst, const Soldier *src)
     dst->death_fire = src->death_fire;
     dst->rng = src->rng;
     dst->cmd_seq = src->cmd_seq;
-    dst->view_lag = src->view_lag;
     dst->shot_count = src->shot_count;
     dst->primary_choice = src->primary_choice;
     dst->secondary_choice = src->secondary_choice;

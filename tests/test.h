@@ -70,6 +70,7 @@ void network_tests(void);
 void join_tests(void);
 void wire_tests(void);
 void stream_tests(void);
+void rewind_tests(void);
 void console_tests(void);
 void color_tests(void);
 void bot_tests(void);

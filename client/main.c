@@ -101,6 +101,7 @@ typedef struct App {
     Cvar *hair_style, *head_style, *chain_style;  // and its styles, by number
     Cvar *primary, *secondary;                    // the loadout at the next spawn
     Cvar *smooth;                                 // milliseconds a correction of another player is smoothed over
+    Cvar *interp;                                 // ticks the view keeps behind the newest snapshot, at least (cl_interp)
     Cvar *volume;                                 // snd_volume, 0 to 100
     Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
@@ -756,6 +757,8 @@ static bool console_open(App *app, int argc, char *argv[])
     app->secondary = cvar_register(con, "cl_player_secwep", "1", CVAR_ARCHIVE, "0 USSOCOM, 1 knife, 2 chainsaw, 3 LAW");
     app->smooth = cvar_register(con, "cl_smooth", "100", CVAR_ARCHIVE,
                                 "milliseconds a correction of another player is smoothed over; 0 snaps");
+    app->interp = cvar_register(con, "cl_interp", "2", CVAR_ARCHIVE,
+                                "ticks the others are shown behind the newest snapshot, at least, so jitter doesn't show; raised by itself while snapshots come late");
     app->volume = cvar_register(con, "snd_volume", "50", CVAR_ARCHIVE, "the sound's volume, 0 to 100");
     const char *calls[RADIO_CALLS] = {"Enemy flagger", "Friendly flagger", "Enemy spotted"};
     const char *places[RADIO_CALLS] = {"up!", "middle!", "down!"};
@@ -1009,8 +1012,8 @@ static void snapshot_tick(App *app)
     tick_snapshot_capture(&app->latest, &app->game->world);
 }
 
-// One tick of the game on this frame's input.
-// One tick of the game on this frame's input. Online, everyone else steps on the
+// One tick of the game on this frame's input. Online, the snapshot of the tick on show
+// goes onto the world first (client_stream_begin_tick), everyone else steps on the
 // keys they were last heard with (stream_command), and my state goes to the server.
 static void tick(App *app)
 {
@@ -1018,6 +1021,7 @@ static void tick(App *app)
     bool online = client_net_joined(&app->net);
     Command cmds[MAX_PLAYERS] = {0};
     w->soldiers[app->me].typing = app->hud_data.chat_type != HUD_CHAT_NONE; // the dots over my head, for the others
+    if (online) client_stream_begin_tick(&app->net.stream, app->game, app->me, app->interp->integer);
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
         s->remote = online && i != app->me;

@@ -165,6 +165,7 @@ int main(void)
     join_tests();
     wire_tests();
     stream_tests();
+    rewind_tests();
     console_tests();
     color_tests();
     bot_tests();

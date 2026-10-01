@@ -21,6 +21,14 @@
 // Between words, everyone steps a soldier heard of on its last keys (stream_command),
 // one-shot buttons cleared so a throw is not thrown again; after STREAM_RELEASE_TICKS
 // of silence the keys are let go and it falls and stops.
+//
+// The client's view (client_stream_begin_tick): its world's tick is the server tick of
+// the frame it shows, and it keeps that `interp` ticks behind the newest snapshot it has,
+// so the snapshot of each tick is in hand when the tick comes, whatever the line's
+// jitter, and is applied then, with the server's events of that tick. A snapshot that
+// comes after its tick has passed is a late one, and raises `interp` for a while; a tick
+// with no snapshot steps everyone on. The clock itself runs free and is nudged a tick
+// at a time when the frames in hand run consistently over or under.
 
 #include "game/game.h"
 #include "network/network.h"
@@ -30,6 +38,10 @@
 #define STREAM_WHOLE_AFTER 24   // a baseline older than this many states or ticks: whole
 #define STREAM_RELEASE_TICKS 30 // no word for this long: the keys are let go
 #define STREAM_SNAP_DISTANCE 64.0f // a correction this far is a placing to the eye: shown at once, not smoothed
+#define STREAM_INTERP_MAX 8        // ticks the view keeps behind the newest snapshot, at most
+#define STREAM_INTERP_SETTLE (5 * TICK_RATE) // no late snapshot for this long: a tick less behind
+#define STREAM_VIEW_SNAP 8         // a view this far from where it should be jumps there
+#define STREAM_VIEW_WINDOW 30      // ticks over which the frames in hand are watched before the clock is nudged
 
 // --- the messages ------------------------------------------------------------------
 
@@ -142,6 +154,16 @@ typedef struct ClientStream {
     uint32_t seq;        // the last state sent
     uint32_t server_ack; // the newest state the server has
     uint32_t newest;     // the newest snapshot received (its tick), 0 for none
+    uint32_t applied;    // the newest snapshot applied to the world (its tick), 0 for none
+    int interp;          // ticks the view keeps behind the newest: the floor asked for, raised by late snapshots
+    uint32_t late;       // snapshots that came after the view had passed their tick
+    uint32_t late_tick;  // the newest's tick at the last of them, for settling back down
+    uint32_t grew_tick;  // and at the last raise, so it is raised a tick a second at most
+    uint32_t misses;     // ticks the view had no snapshot of, and stepped everyone on
+    int32_t level_min;   // the fewest frames in hand over the window being watched
+    int window;          // ticks of it left
+    uint32_t skipped, held, resyncs; // the view clock's nudges forward and back, and its jumps
+    WirePending pending; // the server's events heard, each applied in the tick of its frame
     uint32_t last_word[MAX_PLAYERS]; // the snapshot tick each soldier was last heard of in
     // What a correction moved each soldier by, still to be shown: a new word snaps the
     // simulation but the picture glides, the offset shrinking to nothing over
@@ -162,9 +184,15 @@ void client_stream_free(ClientStream *c);
 // A round begins (a join, a new map): nothing heard, nothing sent, this round's from now.
 void client_stream_reset(ClientStream *c, uint16_t round);
 
-// A snapshot heard, applied to the world, its events into the game's mailbox; `me` is
-// the client's slot. The world's tick is kept with the server's. False if dropped.
+// A snapshot heard: read against its base and kept, with its events, for the tick that
+// shows it. False if dropped.
 bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, size_t size);
+
+// Before the client's tick: the view clock set against the newest snapshot, keeping at
+// least `interp` ticks behind it, and the snapshot of the tick on show applied to the
+// world (the served half of everyone, the owned half of everyone but `me`, and `me`'s
+// own only on a new life), with the server's events due by it into the game's mailbox.
+void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp);
 
 // After the client's tick: its own decisions among the tick's events, for the server.
 void client_stream_collect(ClientStream *c, const Game *g, int me);
