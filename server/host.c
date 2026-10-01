@@ -88,6 +88,8 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
     snprintf(h->connections.maps_dir, sizeof h->connections.maps_dir, "%s/maps", settings->assets);
     snprintf(h->connections.hostname, sizeof h->connections.hostname, "%s", settings->hostname);
     if (settings->vote_percent > 0) h->connections.vote_percent = settings->vote_percent;
+    if (settings->flood_packets > 0) h->connections.flood_packets = settings->flood_packets;
+    if (settings->flood_warnings > 0) h->connections.flood_warnings_max = settings->flood_warnings;
 
     // the server's list of maps (the original's MapsList): the rotation as given, or
     // every map under assets when there is none; the map window pages it, a vote picks from it

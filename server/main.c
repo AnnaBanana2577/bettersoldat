@@ -45,6 +45,7 @@ typedef struct Server {
     Cvar *gamemode, *timelimit, *killlimit;
     Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat;
     Cvar *votepercent;
+    Cvar *floodingpackets, *warnings_flood;
     Cvar *script_path; // sv_script
     Host host;
     Script script;
@@ -217,6 +218,8 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->bots_chat = cvar_register(con, "bots_chat", "1", 0, "whether the bots talk");
     sv->script_path = cvar_register(con, "sv_script", "scripts/server.lua", 0, "the Lua script to run, if the file is there (docs/scripting.md)");
     sv->votepercent = cvar_register(con, "sv_votepercent", "60", 0, "the percentage of players whose yes passes a vote");
+    sv->floodingpackets = cvar_register(con, "net_floodingpackets", "120", 0, "messages in a second from one player that count as flooding (a client sends sixty)");
+    sv->warnings_flood = cvar_register(con, "sv_warnings_flood", "4", 0, "flood warnings before the player is kicked and barred for a quarter of an hour");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
     console_add_command(con, "say", cmd_say, sv, "say something to everyone, as the server");
@@ -247,6 +250,8 @@ static HostSettings settings_from_cvars(const Server *sv)
         .bots_difficulty = sv->bots_difficulty->integer,
         .bots_chat = sv->bots_chat->integer != 0,
         .vote_percent = sv->votepercent->integer,
+        .flood_packets = sv->floodingpackets->integer,
+        .flood_warnings = sv->warnings_flood->integer,
     };
     snprintf(s.assets, sizeof s.assets, "%s", sv->assets->value);
     snprintf(s.ip, sizeof s.ip, "%s", sv->ip->value);

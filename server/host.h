@@ -33,6 +33,8 @@ typedef struct HostSettings {
     int bots_difficulty;             // 100 as the bot files say; less is harder
     bool bots_chat;
     int vote_percent;                // sv_votepercent; 0 for the default
+    int flood_packets;               // net_floodingpackets; 0 for the default
+    int flood_warnings;              // sv_warnings_flood; 0 for the default
     bool quiet;                      // no lines of its own to the console but the first: a client beside it says what matters
 } HostSettings;
 

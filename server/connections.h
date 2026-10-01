@@ -10,6 +10,8 @@
 // and the answers to it; one vote runs at a time, for a minute, and passes on 51% of
 // the players. A map vote passed is the server's to act on (connections_take_vote_map);
 // a kick is done here.
+// A player heard from too often is warned and then kicked for flooding, and so is one
+// who chats too fast (flood_tick).
 //
 // A bot holds a slot too (connections_add_bot): a soldier the server plays itself, with a
 // name on the roster and no peer. It is placed with the players each round, its name
@@ -25,7 +27,7 @@
 #include "network/transport.h"
 
 // Why a player is being cut off, for the word of its leaving.
-typedef enum KickWhy { KICK_NONE, KICK_VOTED, KICK_CONSOLE } KickWhy;
+typedef enum KickWhy { KICK_NONE, KICK_VOTED, KICK_CONSOLE, KICK_FLOODING } KickWhy;
 
 typedef struct Connection {
     KickWhy kick_why; // set before the kick; the leaving is announced by it
@@ -35,6 +37,9 @@ typedef struct Connection {
     char name[NET_NAME_SIZE];
     bool chose_team; // said /team; in a game with teams a spectator until it does
     Team team;       // what it said
+    int messages;       // heard from it this second (MessagesASecNum)
+    int flood_warnings; // seconds it was heard from too often; one forgiven every five minutes (FloodWarnings)
+    int chat_warnings;  // lines of chat outstanding; one forgiven a second (ChatWarnings)
 } Connection;
 
 // The votes as the original runs them (Game.pas StartVote, CountVote, TimerVote): twenty
@@ -48,6 +53,18 @@ typedef struct Connection {
 #define VOTE_PERCENT_DEFAULT 60                  // sv_votepercent
 #define VOTE_KICK_BAN_TICKS (60 * 60 * TICK_RATE) // an hour
 #define MAX_BANS 32
+
+// Flooding (ServerLoop.pas): a player heard from more than net_floodingpackets times in a
+// second gets a warning, and past sv_warnings_flood of them is kicked and barred for a
+// quarter of an hour; a warning is forgiven every five minutes. A client sends one state a
+// tick, so the default leaves room for twice that. Chat is counted apart: every line is a
+// warning, one is forgiven a second, and more than five outstanding is a five-minute kick.
+#define FLOOD_PACKETS_DEFAULT 120  // net_floodingpackets
+#define FLOOD_WARNINGS_DEFAULT 4   // sv_warnings_flood
+#define FLOOD_FORGIVE_TICKS (5 * 60 * TICK_RATE)
+#define FLOOD_BAN_TICKS (15 * 60 * TICK_RATE)
+#define CHAT_FLOOD_WARNINGS 5
+#define CHAT_FLOOD_BAN_TICKS (5 * 60 * TICK_RATE)
 
 typedef struct Vote {
     VoteKind kind;              // VOTE_NONE: none running
@@ -95,6 +112,8 @@ typedef struct Connections {
     uint32_t ticks;                // ticks run, for the cooldowns and the bans
     Vote vote;
     int vote_percent;              // sv_votepercent; VOTE_PERCENT_DEFAULT unless set
+    int flood_packets;             // net_floodingpackets; FLOOD_PACKETS_DEFAULT unless set
+    int flood_warnings_max;        // sv_warnings_flood; FLOOD_WARNINGS_DEFAULT unless set
     int32_t vote_cooldown[MAX_PLAYERS]; // ticks until each may start a vote; below 0 may
     char vote_map[NET_MAP_SIZE];   // a map vote passed, until the server takes it
     Ban bans[MAX_BANS];

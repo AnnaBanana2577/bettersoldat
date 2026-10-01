@@ -23,7 +23,7 @@ static void say(Console *con, const char *fmt, ...)
 
 bool connections_init(Connections *c, NetLink *link, Console *console, const char *map)
 {
-    *c = (Connections){.link = link, .console = console, .round = 1, .vote = {.starter = -1}, .vote_percent = VOTE_PERCENT_DEFAULT};
+    *c = (Connections){.link = link, .console = console, .round = 1, .vote = {.starter = -1}, .vote_percent = VOTE_PERCENT_DEFAULT, .flood_packets = FLOOD_PACKETS_DEFAULT, .flood_warnings_max = FLOOD_WARNINGS_DEFAULT};
     for (int i = 0; i < MAX_PLAYERS; i++) c->vote_cooldown[i] = -1;
     snprintf(c->map, sizeof c->map, "%s", map ? map : "");
     wire_queue_init(&c->events);
@@ -332,6 +332,7 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     // reason, else by the team left
     if (why == KICK_VOTED) announce(c, CHAT_CLIENT, "%s has been voted to leave the game", name);
     else if (why == KICK_CONSOLE) announce(c, CHAT_CLIENT, "%s has been kicked from console", name);
+    else if (why == KICK_FLOODING) announce(c, CHAT_CLIENT, "%s has been kicked for flooding", name);
     else if (team == TEAM_ALPHA) announce(c, CHAT_ALPHA, "%s has left alpha team", name);
     else if (team == TEAM_BRAVO) announce(c, CHAT_BRAVO, "%s has left bravo team", name);
     else if (team == TEAM_SPECTATOR) announce(c, CHAT_SPECTATOR, "%s has left spectators", name);
@@ -353,6 +354,7 @@ static void chat(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     if (!netbuf_done(&b)) return;
 
     m.slot = (uint8_t)slot; // whatever it claimed, it is who it is
+    c->items[slot].chat_warnings++;
     // a script hears it first, and may keep it
     if (c->hooks && c->hooks->chat && c->hooks->chat(c->hooks->user, slot, m.text, m.team)) return;
     if (m.text[0] == '/') {
@@ -420,6 +422,7 @@ void connections_poll(Connections *c, Game *g)
         case NET_EVENT_DISCONNECT: leave(c, g, e.peer); break;
         case NET_EVENT_MESSAGE: {
             int slot = slot_of(c, e.peer);
+            if (slot >= 0) c->items[slot].messages++;
             if (e.msg == MSG_HELLO) hello(c, g, e.peer, &e);
             else if (slot < 0) deny(c, e.peer, "no Hello first"); // the rest is for players
             else if (e.msg == MSG_CHAT) chat(c, g, e.peer, &e);
@@ -441,11 +444,13 @@ void connections_commands(const Connections *c, const Game *g, Command cmds[MAX_
 }
 
 static void vote_tick(Connections *c);
+static void flood_tick(Connections *c);
 
 void connections_snapshots(Connections *c, const Game *g)
 {
     c->ticks++;
     vote_tick(c);
+    flood_tick(c);
     wire_collect(&c->events, &g->events, g->world.tick - 1, -1); // the tick just run
     char names[MAX_PLAYERS][NET_NAME_SIZE];
     for (int i = 0; i < MAX_PLAYERS; i++)
@@ -776,4 +781,38 @@ void connections_say_as(Connections *c, int slot, const char *text)
     uint8_t buf[NET_MTU];
     size_t n = build(buf, sizeof buf, MSG_CHAT, route_chat, &m);
     if (n) connections_broadcast(c, MSG_CHAT, buf, n);
+}
+
+// --- flooding --------------------------------------------------------------------------
+
+// Each tick (ServerLoop.pas): once a second, whoever was heard from more than the limit
+// gets a warning and the count starts over, and the chat warnings drain one, kicking
+// past five; every five minutes a flood warning is forgiven. A kick bars the address.
+static void flood_tick(Connections *c)
+{
+    bool second = c->ticks % TICK_RATE == 0, five_minutes = c->ticks % FLOOD_FORGIVE_TICKS == 0;
+    if (!second && !five_minutes) return;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        Connection *conn = &c->items[i];
+        if (!conn->peer || !conn->joined) continue;
+        if (five_minutes && conn->flood_warnings > 0) conn->flood_warnings--;
+        if (!second) continue;
+        if (conn->messages > c->flood_packets) {
+            say(c->console, "%s is flooding the server\n", conn->name);
+            if (++conn->flood_warnings > c->flood_warnings_max) {
+                conn->kick_why = KICK_FLOODING;
+                connections_ban(c, i, FLOOD_BAN_TICKS, "Flood Kicked");
+                connections_kick(c, i, "Flood Kicked");
+                continue; // gone; the leave frees the slot
+            }
+        }
+        conn->messages = 0;
+        if (conn->chat_warnings > CHAT_FLOOD_WARNINGS) {
+            conn->kick_why = KICK_FLOODING;
+            connections_ban(c, i, CHAT_FLOOD_BAN_TICKS, "Chat Flood"); // twenty minutes is too harsh, says the original
+            connections_kick(c, i, "Chat Flood");
+            continue;
+        }
+        if (conn->chat_warnings > 0) conn->chat_warnings--;
+    }
 }
