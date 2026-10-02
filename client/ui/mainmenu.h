@@ -26,6 +26,7 @@ typedef struct MainMenu {
     bool shown;
     MainPage page;
     char focus_cvar[CONSOLE_NAME_SIZE]; // the text field with the keyboard: the cvar it edits, empty for none
+    char color_picker[CONSOLE_NAME_SIZE]; // the player color whose palette is open, empty for none
     char edit[MAINMENU_EDIT];           // its text while typed
     int edit_max;                       // how much of it the field takes
     int capturing;                      // the controls row waiting for a key, -1 for none

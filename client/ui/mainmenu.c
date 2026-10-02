@@ -331,6 +331,112 @@ static Rgba cvar_color(const Console *con, const char *name)
     return color;
 }
 
+typedef struct PaletteColor {
+    Rgba color;
+    float hue, saturation, value;
+} PaletteColor;
+
+// Sort colors by hue, then from darker to lighter within each hue.
+static int compare_palette_colors(const void *a, const void *b)
+{
+    const PaletteColor *left = a, *right = b;
+    if (left->hue != right->hue) return left->hue < right->hue ? -1 : 1;
+    if (left->value != right->value) return left->value < right->value ? -1 : 1;
+    if (left->saturation != right->saturation) return left->saturation < right->saturation ? -1 : 1;
+    if (left->color.r != right->color.r) return left->color.r < right->color.r ? -1 : 1;
+    if (left->color.g != right->color.g) return left->color.g < right->color.g ? -1 : 1;
+    if (left->color.b != right->color.b) return left->color.b < right->color.b ? -1 : 1;
+    return 0;
+}
+
+// Build the 216 RGB colors and arrange them in hue and brightness order.
+static void make_palette(PaletteColor colors[216])
+{
+    static const uint8_t levels[] = {0, 51, 102, 153, 204, 255};
+    int at = 0;
+    for (int b = 0; b < 6; b++) {
+        for (int g = 0; g < 6; g++) {
+            for (int r = 0; r < 6; r++) {
+                float red = (float)levels[r] / 255.0f;
+                float green = (float)levels[g] / 255.0f;
+                float blue = (float)levels[b] / 255.0f;
+                float maximum = fmaxf(red, fmaxf(green, blue));
+                float minimum = fminf(red, fminf(green, blue));
+                float delta = maximum - minimum;
+                float hue = 0;
+                if (delta > 0) {
+                    if (maximum == red)
+                        hue = 60.0f * fmodf((green - blue) / delta, 6.0f);
+                    else if (maximum == green)
+                        hue = 60.0f * ((blue - red) / delta + 2.0f);
+                    else
+                        hue = 60.0f * ((red - green) / delta + 4.0f);
+                    if (hue < 0) hue += 360.0f;
+                } else {
+                    hue = -1.0f;
+                }
+                colors[at++] = (PaletteColor){
+                    .color = {levels[r], levels[g], levels[b], 255},
+                    .hue = hue,
+                    .saturation = maximum > 0 ? delta / maximum : 0,
+                    .value = maximum,
+                };
+            }
+        }
+    }
+    qsort(colors, 216, sizeof colors[0], compare_palette_colors);
+}
+
+static void color_picker(Ui *ui, const char *cvar, float x, float y, bool draw)
+{
+    if (strcmp(ui->m->color_picker, cvar) != 0) return;
+    PaletteColor colors[216];
+    make_palette(colors);
+    const float cell = 9, gap = 1, width = 12 * (cell + gap) - gap;
+    float left = clampf(x + 235, 20, ui->game_width - width - 30);
+    float top = y;
+    if (!draw) {
+        if (!ui->click) return;
+        if (!over(ui, left - 6, top - 5, width + 12, 209)) {
+            ui->m->color_picker[0] = '\0';
+            return;
+        }
+        ui->click = false;
+        if (over(ui, left + width - 12, top - 2, 14, 16)) {
+            ui->m->color_picker[0] = '\0';
+            return;
+        }
+        for (int row = 0; row < 18; row++) {
+            for (int col = 0; col < 12; col++) {
+                float sx = left + (float)col * (cell + gap);
+                float sy = top + 20 + (float)row * (cell + gap);
+                if (!over(ui, sx, sy, cell, cell)) continue;
+                Rgba color = colors[row * 12 + col].color;
+                char hex[7];
+                snprintf(hex, sizeof hex, "%02X%02X%02X", color.r, color.g, color.b);
+                cvar_set(ui->con, cvar, hex);
+                return;
+            }
+        }
+        return;
+    }
+    rect(left - 6, top - 5, left + width + 6, top + 204, FIELD_FOCUSED);
+    label(left, top, "Hex palette", TEXT);
+    label(left + width - 10, top, "X", DIM);
+
+    Rgba selected = cvar_color(ui->con, cvar);
+    for (int row = 0; row < 18; row++) {
+        for (int col = 0; col < 12; col++) {
+            float sx = left + (float)col * (cell + gap);
+            float sy = top + 20 + (float)row * (cell + gap);
+            Rgba color = colors[row * 12 + col].color;
+            bool current = color.r == selected.r && color.g == selected.g && color.b == selected.b;
+            if (current) rect(sx - 1, sy - 1, sx + cell + 1, sy + cell + 1, TEXT);
+            rect(sx, sy, sx + cell, sy + cell, color);
+        }
+    }
+}
+
 // The gostek as the cvars dress it, standing, at `at` in the menu's units, `scale`
 // times its size in the world.
 static void preview(Ui *ui, const Gostek *gostek, const Anims *anims, Vec2 at, float scale)
@@ -374,12 +480,25 @@ static void page_player(Ui *ui, const Gostek *gostek, const Anims *anims, const 
     y += ROW + 6;
     static const char *const COLOURS[][2] = {{"Shirt", "cl_player_shirt"}, {"Pants", "cl_player_pants"}, {"Skin", "cl_player_skin"},
                                              {"Hair", "cl_player_hair"},   {"Jet", "cl_player_jet"}};
+    float colors_y = y;
+    for (size_t i = 0; i < sizeof COLOURS / sizeof COLOURS[0]; i++) {
+        if (strcmp(ui->m->color_picker, COLOURS[i][1]) == 0) {
+            color_picker(ui, COLOURS[i][1], x, colors_y + (float)i * ROW - 3, false);
+            break;
+        }
+    }
     for (size_t i = 0; i < sizeof COLOURS / sizeof COLOURS[0]; i++) {
         label(x, y, COLOURS[i][0], DIM);
         field(ui, x + 110, y - 3, 90, COLOURS[i][1], 6);
         Rgba c = cvar_color(ui->con, COLOURS[i][1]);
         c.a = 255;
         rect(x + 210, y - 3, x + 210 + ROW - 4, y - 3 + ROW - 4, c);
+        if (take_click(ui, x + 210, y - 3, ROW - 4, ROW - 4)) {
+            if (strcmp(ui->m->color_picker, COLOURS[i][1]) == 0)
+                ui->m->color_picker[0] = '\0';
+            else
+                snprintf(ui->m->color_picker, sizeof ui->m->color_picker, "%s", COLOURS[i][1]);
+        }
         y += ROW;
     }
     label(x, y, "Hair", DIM);
@@ -398,9 +517,15 @@ static void page_player(Ui *ui, const Gostek *gostek, const Anims *anims, const 
     label(x, y, "Secondary", DIM);
     cycler(ui, x + 110, y - 3, "cl_player_secwep", 0, 3, SECONDARIES[cvar_int(ui->con, "cl_player_secwep", 0, 3)]);
     y += ROW;
-    label(x, y, "Colours are RRGGBB in hex. The shirt is the team's in a team game.", DIM);
+    label(x, y, "Enter RRGGBB or click a swatch to pick. Team games use the team's shirt.", DIM);
 
     preview(ui, gostek, anims, vec2(ui->game_width - 110, 250), 3.0f);
+    for (size_t i = 0; i < sizeof COLOURS / sizeof COLOURS[0]; i++) {
+        if (strcmp(ui->m->color_picker, COLOURS[i][1]) == 0) {
+            color_picker(ui, COLOURS[i][1], x, colors_y + (float)i * ROW - 3, true);
+            break;
+        }
+    }
 }
 
 // The keys' rows: what each does, and the key that does it.
@@ -587,6 +712,7 @@ void mainmenu_show(MainMenu *m, bool shown)
 {
     m->shown = shown;
     m->page = MAIN_HOME;
+    m->color_picker[0] = '\0';
     m->capturing = -1;
     m->clicked = false;
     unfocus(m);
@@ -710,6 +836,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     for (int i = 0; i < 5; i++) {
         if (button(&ui, LEFT, y, 200, PAGES[i])) {
             m->page = (MainPage)(MAIN_JOIN + i);
+            m->color_picker[0] = '\0';
             m->capturing = -1;
             unfocus(m);
         }
