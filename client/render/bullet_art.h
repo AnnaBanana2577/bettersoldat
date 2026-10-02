@@ -35,4 +35,4 @@ void bullet_art_unload(BulletArt *b);
 
 // Every live bullet, `alpha` of the way from its last tick to this one. `seconds` drives
 // the M2's wobble. Under the camera's transform.
-void bullets_draw(const BulletArt *b, const Bullet *bullets, float alpha, double seconds);
+void bullets_draw(const BulletArt *b, const Bullet *bullets, float alpha, Rgba grenade_color, double seconds);
