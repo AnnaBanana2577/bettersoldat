@@ -166,13 +166,20 @@ bool update_apply(const Manifest *latest, UpdateNeed need, const char *releases,
 }
 
 // What the install held that the release no longer does: what manifest.txt lists and
-// `latest` doesn't, and the old names. A player's own files were never listed.
+// `latest` doesn't, and the old names, with the "<name>.old" a replace may have moved
+// them to (files_replace). A player's own files were never listed.
 static void remove_retired(const Manifest *installed, const Manifest *latest)
 {
     for (int i = 0; i < installed->count; i++)
-        if (!manifest_find(latest, installed->files[i].path)) remove(installed->files[i].path);
+        if (!manifest_find(latest, installed->files[i].path)) {
+            remove(installed->files[i].path);
+            files_remove_old(installed->files[i].path);
+        }
     for (size_t i = 0; i < sizeof RETIRED / sizeof RETIRED[0]; i++)
-        if (!manifest_find(latest, RETIRED[i])) remove(RETIRED[i]);
+        if (!manifest_find(latest, RETIRED[i])) {
+            remove(RETIRED[i]);
+            files_remove_old(RETIRED[i]);
+        }
 }
 
 UpdateOutcome update_run(const UpdateOptions *options, const UpdateReport *report, char *version, size_t version_size,

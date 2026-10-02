@@ -373,6 +373,7 @@ static void update_tests(void)
     // version 4 renames the game: the old name goes, and so does an old release's
     options.releases = releases;
     files_write("soldatreloaded.exe", "older game", 10);
+    files_write("soldatreloaded.exe.old", "oldest game", 11);
     const Source v4[] = {{"version.txt", "4\n"}, {"client.exe", "new game"}, {"assets/a.txt", "new art"},
                          {"assets/b.txt", "more art"}, {"assets/c.txt", "a new map"}, {"config.cfg", "theirs"}};
     enter(here);
@@ -381,7 +382,8 @@ static void update_tests(void)
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_UPDATED && holds("client.exe", "new game"), "a renamed game comes in (%d: %s)", outcome,
           error);
-    CHECK(!files_exists("game.exe") && !files_exists("soldatreloaded.exe"), "and the names it had are gone");
+    CHECK(!files_exists("game.exe") && !files_exists("soldatreloaded.exe") && !files_exists("soldatreloaded.exe.old"),
+          "and the names it had are gone, with what they were moved aside to");
     CHECK(holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
           "but not the player's own files");
 
