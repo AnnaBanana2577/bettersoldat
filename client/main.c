@@ -123,6 +123,7 @@ typedef struct App {
     Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
     Cvar *hud_demo;       // the HUD full of sample data, to see every part of it: page 1, 2 or 3
+    Cvar *menu_page;      // the main menu's page at start: for a screenshot of it
     char screenshot[512]; // a PNG of the 60th frame, then quit
     // Local Play's: the server's own cvars, which the main menu edits and the config
     // keeps, so a dedicated server started beside this config plays the same game.
@@ -864,6 +865,7 @@ static bool console_open(App *app, int argc, char *argv[])
         }
     }
     app->hud_demo = cvar_register(con, "hud_demo", "0", 0, "fill the HUD with sample data: page 1, 2 or 3");
+    app->menu_page = cvar_register(con, "ui_menupage", "0", 0, "the main menu's page at start, 0 servers to 6 graphics (for screenshots)");
     // the server's, for Local Play; saved, as the menu sets them
     app->sv_port = cvar_register(con, "sv_port", "23073", CVAR_ARCHIVE, "the UDP port a game hosted here listens on");
     app->sv_maps = cvar_register(con, "sv_maps", "", CVAR_ARCHIVE, "the maps in rotation, space-separated; the first plays first");
@@ -1069,6 +1071,8 @@ static bool window_open(App *app)
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
     }
+    // a controller works the main menu; without the subsystem the game goes on without one
+    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) fprintf(stderr, "no controllers: %s\n", SDL_GetError());
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     app->window = SDL_CreateWindow("SoldatReloaded", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, app->width->integer,
                                    app->height->integer, SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
@@ -1462,6 +1466,9 @@ static void poll_events(App *app)
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
         case SDL_QUIT: app->quit = true; break;
+        case SDL_CONTROLLERDEVICEADDED: // opened, so its buttons come as events (SDL closes it as it goes)
+            if (SDL_IsGameController(e.cdevice.which)) SDL_GameControllerOpen(e.cdevice.which);
+            break;
         case SDL_MOUSEMOTION:
             if (SDL_GetWindowFlags(app->window) & SDL_WINDOW_INPUT_FOCUS) {
                 input_mouse_motion(&app->input, &e.motion);
@@ -1819,6 +1826,7 @@ int main(int argc, char *argv[])
 
     scale_data_load(&app.scales, app.assets->value); // the scales the interface loads with
     render_init(&app.render, app.assets->value, &app.game->ctx);
+    mainmenu_load(&app.mainmenu, app.assets->value);
     audio_init(&app.audio, app.assets->value);
     interface_load(&app.hud, app.assets->value, &app.scales);
     interface_open(&app);
@@ -1836,6 +1844,7 @@ int main(int argc, char *argv[])
     app.camera = (GameCamera){.pos = app.game->world.soldiers[app.me].pos, .viewport = window_rect(&app)};
     input_start(&app.input, view_size(&app));
     mainmenu_show(&app.mainmenu, app.net.state == CLIENT_NET_OFF); // unless the command line is already connecting
+    if (app.mainmenu.shown && app.menu_page->integer > 0) mainmenu_open_page(&app.mainmenu, (MainPage)clampi(app.menu_page->integer, 0, MAIN_PAGE_COUNT - 1));
     app.net_state_seen = app.net.state;
 
     Uint64 last = SDL_GetPerformanceCounter();
@@ -1945,10 +1954,10 @@ int main(int argc, char *argv[])
                                &app.camera, app.input.cursor, app.camera.viewport, cvar_color(app.cursor_color),
                                cvar_color(app.crosshair_color), clampi(app.cursor_size->integer, 50, 200) / 100.0f,
                                clampi(app.crosshair_size->integer, 50, 200) / 100.0f);
-            } else { // the menu on its own background: the game is not watched from here
+            } else { // the menu on a background of its own
                 gfx_clear((Rgba){0, 0, 0, 255});
                 Rect r = app.camera.viewport;
-                mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, app.game->ctx.anims, &app.game->ctx.weapons,
+                mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, &app.game->ctx,
                               app.input.cursor, GAME_HEIGHT * r.width / r.height, GAME_HEIGHT / r.height, app.time,
                               console_log_line(app.console, 0), client_net_joined(&app.net), app.host != NULL, app.maps, app.map_count, &app.browser);
                 char command[256];
@@ -1977,6 +1986,7 @@ int main(int argc, char *argv[])
     client_net_shutdown(&app.net);
     audio_shutdown(&app.audio);
     fonts_unload();
+    mainmenu_unload(&app.mainmenu);
     interface_unload(&app.hud);
     render_destroy(&app.render);
     window_close(&app);

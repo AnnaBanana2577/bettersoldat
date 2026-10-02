@@ -1,5 +1,6 @@
 #include "ui/mainmenu.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,17 +11,245 @@
 #include "input/input.h"
 #include "network/network.h"
 
-#define GAME_HEIGHT_UNITS 480.0f
-#define LEFT 40.0f       // the home column
-#define PAGE_X 280.0f    // where a page begins
-#define ROW 26.0f        // a row's height
-#define BUTTON_H 28.0f
+#ifndef SOLDATRELOADED_VERSION
+#define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
+#endif
 
-static const Rgba TEXT = {255, 255, 255, 250};
-static const Rgba DIM = {200, 205, 215, 220};
-static const Rgba FIELD = {0, 0, 0, 110};
-static const Rgba FIELD_FOCUSED = {30, 30, 40, 170};
-static const Rgba BOX = {255, 255, 255, 112};
+#define VIEW_H 480.0f
+#define PANEL_TOP 80.0f   // the page's panel, under the top bar and the tabs
+#define BODY_TOP 94.0f
+#define ACTION_H 54.0f    // the action bar along the bottom
+#define PANEL_BOTTOM (VIEW_H - ACTION_H - 10)
+#define BODY_BOTTOM (PANEL_BOTTOM - 12)
+#define ACTION_CY (VIEW_H - ACTION_H / 2)
+#define BIG_H 34.0f       // the action bar's button
+#define ROW_H 26.0f
+#define SECTION_H 28.0f
+#define CTRL_H 20.0f     // a field, a list's box, a chip
+#define POPUP_ROW 20.0f
+#define SWATCH 10.0f     // a palette's cell, its gap in it
+#define SCROLL_STEP 30.0f
+
+// The look: steel and night for the ground, and one accent, the wordmark's ember (its
+// glow's rust, #BB5211, brought up to be seen on the dark and toward red): the main buttons, the chosen
+// tab, the server picked, where the keys are, what is being set.
+static const Rgba ACCENT = {232, 80, 30, 255}; // #E8501E
+static const Rgba ACCENT_HOT = {242, 112, 66, 255};
+static const Rgba ACCENT_SOFT = {232, 80, 30, 38};
+static const Rgba TEXT = {232, 236, 242, 255};
+static const Rgba MUTED = {140, 150, 168, 255};
+static const Rgba FAINT = {92, 100, 118, 255};
+static const Rgba PANEL = {22, 28, 40, 176};
+static const Rgba SIDEBAR = {11, 14, 20, 205}; // the top bar and the action bar
+static const Rgba CONTROL = {30, 37, 52, 255};
+static const Rgba CONTROL_HOT = {41, 50, 70, 255};
+static const Rgba TYPING = {16, 21, 31, 255};
+static const Rgba TRACK = {52, 60, 79, 255};
+static const Rgba LINE = {255, 255, 255, 18};
+static const Rgba HOVER = {255, 255, 255, 12};
+static const Rgba WELL = {0, 0, 0, 60};
+static const Rgba GOOD = {111, 208, 140, 255};
+static const Rgba WARN = {236, 192, 84, 255};
+static const Rgba BAD = {232, 85, 74, 255};
+
+// The menu's type: the HUD's faces at the menu's own sizes, which follow the window as
+// the HUD's do (FONT_BIG does not, so it is not used here).
+typedef struct Font {
+    FontStyleId id;
+    float scale;
+} Font;
+static const Font F_TINY = {FONT_SMALLEST, 1.0f};
+static const Font F_BODY = {FONT_SMALL, 1.0f};
+static const Font F_BOLD = {FONT_SMALL_BOLD, 1.0f};
+static const Font F_LABEL = {FONT_SMALL, 1.12f};
+static const Font F_NAV = {FONT_SMALL, 1.22f};
+static const Font F_BUTTON = {FONT_SMALL_BOLD, 1.12f};
+static const Font F_BIG = {FONT_SMALL_BOLD, 1.4f};
+static const Font F_GROUP = {FONT_SMALL_BOLD, 1.35f};
+static const Font F_CARD = {FONT_MENU, 0.95f};
+static const Font F_TITLE = {FONT_MENU, 1.45f};
+static const Font F_LOGO = {FONT_MENU, 1.3f};
+
+static void font_use(Font f) { text_style_scaled(f.id, f.scale); }
+
+// The sidebar: the pages under their groups, play first.
+static const char *const PAGE_NAMES[MAIN_PAGE_COUNT] = {"Servers", "Direct", "Local", "Player", "Controls", "Options", "Graphics"};
+
+// --- drawing ------------------------------------------------------------------------
+
+static void rect(float x0, float y0, float x1, float y1, Rgba color)
+{
+    GfxVertex v[4] = {gfx_vertex(x0, y0, 0, 0, color), gfx_vertex(x1, y0, 0, 0, color), gfx_vertex(x1, y1, 0, 0, color),
+                      gfx_vertex(x0, y1, 0, 0, color)};
+    gfx_draw_quad(gfx_white(), v);
+}
+
+// A box with its corners rounded by `r`: a cross of three quads and a fan at each corner,
+// none overlapping, so a see-through colour stays even.
+static void rrect(float x, float y, float w, float h, float r, Rgba color)
+{
+    r = minf(r, minf(w, h) / 2);
+    if (r < 0.75f) {
+        rect(x, y, x + w, y + h, color);
+        return;
+    }
+    rect(x + r, y, x + w - r, y + h, color);
+    rect(x, y + r, x + r, y + h - r, color);
+    rect(x + w - r, y + r, x + w, y + h - r, color);
+    enum { SEGMENTS = 6 };
+    GfxVertex v[4 * SEGMENTS * 3];
+    int n = 0;
+    const float cx[4] = {x + r, x + w - r, x + w - r, x + r}, cy[4] = {y + r, y + r, y + h - r, y + h - r};
+    const float start[4] = {(float)M_PI, 1.5f * (float)M_PI, 0, 0.5f * (float)M_PI};
+    for (int c = 0; c < 4; c++) {
+        for (int s = 0; s < SEGMENTS; s++) {
+            float a0 = start[c] + 0.5f * (float)M_PI * (float)s / SEGMENTS;
+            float a1 = start[c] + 0.5f * (float)M_PI * (float)(s + 1) / SEGMENTS;
+            v[n++] = gfx_vertex(cx[c], cy[c], 0, 0, color);
+            v[n++] = gfx_vertex(cx[c] + r * cosf(a0), cy[c] + r * sinf(a0), 0, 0, color);
+            v[n++] = gfx_vertex(cx[c] + r * cosf(a1), cy[c] + r * sinf(a1), 0, 0, color);
+        }
+    }
+    gfx_draw_triangles(gfx_white(), v, n);
+}
+
+static void circle(float x, float y, float r, Rgba color) { rrect(x - r, y - r, 2 * r, 2 * r, r, color); }
+
+// A small triangle pointing down (a list's box, a column sorted downwards) or up.
+static void chevron(float x, float y, float size, bool down, Rgba color)
+{
+    float h = size * 0.6f;
+    GfxVertex v[3];
+    if (down) {
+        v[0] = gfx_vertex(x - size / 2, y - h / 2, 0, 0, color);
+        v[1] = gfx_vertex(x + size / 2, y - h / 2, 0, 0, color);
+        v[2] = gfx_vertex(x, y + h / 2, 0, 0, color);
+    } else {
+        v[0] = gfx_vertex(x - size / 2, y + h / 2, 0, 0, color);
+        v[1] = gfx_vertex(x, y - h / 2, 0, 0, color);
+        v[2] = gfx_vertex(x + size / 2, y + h / 2, 0, 0, color);
+    }
+    gfx_draw_triangles(gfx_white(), v, 3);
+}
+
+// A padlock, for a server that asks a password: 7 by 9 units from `x, y`.
+static void padlock(float x, float y, Rgba color)
+{
+    rect(x + 1, y, x + 6, y + 1, color);
+    rect(x + 1, y + 1, x + 2, y + 4, color);
+    rect(x + 5, y + 1, x + 6, y + 4, color);
+    rrect(x, y + 4, 7, 5, 1, color);
+}
+
+static float line_height(Font style)
+{
+    font_use(style);
+    return text_height("Ag");
+}
+
+static float width_of(Font style, const char *text)
+{
+    font_use(style);
+    return text_width(text);
+}
+
+static void text_at(Font style, const char *text, float x, float y, Rgba color)
+{
+    font_use(style);
+    text_color(color);
+    text_draw(text, x, y);
+}
+
+// Text centred on the line `cy`.
+static void text_mid(Font style, const char *text, float x, float cy, Rgba color)
+{
+    text_at(style, text, x, cy - line_height(style) / 2, color);
+}
+
+// `text` cut to fit `width` in `style`, "..." where it was cut.
+static void fit(Font style, char *out, size_t size, const char *text, float width)
+{
+    font_use(style);
+    snprintf(out, size, "%s", text);
+    if (text_width(out) <= width) return;
+    for (size_t n = strlen(out); n > 0; n--) {
+        snprintf(out, size, "%.*s...", (int)n, text);
+        if (text_width(out) <= width) return;
+    }
+    snprintf(out, size, "...");
+}
+
+static void text_fit(Font style, const char *text, float x, float cy, float width, Rgba color)
+{
+    char cut[192];
+    fit(style, cut, sizeof cut, text, width);
+    text_mid(style, cut, x, cy, color);
+}
+
+// `text` in lines no wider than `width`, broken between words, from `y` down: the
+// height it took.
+static float text_wrap(Font style, const char *text, float x, float y, float width, Rgba color)
+{
+    float lh = line_height(style) + 2, top = y;
+    char line[256] = "", trial[256];
+    const char *p = text;
+    while (*p) {
+        const char *end = p;
+        while (*end && *end != ' ') end++;
+        snprintf(trial, sizeof trial, "%s%s%.*s", line, line[0] ? " " : "", (int)(end - p), p);
+        if (line[0] && width_of(style, trial) > width) {
+            text_at(style, line, x, y, color);
+            y += lh;
+            snprintf(line, sizeof line, "%.*s", (int)(end - p), p);
+        } else {
+            memcpy(line, trial, sizeof line);
+        }
+        p = end;
+        while (*p == ' ') p++;
+    }
+    if (line[0]) {
+        text_at(style, line, x, y, color);
+        y += lh;
+    }
+    return y - top;
+}
+
+static Rgba with_alpha(Rgba color, uint8_t a)
+{
+    color.a = a;
+    return color;
+}
+
+// --- the cvars ----------------------------------------------------------------------
+
+static int cvar_int(const Console *con, const char *name, int lo, int hi)
+{
+    const Cvar *cv = cvar_find(con, name);
+    return cv ? clampi(cv->integer, lo, hi) : lo;
+}
+
+static Rgba cvar_color(const Console *con, const char *name)
+{
+    Rgba color = {255, 255, 255, 255};
+    const Cvar *cv = cvar_find(con, name);
+    if (cv && !rgba_parse_hex(cv->value, &color)) rgba_parse_hex(cv->default_value, &color);
+    return color;
+}
+
+// A colour cvar whose default is none (the grenades': their own art) and that holds none.
+static bool color_unset(const Console *con, const char *name)
+{
+    const Cvar *cv = cvar_find(con, name);
+    Rgba unused;
+    return cv && !cv->default_value[0] && !rgba_parse_hex(cv->value, &unused);
+}
+
+static void set_int(Console *con, const char *name, int value)
+{
+    char number[16];
+    snprintf(number, sizeof number, "%d", value);
+    cvar_set(con, name, number);
+}
 
 // --- the pieces ---------------------------------------------------------------------
 
@@ -30,216 +259,736 @@ typedef struct Ui {
     const Interface *hud;
     Vec2 cursor;
     float game_width, pixel;
-    bool click; // this draw's, used up by the first widget that takes it
+    bool click;  // this draw's, used up by the first widget that takes it
+    bool held;   // the left button is down: a slider follows the cursor
+    bool blocked; // a popup is open: nothing under it is hovered or clicked
+    float block_x, block_y, block_w, block_h;
+    // the keys since the last draw, for the widget with the focus; what none takes moves it
+    int move, side, page;
+    bool enter, back;
+    bool show_focus;
+    int nav_count; // the focusable widgets laid out so far
+    // the layout: the column rows go down, from `y`; what lies outside [top, bottom] is
+    // not drawn (there is no clipping), and `extent` is how far the page reaches
+    float x, w, y, top, bottom, extent;
+    bool scrolling; // the rows here scroll with the page
 } Ui;
+
+static bool inside(Vec2 p, float x, float y, float w, float h) { return p.x >= x && p.x < x + w && p.y >= y && p.y < y + h; }
 
 static bool over(const Ui *ui, float x, float y, float w, float h)
 {
-    return ui->cursor.x >= x && ui->cursor.x < x + w && ui->cursor.y >= y && ui->cursor.y < y + h;
+    if (ui->blocked && inside(ui->cursor, ui->block_x, ui->block_y, ui->block_w, ui->block_h)) return false;
+    return inside(ui->cursor, x, y, w, h);
 }
 
-static bool take_click(Ui *ui, float x, float y, float w, float h)
+// The click, if it is on this box: used up, and the widget `id` (if any) takes the focus.
+static bool take(Ui *ui, int id, float x, float y, float w, float h)
 {
     if (!ui->click || !over(ui, x, y, w, h)) return false;
     ui->click = false;
+    if (id >= 0) {
+        ui->m->zone = MAIN_ZONE_CONTENT;
+        ui->m->nav = id;
+    }
     return true;
 }
 
-static void rect(float x0, float y0, float x1, float y1, Rgba color)
+static int take_side(Ui *ui, bool focused)
 {
-    GfxVertex v[4] = {gfx_vertex(x0, y0, 0, 0, color), gfx_vertex(x1, y0, 0, 0, color), gfx_vertex(x1, y1, 0, 0, color),
-                      gfx_vertex(x0, y1, 0, 0, color)};
-    gfx_draw_quad(gfx_white(), v);
+    if (!focused) return 0;
+    int side = ui->side;
+    ui->side = 0;
+    return side;
 }
 
-static void label(float x, float y, const char *text, Rgba color)
+static bool take_enter(Ui *ui, bool focused)
 {
-    text_style(FONT_SMALL);
-    text_color(color);
-    text_draw(text, x, y);
+    if (!focused || !ui->enter) return false;
+    ui->enter = false;
+    return true;
 }
 
-// A button the width of its box; true when clicked.
-static bool button(Ui *ui, float x, float y, float w, const char *caption)
-{
-    bool hot = over(ui, x, y, w, BUTTON_H);
-    rect(x, y, x + w, y + BUTTON_H, hot ? (Rgba){255, 255, 255, 60} : (Rgba){0, 0, 0, 70});
-    text_style(FONT_MENU);
-    text_color(TEXT);
-    text_draw(caption, x + 10 + (hot ? 1 : 0), y + BUTTON_H / 2 - text_height(caption) / 2 - (hot ? 1 : 0));
-    return take_click(ui, x, y, w, BUTTON_H);
-}
+// The next widget in the keys' order, and whether it has the focus. A focused one out of
+// view brings the page to it, if the keys put the focus there.
+static int nav_next(Ui *ui) { return ui->nav_count++; }
 
-// A text field editing a cvar: its value, or what is being typed while it has the focus.
-static void field(Ui *ui, float x, float y, float w, const char *cvar, int max)
+static bool nav_focused(Ui *ui, int id, float y, float h)
 {
     MainMenu *m = ui->m;
-    bool focused = strcmp(m->focus_cvar, cvar) == 0;
-    rect(x, y, x + w, y + ROW - 4, focused ? FIELD_FOCUSED : FIELD);
-    const Cvar *cv = cvar_find(ui->con, cvar);
-    const char *shown = focused ? m->edit : cv ? cv->value : "";
-    char text[MAINMENU_EDIT + 2];
-    bool caret = focused && fmod(m->time, 1.0) < 0.5;
-    snprintf(text, sizeof text, "%s%s", shown, caret ? "|" : "");
-    label(x + 5, y + 3, text, TEXT);
-    if (take_click(ui, x, y, w, ROW - 4)) {
-        snprintf(m->focus_cvar, sizeof m->focus_cvar, "%s", cvar);
-        snprintf(m->edit, sizeof m->edit, "%s", cv ? cv->value : "");
-        m->edit_max = max;
-        SDL_StartTextInput();
+    bool focused = m->zone == MAIN_ZONE_CONTENT && m->nav == id;
+    if (focused && ui->scrolling && m->scroll_follow) {
+        if (y < ui->top) m->scroll -= ui->top - y + 6;
+        else if (y + h > ui->bottom) m->scroll += y + h - ui->bottom + 6;
+    }
+    return focused;
+}
+
+static void focus_ring(const Ui *ui, bool focused, float x, float y, float w, float h, float r)
+{
+    if (focused && ui->show_focus) rrect(x - 2, y - 2, w + 4, h + 4, r + 2, with_alpha(ACCENT, 150));
+}
+
+// A row of the column: its box, whether it is in view, focused, under the cursor. The
+// focused one, and the one under the cursor, are lit.
+typedef struct Row {
+    float x, y, w, h;
+    int id;
+    bool shown, focused, hot;
+} Row;
+
+static Row row(Ui *ui, float h, bool focusable)
+{
+    Row r = {.x = ui->x, .y = ui->y, .w = ui->w, .h = h, .id = -1};
+    ui->y += h;
+    if (ui->scrolling) ui->extent = maxf(ui->extent, r.y + h + ui->m->scroll);
+    r.shown = r.y >= ui->top - 0.5f && r.y + h <= ui->bottom + 0.5f;
+    if (focusable) {
+        r.id = nav_next(ui);
+        r.focused = nav_focused(ui, r.id, r.y, h);
+    }
+    r.hot = r.shown && focusable && over(ui, r.x, r.y, r.w, h);
+    if (r.shown && r.focused && ui->show_focus) {
+        rrect(r.x, r.y + 1, r.w, h - 2, 5, ACCENT_SOFT);
+        rrect(r.x, r.y + 6, 3, h - 12, 1.5f, ACCENT);
+    } else if (r.hot) {
+        rrect(r.x, r.y + 1, r.w, h - 2, 5, HOVER);
+    }
+    return r;
+}
+
+static void gap(Ui *ui, float h) { ui->y += h; }
+
+// A heading over the rows that follow, a rule after it.
+static void section(Ui *ui, const char *title)
+{
+    Row r = row(ui, SECTION_H, false);
+    if (!r.shown) return;
+    float cy = r.y + r.h - 9;
+    text_mid(F_BOLD, title, r.x + 2, cy, ACCENT);
+    float tw = width_of(F_BOLD, title);
+    rect(r.x + tw + 10, cy, r.x + r.w, cy + 1, LINE);
+}
+
+// Where a row's control goes: on its right, half of it at most.
+static float ctrl_w(const Row *r) { return clampf(r->w * 0.5f, 110, 220); }
+static float ctrl_x(const Row *r) { return r->x + r->w - 8 - ctrl_w(r); }
+static float ctrl_y(const Row *r) { return r->y + (r->h - CTRL_H) / 2; }
+
+static void row_label(const Row *r, const char *text)
+{
+    text_fit(F_LABEL, text, r->x + 12, r->y + r->h / 2, r->w - ctrl_w(r) - 28, TEXT);
+}
+
+// --- the popups ---------------------------------------------------------------------
+
+static void popup_close(MainMenu *m) { m->popup.kind = MAIN_POPUP_NONE; }
+
+// Under the widget's box at `x, y` (`h` tall), or over it when there is no room below;
+// on the screen either way.
+static void popup_place(MainPopup *p, float game_width, float x, float y, float h)
+{
+    p->x = clampf(x, 8, game_width - p->w - 8);
+    p->y = y + h + 3;
+    if (p->y + p->h > VIEW_H - 8) p->y = y - p->h - 3;
+    p->y = clampf(p->y, 8, VIEW_H - p->h - 8);
+}
+
+static void popup_fill_list(MainPopup *p, const char *const *names, const bool *locked, int count)
+{
+    p->count = mini(count, MAINMENU_POPUP_ITEMS);
+    for (int i = 0; i < p->count; i++) {
+        snprintf(p->names[i], sizeof p->names[i], "%s", names[i]);
+        p->locked[i] = locked && locked[i];
     }
 }
 
-// "< value >": the arrows step an integer cvar within its range, wrapping.
-static void cycler(Ui *ui, float x, float y, const char *cvar, int lo, int hi, const char *shown)
+static void popup_open_list(Ui *ui, int owner, const char *const *names, const bool *locked, int count, int current,
+                            float x, float y, float w)
 {
-    const Cvar *cv = cvar_find(ui->con, cvar);
-    int v = cv ? clampi(cv->integer, lo, hi) : lo;
-    bool left = take_click(ui, x, y, 20, ROW - 4), right = take_click(ui, x + 150, y, 20, ROW - 4);
-    if (left || right) {
-        v += right ? 1 : -1;
-        if (v > hi) v = lo;
-        if (v < lo) v = hi;
-        char number[16];
-        snprintf(number, sizeof number, "%d", v);
-        cvar_set(ui->con, cvar, number);
-    }
-    label(x + 4, y + 3, "<", over(ui, x, y, 20, ROW - 4) ? TEXT : DIM);
-    label(x + 154, y + 3, ">", over(ui, x + 150, y, 20, ROW - 4) ? TEXT : DIM);
-    text_style(FONT_SMALL);
-    text_color(TEXT);
-    text_draw(shown, x + 85 - text_width(shown) / 2, y + 3);
+    MainPopup *p = &ui->m->popup;
+    *p = (MainPopup){.kind = MAIN_POPUP_LIST, .owner = owner, .w = w, .hover = current};
+    popup_fill_list(p, names, locked, count);
+    p->h = (float)p->count * POPUP_ROW + 8;
+    popup_place(p, ui->game_width, x, y, CTRL_H);
 }
 
-// "< value >" over an integer cvar stepped by `step` within its range, shown as `fmt`
-// of it (one %d). Not wrapping, as a limit shouldn't.
-static void stepper(Ui *ui, float x, float y, const char *cvar, int lo, int hi, int step, const char *fmt)
+typedef struct PaletteColor {
+    Rgba color;
+    float hue, saturation, value;
+} PaletteColor;
+
+// Sort colors by hue, then from darker to lighter within each hue.
+static int compare_palette_colors(const void *a, const void *b)
 {
-    const Cvar *cv = cvar_find(ui->con, cvar);
-    int v = cv ? clampi(cv->integer, lo, hi) : lo;
-    bool left = take_click(ui, x, y, 20, ROW - 4), right = take_click(ui, x + 150, y, 20, ROW - 4);
-    if (left || right) {
-        char number[16];
-        snprintf(number, sizeof number, "%d", clampi(v + (right ? step : -step), lo, hi));
-        cvar_set(ui->con, cvar, number);
-    }
-    label(x + 4, y + 3, "<", over(ui, x, y, 20, ROW - 4) ? TEXT : DIM);
-    label(x + 154, y + 3, ">", over(ui, x + 150, y, 20, ROW - 4) ? TEXT : DIM);
-    char shown[32];
-    snprintf(shown, sizeof shown, fmt, v);
-    text_style(FONT_SMALL);
-    text_color(TEXT);
-    text_draw(shown, x + 85 - text_width(shown) / 2, y + 3);
+    const PaletteColor *left = a, *right = b;
+    if (left->hue != right->hue) return left->hue < right->hue ? -1 : 1;
+    if (left->value != right->value) return left->value < right->value ? -1 : 1;
+    if (left->saturation != right->saturation) return left->saturation < right->saturation ? -1 : 1;
+    if (left->color.r != right->color.r) return left->color.r < right->color.r ? -1 : 1;
+    if (left->color.g != right->color.g) return left->color.g < right->color.g ? -1 : 1;
+    if (left->color.b != right->color.b) return left->color.b < right->color.b ? -1 : 1;
+    return 0;
 }
 
-// "< name >" over a cvar that takes one of `values`, each named; the arrows step along
-// them, wrapping. A value that is none of them shows as the first.
-static void choice(Ui *ui, float x, float y, const char *cvar, const int *values, const char *const *names, int count)
+// The 216 web colours, in hue and brightness order: 18 rows of 12.
+#define PALETTE_COLS 12
+#define PALETTE_ROWS 18
+#define PALETTE_COUNT (PALETTE_COLS * PALETTE_ROWS)
+
+static const PaletteColor *palette(void)
 {
-    const Cvar *cv = cvar_find(ui->con, cvar);
+    static PaletteColor colors[PALETTE_COUNT];
+    static bool made;
+    if (made) return colors;
+    static const uint8_t levels[] = {0, 51, 102, 153, 204, 255};
     int at = 0;
-    for (int i = 0; i < count; i++)
-        if (cv && cv->integer == values[i]) at = i;
-    bool left = take_click(ui, x, y, 20, ROW - 4), right = take_click(ui, x + 150, y, 20, ROW - 4);
-    if (left || right) {
-        at = (at + (right ? 1 : count - 1)) % count;
-        char number[16];
-        snprintf(number, sizeof number, "%d", values[at]);
-        cvar_set(ui->con, cvar, number);
-    }
-    label(x + 4, y + 3, "<", over(ui, x, y, 20, ROW - 4) ? TEXT : DIM);
-    label(x + 154, y + 3, ">", over(ui, x + 150, y, 20, ROW - 4) ? TEXT : DIM);
-    text_style(FONT_SMALL);
-    text_color(TEXT);
-    text_draw(names[at], x + 85 - text_width(names[at]) / 2, y + 3);
-}
-
-// As choice, but some values are locked: shown with "(locked)", skipped by the arrows,
-// never set.
-static void locked_choice(Ui *ui, float x, float y, const char *cvar, const int *values, const char *const *names,
-                          const bool *locked, int count)
-{
-    const Cvar *cv = cvar_find(ui->con, cvar);
-    int at = 0;
-    for (int i = 0; i < count; i++)
-        if (cv && cv->integer == values[i]) at = i;
-    bool left = take_click(ui, x, y, 20, ROW - 4), right = take_click(ui, x + 150, y, 20, ROW - 4);
-    if (left || right) {
-        int next = at;
-        do next = (next + (right ? 1 : count - 1)) % count;
-        while (locked[next] && next != at); // nothing is unlocked: the cvar stays
-        if (!locked[next]) {
-            char number[16];
-            snprintf(number, sizeof number, "%d", values[next]);
-            cvar_set(ui->con, cvar, number);
+    for (int b = 0; b < 6; b++) {
+        for (int g = 0; g < 6; g++) {
+            for (int r = 0; r < 6; r++) {
+                float red = (float)levels[r] / 255.0f, green = (float)levels[g] / 255.0f, blue = (float)levels[b] / 255.0f;
+                float maximum = fmaxf(red, fmaxf(green, blue)), minimum = fminf(red, fminf(green, blue));
+                float delta = maximum - minimum, hue = -1.0f;
+                if (delta > 0) {
+                    if (maximum == red) hue = 60.0f * fmodf((green - blue) / delta, 6.0f);
+                    else if (maximum == green) hue = 60.0f * ((blue - red) / delta + 2.0f);
+                    else hue = 60.0f * ((red - green) / delta + 4.0f);
+                    if (hue < 0) hue += 360.0f;
+                }
+                colors[at++] = (PaletteColor){
+                    .color = {levels[r], levels[g], levels[b], 255},
+                    .hue = hue,
+                    .saturation = maximum > 0 ? delta / maximum : 0,
+                    .value = maximum,
+                };
+            }
         }
-        at = next;
     }
-    char shown[64];
-    snprintf(shown, sizeof shown, "%s%s", names[at], locked[at] ? " (locked)" : "");
-    label(x + 4, y + 3, "<", over(ui, x, y, 20, ROW - 4) ? TEXT : DIM);
-    label(x + 154, y + 3, ">", over(ui, x + 150, y, 20, ROW - 4) ? TEXT : DIM);
-    text_style(FONT_SMALL);
-    text_color(TEXT);
-    text_draw(shown, x + 85 - text_width(shown) / 2, y + 3);
+    qsort(colors, PALETTE_COUNT, sizeof colors[0], compare_palette_colors);
+    made = true;
+    return colors;
 }
 
-// --- the pages ----------------------------------------------------------------------
+#define PALETTE_HEAD 22.0f
+#define PALETTE_CLEAR 22.0f
+
+static void popup_open_color(Ui *ui, int owner, const char *cvar, float x, float y)
+{
+    MainPopup *p = &ui->m->popup;
+    *p = (MainPopup){.kind = MAIN_POPUP_COLOR, .owner = owner, .hover = -1};
+    snprintf(p->cvar, sizeof p->cvar, "%s", cvar);
+    const Cvar *cv = cvar_find(ui->con, cvar);
+    p->clearable = cv && !cv->default_value[0];
+    p->w = PALETTE_COLS * SWATCH + 16;
+    p->h = PALETTE_HEAD + PALETTE_ROWS * SWATCH + (p->clearable ? PALETTE_CLEAR : 0) + 8;
+    // the current colour has the keys at first
+    Rgba now = cvar_color(ui->con, cvar);
+    const PaletteColor *colors = palette();
+    for (int i = 0; i < PALETTE_COUNT; i++)
+        if (colors[i].color.r == now.r && colors[i].color.g == now.g && colors[i].color.b == now.b) p->hover = i;
+    if (p->hover < 0) p->hover = p->clearable && color_unset(ui->con, cvar) ? PALETTE_COUNT : 0;
+    popup_place(p, ui->game_width, x + 20 - p->w, y, CTRL_H);
+}
+
+// The item of the open popup under the cursor, -1 for none.
+static int popup_item_at(const MainPopup *p, Vec2 c)
+{
+    if (p->kind == MAIN_POPUP_LIST) {
+        if (!inside(c, p->x, p->y + 4, p->w, (float)p->count * POPUP_ROW)) return -1;
+        return (int)((c.y - p->y - 4) / POPUP_ROW);
+    }
+    float gx = p->x + 8, gy = p->y + PALETTE_HEAD;
+    if (inside(c, gx, gy, PALETTE_COLS * SWATCH, PALETTE_ROWS * SWATCH))
+        return (int)((c.y - gy) / SWATCH) * PALETTE_COLS + (int)((c.x - gx) / SWATCH);
+    if (p->clearable && inside(c, p->x + 8, gy + PALETTE_ROWS * SWATCH + 4, p->w - 16, PALETTE_CLEAR - 4)) return PALETTE_COUNT;
+    return -1;
+}
+
+static void popup_choose(Ui *ui, int item)
+{
+    MainMenu *m = ui->m;
+    MainPopup *p = &m->popup;
+    if (p->kind == MAIN_POPUP_LIST) {
+        if (item < 0 || item >= p->count || p->locked[item]) return;
+        m->picked_owner = p->owner;
+        m->picked = item;
+    } else {
+        if (item == PALETTE_COUNT && p->clearable) {
+            cvar_set(ui->con, p->cvar, "");
+        } else if (item >= 0 && item < PALETTE_COUNT) {
+            Rgba c = palette()[item].color;
+            char hex[8];
+            snprintf(hex, sizeof hex, "%02X%02X%02X", c.r, c.g, c.b);
+            cvar_set(ui->con, p->cvar, hex);
+        } else {
+            return;
+        }
+    }
+    popup_close(m);
+}
+
+// The open popup first: it has the keys, and the click, which on it chooses and off it
+// closes it, so nothing under it takes either.
+static void popup_input(Ui *ui)
+{
+    MainMenu *m = ui->m;
+    MainPopup *p = &m->popup;
+    if (p->kind == MAIN_POPUP_NONE) return;
+    ui->blocked = true;
+    ui->block_x = p->x, ui->block_y = p->y, ui->block_w = p->w, ui->block_h = p->h;
+
+    int last = p->kind == MAIN_POPUP_LIST ? p->count - 1 : PALETTE_COUNT - (p->clearable ? 0 : 1);
+    if (p->kind == MAIN_POPUP_LIST) {
+        for (int step = ui->move + ui->side, n = 0; step && n < p->count; n++) { // past the locked
+            p->hover = clampi(p->hover + (step > 0 ? 1 : -1), 0, last);
+            if (!p->locked[p->hover]) break;
+        }
+    } else if (ui->move || ui->side) {
+        if (p->hover >= PALETTE_COUNT) p->hover = ui->move < 0 ? PALETTE_COUNT - PALETTE_COLS : PALETTE_COUNT;
+        else p->hover = clampi(p->hover + ui->move * PALETTE_COLS + ui->side, 0, last);
+    }
+    ui->move = ui->side = 0;
+    if (ui->enter) popup_choose(ui, p->hover);
+    if (ui->back) popup_close(m);
+    ui->enter = ui->back = false;
+
+    if (!m->keys_used) {
+        int at = popup_item_at(p, ui->cursor);
+        if (at >= 0) p->hover = at;
+    }
+    if (ui->click) {
+        ui->click = false;
+        if (inside(ui->cursor, p->x, p->y, p->w, p->h)) popup_choose(ui, popup_item_at(p, ui->cursor));
+        else popup_close(m);
+    }
+}
+
+static void popup_draw(const Ui *ui)
+{
+    const MainPopup *p = &ui->m->popup;
+    if (p->kind == MAIN_POPUP_NONE) return;
+    rrect(p->x + 2, p->y + 4, p->w, p->h, 7, (Rgba){0, 0, 0, 110}); // its shadow
+    rrect(p->x, p->y, p->w, p->h, 6, (Rgba){26, 30, 42, 252});
+    if (p->kind == MAIN_POPUP_LIST) {
+        for (int i = 0; i < p->count; i++) {
+            float y = p->y + 4 + (float)i * POPUP_ROW;
+            if (i == p->hover && !p->locked[i]) rrect(p->x + 4, y, p->w - 8, POPUP_ROW, 4, ACCENT_SOFT);
+            char text[64];
+            snprintf(text, sizeof text, "%s%s", p->names[i], p->locked[i] ? " (locked)" : "");
+            text_fit(F_BODY, text, p->x + 12, y + POPUP_ROW / 2, p->w - 24, p->locked[i] ? FAINT : i == p->hover ? TEXT : MUTED);
+        }
+        return;
+    }
+    text_mid(F_BOLD, "COLOUR", p->x + 8, p->y + PALETTE_HEAD / 2 + 1, ACCENT);
+    Rgba now = cvar_color(ui->con, p->cvar);
+    bool unset = p->clearable && color_unset(ui->con, p->cvar);
+    const PaletteColor *colors = palette();
+    float gx = p->x + 8, gy = p->y + PALETTE_HEAD;
+    for (int i = 0; i < PALETTE_COUNT; i++) {
+        float sx = gx + (float)(i % PALETTE_COLS) * SWATCH, sy = gy + (float)(i / PALETTE_COLS) * SWATCH;
+        Rgba c = colors[i].color;
+        bool current = !unset && c.r == now.r && c.g == now.g && c.b == now.b;
+        if (current || i == p->hover) rect(sx - 1, sy - 1, sx + SWATCH, sy + SWATCH, current ? TEXT : ACCENT);
+        rect(sx, sy, sx + SWATCH - 1, sy + SWATCH - 1, c);
+    }
+    if (p->clearable) {
+        float y = gy + PALETTE_ROWS * SWATCH + 4;
+        bool hot = p->hover == PALETTE_COUNT;
+        rrect(p->x + 8, y, p->w - 16, PALETTE_CLEAR - 4, 4, hot ? CONTROL_HOT : CONTROL);
+        text_mid(F_BODY, unset ? "None (the art's own)  *" : "None (the art's own)", p->x + 14, y + (PALETTE_CLEAR - 4) / 2,
+                 hot ? TEXT : MUTED);
+    }
+}
+
+// --- the widgets --------------------------------------------------------------------
+
+// A list's choice, waiting for the widget `id` that opened it: -1 if none.
+static int take_picked(Ui *ui, int id)
+{
+    MainMenu *m = ui->m;
+    if (m->picked_owner != id) return -1;
+    m->picked_owner = -1;
+    return m->picked;
+}
+
+// A switch: on, the accent, its knob to the right.
+static void switch_draw(float x, float cy, bool on, bool hot)
+{
+    Rgba track = on ? (hot ? ACCENT_HOT : ACCENT) : hot ? (Rgba){86, 93, 114, 255} : TRACK;
+    rrect(x, cy - 8, 32, 16, 8, track);
+    circle(on ? x + 24 : x + 8, cy, 6, TEXT);
+}
+
+// A cvar of 0 and 1, the whole row a switch.
+static void toggle(Ui *ui, const char *label, const char *cvar)
+{
+    Row r = row(ui, ROW_H, true);
+    bool on = cvar_int(ui->con, cvar, 0, 1) != 0;
+    bool flip = take_enter(ui, r.focused) || take_side(ui, r.focused) != 0;
+    if (r.shown && take(ui, r.id, r.x, r.y, r.w, r.h)) flip = true;
+    if (flip) {
+        on = !on;
+        cvar_set(ui->con, cvar, on ? "1" : "0");
+    }
+    if (!r.shown) return;
+    row_label(&r, label);
+    float sx = r.x + r.w - 8 - 32;
+    const char *state = on ? "On" : "Off";
+    text_mid(F_BODY, state, sx - 8 - width_of(F_BODY, state), r.y + r.h / 2, on ? TEXT : MUTED);
+    switch_draw(sx, r.y + r.h / 2, on, r.hot || r.focused);
+}
+
+// A number cvar from `lo` to `hi` in steps of `step`, dragged along its track or stepped
+// by the side keys, shown as `fmt` of it (a %d for an integer, else a %f).
+static void slider(Ui *ui, const char *label, const char *cvar, float lo, float hi, float step, bool integer, const char *fmt)
+{
+    MainMenu *m = ui->m;
+    Row r = row(ui, ROW_H, true);
+    const Cvar *cv = cvar_find(ui->con, cvar);
+    float v = cv ? clampf(cv->number, lo, hi) : lo;
+    float cw = ctrl_w(&r), x0 = ctrl_x(&r) + 6, x1 = ctrl_x(&r) + cw - 58, cy = r.y + r.h / 2;
+    float next = v;
+    int side = take_side(ui, r.focused);
+    if (side) next = v + (float)side * step;
+    if (r.shown && take(ui, r.id, x0 - 8, r.y, x1 - x0 + 16, r.h)) m->drag = r.id;
+    if (m->drag == r.id && ui->held) {
+        float t = clampf((ui->cursor.x - x0) / (x1 - x0), 0, 1);
+        next = lo + roundf((t * (hi - lo)) / step) * step;
+    }
+    next = clampf(next, lo, hi);
+    if (fabsf(next - v) > step * 0.01f) {
+        char number[32];
+        if (integer) snprintf(number, sizeof number, "%d", (int)lroundf(next));
+        else snprintf(number, sizeof number, "%.2f", next);
+        cvar_set(ui->con, cvar, number);
+        v = next;
+    }
+    if (!r.shown) return;
+    row_label(&r, label);
+    float t = hi > lo ? (v - lo) / (hi - lo) : 0;
+    bool active = r.hot || r.focused || m->drag == r.id;
+    rrect(x0, cy - 2, x1 - x0, 4, 2, TRACK);
+    if (t > 0) rrect(x0, cy - 2, (x1 - x0) * t, 4, 2, active ? ACCENT_HOT : ACCENT);
+    circle(x0 + (x1 - x0) * t, cy, active ? 7.0f : 6.0f, TEXT);
+    char shown[32];
+    if (integer) snprintf(shown, sizeof shown, fmt, (int)lroundf(v));
+    else snprintf(shown, sizeof shown, fmt, (double)v);
+    text_mid(F_BODY, shown, ctrl_x(&r) + cw - width_of(F_BODY, shown), cy, TEXT);
+}
+
+// A box showing names[current] that opens the list to pick from; the side keys step
+// along it, past the locked. What was picked, or -1.
+static int select_box(Ui *ui, const char *label, const char *const *names, const bool *locked, int count, int current)
+{
+    MainMenu *m = ui->m;
+    Row r = row(ui, ROW_H, true);
+    int picked = take_picked(ui, r.id);
+    int side = take_side(ui, r.focused);
+    if (side) {
+        int at = current;
+        for (int n = 0; n < count; n++) {
+            at = (at + side + count) % count;
+            if (!locked || !locked[at]) break;
+        }
+        if (at != current && (!locked || !locked[at])) picked = at;
+    }
+    float cw = ctrl_w(&r), cx = ctrl_x(&r), cy = ctrl_y(&r);
+    bool open = m->popup.kind == MAIN_POPUP_LIST && m->popup.owner == r.id;
+    if ((r.shown && take(ui, r.id, r.x, r.y, r.w, r.h)) || take_enter(ui, r.focused)) {
+        if (open) popup_close(m);
+        else popup_open_list(ui, r.id, names, locked, count, current, cx, cy, cw);
+        open = !open;
+    }
+    if (open) popup_fill_list(&m->popup, names, locked, count); // what is locked may change with the rest
+    if (!r.shown) return picked;
+    row_label(&r, label);
+    rrect(cx, cy, cw, CTRL_H, 4, r.hot || open ? CONTROL_HOT : CONTROL);
+    char text[64];
+    snprintf(text, sizeof text, "%s%s", current >= 0 && current < count ? names[current] : "",
+             locked && current >= 0 && current < count && locked[current] ? " (locked)" : "");
+    text_fit(F_BODY, text, cx + 8, cy + CTRL_H / 2, cw - 30, TEXT);
+    chevron(cx + cw - 12, cy + CTRL_H / 2, 7, !open, open ? ACCENT : MUTED);
+    return picked;
+}
+
+// A cvar that takes one of `values`, each named; one that is none of them shows as the
+// first. The locked (NULL for none) are shown but never set.
+static void cvar_select(Ui *ui, const char *label, const char *cvar, const int *values, const char *const *names, const bool *locked,
+                        int count)
+{
+    const Cvar *cv = cvar_find(ui->con, cvar);
+    int current = 0;
+    for (int i = 0; i < count; i++)
+        if (cv && cv->integer == values[i]) current = i;
+    int picked = select_box(ui, label, names, locked, count, current);
+    if (picked >= 0 && picked < count && !(locked && locked[picked])) set_int(ui->con, cvar, values[picked]);
+}
+
+// What a field edits: a cvar's value, or the menu's own search ("#search").
+static const char *field_value(const Ui *ui, const char *key)
+{
+    if (key[0] == '#') return ui->m->search;
+    const Cvar *cv = cvar_find(ui->con, key);
+    return cv ? cv->value : "";
+}
+
+static void begin_edit(Ui *ui, const char *key, int max)
+{
+    MainMenu *m = ui->m;
+    snprintf(m->focus_cvar, sizeof m->focus_cvar, "%s", key);
+    snprintf(m->edit, sizeof m->edit, "%s", field_value(ui, key));
+    m->edit_max = max;
+    SDL_StartTextInput();
+}
+
+// A text box over `key` (a cvar, or "#search"): its value, or what is being typed while
+// it has the keyboard, the end of it when it is too long, so the caret shows. `secret`
+// shows stars.
+static void field_box(Ui *ui, int id, bool focused, float x, float y, float w, const char *key, int max, const char *placeholder,
+                      bool secret)
+{
+    MainMenu *m = ui->m;
+    bool typing = strcmp(m->focus_cvar, key) == 0;
+    bool hot = over(ui, x, y, w, CTRL_H);
+    if (take(ui, id, x, y, w, CTRL_H) || take_enter(ui, focused)) {
+        begin_edit(ui, key, max);
+        typing = true;
+    }
+    if (typing) rrect(x - 1, y - 1, w + 2, CTRL_H + 2, 5, ACCENT);
+    rrect(x, y, w, CTRL_H, 4, typing ? TYPING : hot ? CONTROL_HOT : CONTROL);
+    const char *value = typing ? m->edit : field_value(ui, key);
+    char shown[MAINMENU_EDIT + 4];
+    size_t n = strlen(value);
+    if (secret) {
+        n = mini((int)n, MAINMENU_EDIT);
+        memset(shown, '*', n);
+        shown[n] = '\0';
+    } else {
+        snprintf(shown, sizeof shown, "%s", value);
+    }
+    float room = w - 16, cy = y + CTRL_H / 2;
+    if (!shown[0] && !typing) {
+        if (placeholder) text_fit(F_BODY, placeholder, x + 8, cy, room, FAINT);
+        return;
+    }
+    const char *from = shown; // the end that fits, while typing; the start, cut, otherwise
+    if (typing) {
+        while (*from && width_of(F_BODY, from) > room - 4) from++;
+        text_mid(F_BODY, from, x + 8, cy, TEXT);
+        if (fmod(m->time, 1.0) < 0.55) {
+            float cx = x + 8 + width_of(F_BODY, from) + 1, lh = line_height(F_BODY);
+            rect(cx, cy - lh / 2, cx + 1, cy + lh / 2, ACCENT);
+        }
+    } else {
+        text_fit(F_BODY, shown, x + 8, cy, room, TEXT);
+    }
+}
+
+// A row with a text box on its right: Enter, or a click on the box, types into it.
+static void field_row(Ui *ui, const char *label, const char *cvar, int max, const char *placeholder, bool secret)
+{
+    Row r = row(ui, ROW_H, true);
+    if (!r.shown) {
+        take_enter(ui, r.focused); // the page scrolls to it first
+        return;
+    }
+    row_label(&r, label);
+    field_box(ui, r.id, r.focused, ctrl_x(&r), ctrl_y(&r), ctrl_w(&r), cvar, max, placeholder, secret);
+}
+
+// A colour: its hex in a box, typed, and its swatch, which opens the palette (as Enter does).
+static void color_row(Ui *ui, const char *label, const char *cvar)
+{
+    MainMenu *m = ui->m;
+    Row r = row(ui, ROW_H, true);
+    float cw = ctrl_w(&r), cx = ctrl_x(&r), cy = ctrl_y(&r), sx = cx + cw - CTRL_H;
+    bool open = m->popup.kind == MAIN_POPUP_COLOR && m->popup.owner == r.id;
+    bool toggle_palette = take_enter(ui, r.focused);
+    if (r.shown && take(ui, r.id, sx, cy, CTRL_H, CTRL_H)) toggle_palette = true;
+    if (toggle_palette) {
+        if (open) popup_close(m);
+        else popup_open_color(ui, r.id, cvar, sx, cy);
+    }
+    if (!r.shown) return;
+    row_label(&r, label);
+    field_box(ui, r.id, false, cx, cy, cw - CTRL_H - 6, cvar, 6, "none", false);
+    bool hot = over(ui, sx, cy, CTRL_H, CTRL_H) || open;
+    rrect(sx - 1, cy - 1, CTRL_H + 2, CTRL_H + 2, 5, hot ? ACCENT : (Rgba){255, 255, 255, 60});
+    if (color_unset(ui->con, cvar)) { // no colour: the art's own, a slash through an empty box
+        rrect(sx, cy, CTRL_H, CTRL_H, 4, CONTROL);
+        gfx_draw_line(vec2(sx + 4, cy + CTRL_H - 4), vec2(sx + CTRL_H - 4, cy + 4), 1.5f, BAD);
+    } else {
+        rrect(sx, cy, CTRL_H, CTRL_H, 4, with_alpha(cvar_color(ui->con, cvar), 255));
+    }
+}
+
+// A button, `primary` in the accent; a disabled one is shown but never pressed. True
+// when pressed, by a click or by Enter while it has the focus.
+static bool button_at(Ui *ui, float x, float y, float w, float h, const char *caption, bool primary, bool disabled)
+{
+    int id = nav_next(ui);
+    bool focused = nav_focused(ui, id, y, h);
+    bool hot = !disabled && over(ui, x, y, w, h);
+    focus_ring(ui, focused, x, y, w, h, 5);
+    Rgba bg = disabled ? (Rgba){40, 44, 56, 160} : primary ? (hot ? ACCENT_HOT : ACCENT) : hot ? CONTROL_HOT : CONTROL;
+    rrect(x, y, w, h, 5, bg);
+    float tw = width_of(F_BUTTON, caption);
+    text_mid(F_BUTTON, caption, x + (w - tw) / 2, y + h / 2, disabled ? FAINT : TEXT);
+    bool pressed = take(ui, id, x, y, w, h) || take_enter(ui, focused);
+    return pressed && !disabled;
+}
+
+static float button_w(const char *caption) { return maxf(width_of(F_BUTTON, caption) + 32, 84); }
+
+// A chip that is on or off, as a filter is.
+static bool chip(Ui *ui, float x, float y, const char *caption, bool on)
+{
+    float w = width_of(F_BODY, caption) + 26;
+    int id = nav_next(ui);
+    bool focused = nav_focused(ui, id, y, CTRL_H);
+    bool hot = over(ui, x, y, w, CTRL_H);
+    focus_ring(ui, focused, x, y, w, CTRL_H, CTRL_H / 2);
+    rrect(x, y, w, CTRL_H, CTRL_H / 2, on ? ACCENT_SOFT : hot ? CONTROL_HOT : CONTROL);
+    circle(x + 10, y + CTRL_H / 2, 3, on ? ACCENT : FAINT);
+    text_mid(F_BODY, caption, x + 18, y + CTRL_H / 2, on ? TEXT : MUTED);
+    return take(ui, id, x, y, w, CTRL_H) || take_enter(ui, focused);
+}
+
+// The footer's line: what the page says of where it stands.
+static void footer_text(const Ui *ui, float x, float w, const char *text, Rgba color)
+{
+    (void)ui;
+    text_fit(F_BODY, text, x, ACTION_CY, w, color);
+}
+
+// The action bar's button, its right edge at `right`: the page's one thing to do (Join,
+// Connect, Play), in the accent when `primary`. `left` gets where it begins, for what
+// goes beside it. True when pressed.
+static bool big_button(Ui *ui, float right, const char *caption, bool primary, bool disabled, float *left)
+{
+    float w = maxf(width_of(F_BIG, caption) + 56, 150), x = right - w, y = ACTION_CY - BIG_H / 2;
+    if (left) *left = x;
+    int id = nav_next(ui);
+    bool focused = nav_focused(ui, id, y, BIG_H);
+    bool hot = !disabled && over(ui, x, y, w, BIG_H);
+    focus_ring(ui, focused, x, y, w, BIG_H, 5);
+    Rgba bg = disabled ? (Rgba){40, 44, 56, 200} : primary ? (hot ? ACCENT_HOT : ACCENT) : hot ? CONTROL_HOT : CONTROL;
+    rrect(x, y, w, BIG_H, 5, bg);
+    if (primary && !disabled) rrect(x, y + BIG_H - 3, w, 3, 1.5f, (Rgba){0, 0, 0, 50}); // a lip under it
+    float tw = width_of(F_BIG, caption);
+    text_mid(F_BIG, caption, x + (w - tw) / 2, ACTION_CY, disabled ? FAINT : TEXT);
+    bool pressed = take(ui, id, x, y, w, BIG_H) || take_enter(ui, focused);
+    return pressed && !disabled;
+}
+
+static void go_page(MainMenu *m, MainPage page);
+
+// --- direct connect -----------------------------------------------------------------
 
 static void page_join(Ui *ui, const char *status, bool joined)
 {
-    float x = PAGE_X, y = 120;
-    label(x, y, "Server address (host:port)", DIM);
-    field(ui, x, y + 18, 260, "cl_server", 63);
-    label(x, y + 50, "Password, if the server asks one", DIM);
-    field(ui, x, y + 68, 260, "cl_password", 31); // NET_PASSWORD_SIZE - 1
-    y += 110;
+    float full_w = ui->w;
+    ui->w = minf(full_w, 520); // the fields near their names
+    section(ui, "SERVER");
+    field_row(ui, "Address", "cl_server", 63, "host:port", false);
+    field_row(ui, "Password", "cl_password", NET_PASSWORD_SIZE - 1, "if the server asks one", true);
+    gap(ui, 6);
+    float tip_y = ui->y;
+    if (tip_y + 40 < ui->bottom)
+        text_wrap(F_BODY, "A server's address is its IP or name and its port, as 192.168.1.20:23073. Ctrl+V pastes.", ui->x + 12,
+                  tip_y, ui->w - 24, MUTED);
+
+    ui->w = full_w;
+    float bx = ui->x + ui->w;
+    ui->scrolling = false;
     if (!joined) {
-        if (button(ui, x, y, 120, "Connect")) {
+        if (big_button(ui, ui->x + ui->w, "CONNECT", true, false, &bx)) {
             const Cvar *cv = cvar_find(ui->con, "cl_server");
             snprintf(ui->m->command, sizeof ui->m->command, "connect %s", cv && cv->value[0] ? cv->value : "127.0.0.1");
+            ui->m->connect_asked = true;
         }
-    } else if (button(ui, x, y, 120, "Disconnect")) {
+    } else if (big_button(ui, ui->x + ui->w, "DISCONNECT", false, false, &bx)) {
         snprintf(ui->m->command, sizeof ui->m->command, "disconnect");
     }
-    if (status && status[0]) label(x, y + 40, status, DIM);
+    if (ui->m->connect_asked && status && status[0]) footer_text(ui, ui->x, bx - ui->x - 12, status, MUTED);
 }
 
 // --- the servers --------------------------------------------------------------------
 
-#define SERVER_ROW 16.0f
-#define SERVER_ROWS 15        // shown at once
+#define SERVER_ROW 20.0f
 #define SERVER_DOUBLE_CLICK 0.4 // seconds between the clicks on a row that join it
-
-// `text` cut to fit `width` in the small font, "..." where it was cut.
-static void fit(char *out, size_t size, const char *text, float width)
-{
-    text_style(FONT_SMALL);
-    snprintf(out, size, "%s", text);
-    if (text_width(out) <= width) return;
-    for (size_t n = strlen(out); n > 0; n--) {
-        snprintf(out, size, "%.*s...", (int)n, text);
-        if (text_width(out) <= width) return;
-    }
-}
-
-// Whether the list sorts `a` before `b`: the servers this game can join first, the
-// fuller first, then the nearer.
-static bool server_before(const BrowserServer *a, const BrowserServer *b)
-{
-    bool ja = a->info.protocol == NET_VERSION, jb = b->info.protocol == NET_VERSION;
-    if (ja != jb) return ja;
-    int pa = a->info.players + a->info.bots, pb = b->info.players + b->info.bots;
-    if (pa != pb) return pa > pb;
-    return a->ping < b->ping;
-}
 
 static bool same_address(const QueryAddress *a, const QueryAddress *b)
 {
     return a->port == b->port && strcmp(a->ip, b->ip) == 0;
 }
 
-// Off to `s`: at once, or by the Join page with its address filled in when it asks a
+static bool joinable(const BrowserServer *s) { return s->info.protocol == NET_VERSION; }
+
+static const char *mode_name(uint8_t mode)
+{
+    switch (mode) {
+    case MATCH_DEATHMATCH: return "DM";
+    case MATCH_CTF: return "CTF";
+    default: return "?";
+    }
+}
+
+static const char *server_name(const BrowserServer *s) { return s->info.hostname[0] ? s->info.hostname : s->address.ip; }
+
+// Whether `needle` is in `hay`, any case.
+static bool contains(const char *hay, const char *needle)
+{
+    if (!needle[0]) return true;
+    for (; *hay; hay++) {
+        size_t i = 0;
+        while (needle[i] && hay[i] && tolower((unsigned char)hay[i]) == tolower((unsigned char)needle[i])) i++;
+        if (!needle[i]) return true;
+    }
+    return false;
+}
+
+static int ci_compare(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) {
+        int d = tolower((unsigned char)*a) - tolower((unsigned char)*b);
+        if (d) return d;
+    }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
+// Whether the list puts `a` before `b`: those this game can join first, then by the
+// column, each in its natural order (names A to Z, the fullest first, the nearest
+// first) unless turned; the fuller, then the nearer, after that.
+static bool server_before(const MainMenu *m, const BrowserServer *a, const BrowserServer *b)
+{
+    if (joinable(a) != joinable(b)) return joinable(a);
+    int pa = a->info.players + a->info.bots, pb = b->info.players + b->info.bots;
+    int d = 0;
+    switch (m->server_sort) {
+    case SERVER_SORT_NAME: d = ci_compare(server_name(a), server_name(b)); break;
+    case SERVER_SORT_MODE: d = (int)a->info.mode - (int)b->info.mode; break;
+    case SERVER_SORT_MAP: d = ci_compare(a->info.map, b->info.map); break;
+    case SERVER_SORT_PLAYERS: d = pb - pa; break;
+    case SERVER_SORT_PING: d = a->ping - b->ping; break;
+    }
+    if (m->server_sort_up) d = -d;
+    if (d) return d < 0;
+    if (pa != pb) return pa > pb;
+    return a->ping < b->ping;
+}
+
+static bool server_shown(const MainMenu *m, const BrowserServer *s)
+{
+    if (!s->answered) return false;
+    int players = s->info.players + s->info.bots;
+    if (m->hide_empty && s->info.players == 0) return false;
+    if (m->hide_full && players >= s->info.max_players) return false;
+    if (m->only_compatible && !joinable(s)) return false;
+    return contains(server_name(s), m->search) || contains(s->info.map, m->search);
+}
+
+// Off to `s`: at once, or by Direct Connect with its address filled in when it asks a
 // password, which is typed there.
 static void join_server(Ui *ui, const BrowserServer *s)
 {
@@ -248,85 +997,147 @@ static void join_server(Ui *ui, const BrowserServer *s)
     cvar_set(ui->con, "cl_server", address);
     if (!s->info.password) {
         snprintf(ui->m->command, sizeof ui->m->command, "connect %s", address);
+        ui->m->connect_asked = true;
         return;
     }
     MainMenu *m = ui->m;
-    m->page = MAIN_JOIN;
-    const Cvar *cv = cvar_find(ui->con, "cl_password");
-    snprintf(m->focus_cvar, sizeof m->focus_cvar, "cl_password");
-    snprintf(m->edit, sizeof m->edit, "%s", cv ? cv->value : "");
-    m->edit_max = NET_PASSWORD_SIZE - 1;
-    SDL_StartTextInput();
+    go_page(m, MAIN_JOIN);
+    m->zone = MAIN_ZONE_CONTENT;
+    m->nav = 1; // the password
+    begin_edit(ui, "cl_password", NET_PASSWORD_SIZE - 1);
 }
 
-// The lobby's servers that answered, a row each: name, map, players and ping. A click
-// picks one, a second joins it, as Join does; the wheel scrolls. A server that asks a
-// password has a '*' before its name, and one this game can't join is greyed.
+static Rgba ping_color(int ping) { return ping < 80 ? GOOD : ping < 160 ? WARN : BAD; }
+
+// A column's heading, which sorts by it; a second click turns the order.
+static void column_head(Ui *ui, float x, float y, float w, const char *title, ServerSort sort)
+{
+    MainMenu *m = ui->m;
+    bool sorted = m->server_sort == sort, hot = over(ui, x, y, w, 18);
+    text_mid(F_BOLD, title, x, y + 9, sorted ? TEXT : hot ? MUTED : FAINT);
+    if (sorted) {
+        // pointing down while the larger come first: the players' natural order, the
+        // others' turned
+        bool down = sort == SERVER_SORT_PLAYERS ? !m->server_sort_up : m->server_sort_up;
+        chevron(x + width_of(F_BOLD, title) + 8, y + 9, 6, down, ACCENT);
+    }
+    if (take(ui, -1, x, y, w, 18)) {
+        if (sorted) m->server_sort_up = !m->server_sort_up;
+        else m->server_sort = sort, m->server_sort_up = false;
+    }
+}
+
+// The lobby's servers that answered, a row each: name, mode, map, players and ping, under
+// a search and the filters. A click picks one, a second joins it, as Join does; the wheel
+// scrolls, and with the focus on the list the arrows pick and Enter joins. Below, what
+// the one picked is, and the buttons.
 static void page_servers(Ui *ui, const Browser *b)
 {
     MainMenu *m = ui->m;
-    float x = PAGE_X, y = 90, w = ui->game_width - 40 - PAGE_X - 10;
-    float map_x = x + w * 0.46f, players_x = x + w * 0.73f, ping_x = x + w * 0.88f;
-    label(x + 4, y, "Server", DIM);
-    label(map_x, y, "Map", DIM);
-    label(players_x, y, "Players", DIM);
-    label(ping_x, y, "Ping", DIM);
-    y += 18;
+    float x = ui->x, w = ui->w, y = BODY_TOP;
+    ui->scrolling = false; // the list scrolls itself
+
+    // the search and the filters
+    float sw = clampf(w * 0.34f, 120, 220);
+    {
+        int id = nav_next(ui);
+        bool focused = nav_focused(ui, id, y, CTRL_H);
+        focus_ring(ui, focused, x, y, sw, CTRL_H, 4);
+        field_box(ui, id, focused, x, y, sw, "#search", MAINMENU_SEARCH - 1, "Search", false);
+    }
+    float cx = x + sw + 10;
+    if (chip(ui, cx, y, "Not empty", m->hide_empty)) m->hide_empty = !m->hide_empty;
+    cx += width_of(F_BODY, "Not empty") + 26 + 6;
+    if (chip(ui, cx, y, "Not full", m->hide_full)) m->hide_full = !m->hide_full;
+    cx += width_of(F_BODY, "Not full") + 26 + 6;
+    float rw = width_of(F_BUTTON, "Refresh") + 28;
+    if (cx + width_of(F_BODY, "Compatible") + 26 <= x + w - rw - 10)
+        if (chip(ui, cx, y, "Compatible", m->only_compatible)) m->only_compatible = !m->only_compatible;
+    if (button_at(ui, x + w - rw, y, rw, CTRL_H, "Refresh", false, false)) snprintf(m->command, sizeof m->command, "browse");
+    y += CTRL_H + 10;
+
+    // the columns, from the right: ping, players, map, mode; the name has the rest
+    float ping_x = x + w - 46, players_x = ping_x - 86, map_x = players_x - clampf(w * 0.24f, 80, 170), mode_x = map_x - 56;
+    column_head(ui, x + 22, y, mode_x - x - 30, "SERVER", SERVER_SORT_NAME);
+    column_head(ui, mode_x, y, 40, "MODE", SERVER_SORT_MODE);
+    column_head(ui, map_x, y, players_x - map_x - 6, "MAP", SERVER_SORT_MAP);
+    column_head(ui, players_x, y, 56, "PLAYERS", SERVER_SORT_PLAYERS);
+    column_head(ui, ping_x, y, 40, "PING", SERVER_SORT_PING);
+    y += 20;
 
     int order[BROWSER_MAX], n = 0;
     for (int i = 0; i < b->count; i++) {
-        if (!b->servers[i].answered) continue;
+        if (!server_shown(m, &b->servers[i])) continue;
         int at = n++;
-        while (at > 0 && server_before(&b->servers[i], &b->servers[order[at - 1]])) {
+        while (at > 0 && server_before(m, &b->servers[i], &b->servers[order[at - 1]])) {
             order[at] = order[at - 1];
             at--;
         }
         order[at] = i;
     }
+    int picked_at = -1;
+    for (int i = 0; i < n; i++)
+        if (same_address(&b->servers[order[i]].address, &m->server_selected)) picked_at = i;
 
-    float h = SERVER_ROWS * SERVER_ROW;
-    if (over(ui, x, y, w, h) && m->wheel) m->server_scroll -= m->wheel * 3;
-    m->server_scroll = clampi(m->server_scroll, 0, maxi(n - SERVER_ROWS, 0));
-    rect(x, y, x + w, y + h, FIELD);
-    const BrowserServer *selected = NULL;
-    for (int row = 0; row < SERVER_ROWS && m->server_scroll + row < n; row++) {
-        const BrowserServer *s = &b->servers[order[m->server_scroll + row]];
-        float ry = y + (float)row * SERVER_ROW;
-        bool picked = same_address(&s->address, &m->server_selected), joinable = s->info.protocol == NET_VERSION;
-        if (picked) selected = s;
-        if (picked || over(ui, x, ry, w, SERVER_ROW))
-            rect(x, ry, x + w, ry + SERVER_ROW, picked ? (Rgba){120, 160, 255, 70} : (Rgba){255, 255, 255, 40});
-        Rgba color = joinable ? TEXT : DIM;
-        char text[96], cut[96];
-        snprintf(text, sizeof text, "%s%s", s->info.password ? "* " : "", s->info.hostname[0] ? s->info.hostname : s->address.ip);
-        fit(cut, sizeof cut, text, map_x - x - 10);
-        label(x + 4, ry + 1, cut, color);
-        fit(cut, sizeof cut, s->info.map, players_x - map_x - 6);
-        label(map_x, ry + 1, cut, color);
-        if (joinable) snprintf(text, sizeof text, "%d/%d", s->info.players + s->info.bots, s->info.max_players);
-        else snprintf(text, sizeof text, "v%u", s->info.protocol); // another version's server: not joinable from here
-        label(players_x, ry + 1, text, color);
-        snprintf(text, sizeof text, "%d", s->ping);
-        label(ping_x, ry + 1, text, color);
-        if (take_click(ui, x, ry, w, SERVER_ROW)) {
-            if (picked && joinable && m->time - m->server_clicked_at < SERVER_DOUBLE_CLICK) join_server(ui, s);
-            m->server_selected = s->address;
-            m->server_clicked_at = m->time;
+    float list_bottom = ui->bottom, h = list_bottom - y;
+    int rows = maxi((int)(h / SERVER_ROW), 1);
+    int list_id = nav_next(ui);
+    bool focused = nav_focused(ui, list_id, y, h);
+    if (focused && ui->move) { // the arrows pick along the list, and past its ends leave it
+        int to = picked_at < 0 ? (ui->move > 0 ? 0 : -1) : picked_at + ui->move;
+        if (to >= 0 && to < n) {
+            picked_at = to;
+            m->server_selected = b->servers[order[to]].address;
+            ui->move = 0;
+            if (to < m->server_scroll) m->server_scroll = to;
+            if (to >= m->server_scroll + rows) m->server_scroll = to - rows + 1;
         }
     }
-    if (n > SERVER_ROWS) { // where in the list this is
-        float track = h - 4, knob = maxf(track * (float)SERVER_ROWS / (float)n, 8);
-        float top = y + 2 + (track - knob) * (float)m->server_scroll / (float)(n - SERVER_ROWS);
-        rect(x + w - 5, top, x + w - 2, top + knob, DIM);
+    if (over(ui, x, y, w, h) && m->wheel) {
+        m->server_scroll -= m->wheel * 3;
+        m->wheel = 0;
     }
-    y += h + 8;
-
-    if (button(ui, x, y, 100, "Join")) {
-        if (selected && selected->info.protocol == NET_VERSION) join_server(ui, selected);
+    m->server_scroll = clampi(m->server_scroll, 0, maxi(n - rows, 0));
+    focus_ring(ui, focused, x, y, w, h, 6);
+    rrect(x, y, w, h, 6, WELL);
+    const BrowserServer *selected = picked_at >= 0 ? &b->servers[order[picked_at]] : NULL;
+    for (int row_at = 0; row_at < rows && m->server_scroll + row_at < n; row_at++) {
+        int i = m->server_scroll + row_at;
+        const BrowserServer *s = &b->servers[order[i]];
+        float ry = y + 2 + (float)row_at * SERVER_ROW, cy = ry + SERVER_ROW / 2;
+        bool picked = i == picked_at, can = joinable(s), hot = over(ui, x, ry, w, SERVER_ROW);
+        if (picked) {
+            rrect(x + 2, ry, w - 4, SERVER_ROW, 4, ACCENT_SOFT);
+            rrect(x + 2, ry + 4, 3, SERVER_ROW - 8, 1.5f, ACCENT);
+        } else if (hot) {
+            rrect(x + 2, ry, w - 4, SERVER_ROW, 4, HOVER);
+        }
+        Rgba color = can ? TEXT : FAINT, soft = can ? MUTED : FAINT;
+        if (s->info.password) padlock(x + 10, cy - 5, soft);
+        text_fit(F_BODY, server_name(s), x + 22, cy, mode_x - x - 30, color);
+        text_mid(F_BODY, mode_name(s->info.mode), mode_x, cy, soft);
+        text_fit(F_BODY, s->info.map, map_x, cy, players_x - map_x - 8, soft);
+        char text[32];
+        int players = s->info.players + s->info.bots;
+        if (can) snprintf(text, sizeof text, "%d/%d", players, s->info.max_players);
+        else snprintf(text, sizeof text, "v%u", s->info.protocol); // another version's server: not joinable from here
+        text_mid(F_BODY, text, players_x, cy, !can ? FAINT : players >= s->info.max_players ? WARN : players == 0 ? MUTED : TEXT);
+        snprintf(text, sizeof text, "%d", s->ping);
+        text_mid(F_BODY, text, ping_x, cy, can ? ping_color(s->ping) : FAINT);
+        if (take(ui, list_id, x, ry, w, SERVER_ROW)) {
+            if (picked && can && m->time - m->server_clicked_at < SERVER_DOUBLE_CLICK) join_server(ui, s);
+            m->server_selected = s->address;
+            m->server_clicked_at = m->time;
+            selected = s;
+        }
     }
-    if (button(ui, x + 110, y, 100, "Refresh")) snprintf(m->command, sizeof m->command, "browse");
-    y += BUTTON_H + 8;
+    if (n > rows) { // where in the list this is
+        float track = h - 8, knob = maxf(track * (float)rows / (float)n, 10);
+        float top = y + 4 + (track - knob) * (float)m->server_scroll / (float)(n - rows);
+        rrect(x + w - 6, top, 3, knob, 1.5f, FAINT);
+    }
 
+    // what the list is waiting on, in the list while it has nothing to show
     char status[192];
     switch (b->state) {
     case BROWSER_IDLE:
@@ -335,16 +1146,39 @@ static void page_servers(Ui *ui, const Browser *b)
     case BROWSER_FAILED: snprintf(status, sizeof status, "The lobby can't be reached: %s", b->error); break;
     case BROWSER_DONE:
         if (b->count == 0) snprintf(status, sizeof status, "No servers are listed right now. Host one with Local Play.");
+        else if (n == 0 && b->answered > 0) snprintf(status, sizeof status, "No server matches the search and the filters.");
         else if (n == 0) snprintf(status, sizeof status, "%d listed, and none answered.", b->count);
-        else snprintf(status, sizeof status, "%d server%s. * asks a password.", n, n == 1 ? "" : "s");
+        else snprintf(status, sizeof status, "%d server%s", n, n == 1 ? "" : "s");
         break;
     }
-    if (selected && selected->info.protocol != NET_VERSION)
-        snprintf(status, sizeof status, "That server runs another version of the game (v%u; this is v%u).", selected->info.protocol,
-                 NET_VERSION);
-    char cut[192];
-    fit(cut, sizeof cut, status, w);
-    label(x, y, cut, DIM);
+    if (n == 0) {
+        char cut[192];
+        fit(F_BODY, cut, sizeof cut, status, w - 40);
+        text_mid(F_BODY, cut, x + (w - width_of(F_BODY, cut)) / 2, y + h / 2, MUTED);
+    }
+    if (focused && ui->enter) {
+        ui->enter = false;
+        if (selected && joinable(selected)) join_server(ui, selected);
+    }
+
+    // the action bar: the one picked, and Join
+    float jx = x + w;
+    if (big_button(ui, x + w, "JOIN", true, !selected || !joinable(selected), &jx)) join_server(ui, selected);
+    float tw = jx - x - 16;
+    if (selected) {
+        float top = ACTION_CY;
+        text_fit(F_LABEL, server_name(selected), x, top - 7, tw, TEXT);
+        char line[192];
+        if (joinable(selected))
+            snprintf(line, sizeof line, "%s:%u  -  %s on %s  -  %d players, %d bots, %d slots  -  %d ms%s", selected->address.ip,
+                     selected->address.port, mode_name(selected->info.mode), selected->info.map, selected->info.players,
+                     selected->info.bots, selected->info.max_players, selected->ping, selected->info.password ? "  -  password" : "");
+        else
+            snprintf(line, sizeof line, "Runs another version of the game (v%u; this is v%u).", selected->info.protocol, NET_VERSION);
+        text_fit(F_BODY, line, x, top + 9, tw, joinable(selected) ? MUTED : WARN);
+    } else {
+        footer_text(ui, x, tw, n ? "Pick a server; a double click joins it." : status, MUTED);
+    }
 }
 
 // --- local play ---------------------------------------------------------------------
@@ -364,6 +1198,18 @@ static int rotation_index(const char *list, const char *name)
         at++;
     }
     return -1;
+}
+
+static int rotation_count(const char *list)
+{
+    int n = 0;
+    for (const char *p = list; *p;) {
+        while (*p == ' ' || *p == ',' || *p == '\t') p++;
+        if (!*p) break;
+        while (*p && *p != ' ' && *p != ',' && *p != '\t') p++;
+        n++;
+    }
+    return n;
 }
 
 // `name` into the rotation if it isn't there, out of it if it is.
@@ -395,228 +1241,137 @@ static void rotation_toggle(Console *con, const char *name)
     cvar_set(con, "sv_maps", out);
 }
 
-#define MAP_ROW 16.0f
-#define MAP_ROWS 17 // shown at once
+#define MAP_ROW 18.0f
 
-// The maps under assets, each a row to click into the rotation or out of it, the wheel
-// paging through them; the rotation's places are numbered, as the rounds will go.
-static void map_list(Ui *ui, float x, float y, const char (*maps)[64], int count)
+// The maps under assets, each a row with a box to tick it into the rotation or out of
+// it, numbered in the order the rounds will go; the wheel pages through them, and with
+// the focus on the list the arrows move along it and Enter ticks.
+static void map_list(Ui *ui, float x, float y, float w, float h, const char (*maps)[64], int count)
 {
     MainMenu *m = ui->m;
-    float w = 220, h = MAP_ROWS * MAP_ROW;
-    if (over(ui, x, y, w, h) && m->wheel) m->map_scroll -= m->wheel * 3;
-    m->map_scroll = clampi(m->map_scroll, 0, maxi(count - MAP_ROWS, 0));
-    rect(x, y, x + w, y + h, FIELD);
+    int rows = maxi((int)((h - 4) / MAP_ROW), 1);
+    int id = nav_next(ui);
+    bool focused = nav_focused(ui, id, y, h);
+    if (focused && ui->move) {
+        int to = m->map_cursor + ui->move;
+        if (to >= 0 && to < count) {
+            m->map_cursor = to;
+            ui->move = 0;
+            if (to < m->map_scroll) m->map_scroll = to;
+            if (to >= m->map_scroll + rows) m->map_scroll = to - rows + 1;
+        }
+    }
+    m->map_cursor = clampi(m->map_cursor, 0, maxi(count - 1, 0));
+    if (focused && ui->enter && count > 0) {
+        ui->enter = false;
+        rotation_toggle(ui->con, maps[m->map_cursor]);
+    }
+    if (over(ui, x, y, w, h) && m->wheel) {
+        m->map_scroll -= m->wheel * 3;
+        m->wheel = 0;
+    }
+    m->map_scroll = clampi(m->map_scroll, 0, maxi(count - rows, 0));
+    focus_ring(ui, focused, x, y, w, h, 6);
+    rrect(x, y, w, h, 6, WELL);
     const Cvar *cv = cvar_find(ui->con, "sv_maps");
     const char *list = cv ? cv->value : "";
-    for (int row = 0; row < MAP_ROWS; row++) {
-        int i = m->map_scroll + row;
+    for (int row_at = 0; row_at < rows; row_at++) {
+        int i = m->map_scroll + row_at;
         if (i >= count) break;
-        float ry = y + (float)row * MAP_ROW;
+        float ry = y + 2 + (float)row_at * MAP_ROW, cy = ry + MAP_ROW / 2;
         int at = rotation_index(list, maps[i]);
-        bool hot = over(ui, x, ry, w, MAP_ROW);
-        if (hot || at >= 0) rect(x, ry, x + w, ry + MAP_ROW, at >= 0 ? (Rgba){120, 160, 255, 70} : (Rgba){255, 255, 255, 40});
-        char place[8] = "";
-        if (at >= 0) snprintf(place, sizeof place, "%d.", at + 1);
-        label(x + 4, ry + 1, place, TEXT);
-        label(x + 26, ry + 1, maps[i], at >= 0 ? TEXT : DIM);
-        if (take_click(ui, x, ry, w, MAP_ROW)) rotation_toggle(ui->con, maps[i]);
+        bool hot = over(ui, x, ry, w, MAP_ROW), cursor = focused && ui->show_focus && i == m->map_cursor;
+        if (cursor) rrect(x + 2, ry, w - 4, MAP_ROW, 4, ACCENT_SOFT);
+        else if (hot) rrect(x + 2, ry, w - 4, MAP_ROW, 4, HOVER);
+        // the tick box, the accent when in the rotation
+        rrect(x + 8, cy - 6, 12, 12, 3, at >= 0 ? ACCENT : CONTROL_HOT);
+        if (at >= 0) {
+            gfx_draw_line(vec2(x + 10.5f, cy), vec2(x + 13, cy + 3), 1.6f, TEXT);
+            gfx_draw_line(vec2(x + 13, cy + 3), vec2(x + 18, cy - 3), 1.6f, TEXT);
+        }
+        text_fit(F_BODY, maps[i], x + 28, cy, w - 60, at >= 0 ? TEXT : MUTED);
+        if (at >= 0) {
+            char place[8];
+            snprintf(place, sizeof place, "%d", at + 1);
+            text_mid(F_BOLD, place, x + w - 14 - width_of(F_BOLD, place), cy, ACCENT);
+        }
+        if (take(ui, id, x, ry, w, MAP_ROW)) {
+            m->map_cursor = i;
+            rotation_toggle(ui->con, maps[i]);
+        }
     }
-    if (count > MAP_ROWS) { // where in the list this is
-        float track = h - 4, knob = maxf(track * (float)MAP_ROWS / (float)count, 8);
-        float top = y + 2 + (track - knob) * (float)m->map_scroll / (float)(count - MAP_ROWS);
-        rect(x + w - 5, top, x + w - 2, top + knob, DIM);
+    if (count > rows) {
+        float track = h - 8, knob = maxf(track * (float)rows / (float)count, 10);
+        float top = y + 4 + (track - knob) * (float)m->map_scroll / (float)(count - rows);
+        rrect(x + w - 6, top, 3, knob, 1.5f, FAINT);
     }
 }
 
 static void page_local(Ui *ui, const char *status, bool hosting, const char (*maps)[64], int count)
 {
-    float x = PAGE_X, y = 90;
-    Console *con = ui->con;
+    MainMenu *m = ui->m;
     static const int MODES[] = {0, 1, 2};
     static const char *const MODE_NAMES[] = {"The map's own", "Deathmatch", "Capture the Flag"};
     static const int SKILLS[] = {300, 200, 100, 50, 10};
     static const char *const SKILL_NAMES[] = {"Stupid", "Poor", "Normal", "Hard", "Impossible"};
-    static const int ONOFF[] = {0, 1};
-    static const char *const ONOFF_NAMES[] = {"Off", "On"};
 
-    label(x, y, "Mode", DIM);
-    choice(ui, x + 110, y - 3, "sv_gamemode", MODES, MODE_NAMES, 3);
-    y += ROW;
-    label(x, y, "Time limit", DIM);
-    stepper(ui, x + 110, y - 3, "sv_timelimit", 5, 60, 5, "%d min");
-    y += ROW;
-    label(x, y, "Score limit", DIM);
-    stepper(ui, x + 110, y - 3, "sv_killlimit", 5, 100, 5, "%d");
-    y += ROW + 6;
-    label(x, y, "Bots, deathmatch", DIM);
-    stepper(ui, x + 110, y - 3, "bots_random_noteam", 0, 15, 1, "%d");
-    y += ROW;
-    label(x, y, "Bots, alpha", DIM);
-    stepper(ui, x + 110, y - 3, "bots_random_alpha", 0, 15, 1, "%d");
-    y += ROW;
-    label(x, y, "Bots, bravo", DIM);
-    stepper(ui, x + 110, y - 3, "bots_random_bravo", 0, 15, 1, "%d");
-    y += ROW;
-    label(x, y, "Bot skill", DIM);
-    choice(ui, x + 110, y - 3, "bots_difficulty", SKILLS, SKILL_NAMES, 5);
-    y += ROW;
-    label(x, y, "Bot chat", DIM);
-    choice(ui, x + 110, y - 3, "bots_chat", ONOFF, ONOFF_NAMES, 2);
-    y += ROW;
-    label(x, y, "Rope", DIM);
-    choice(ui, x + 110, y - 3, "sv_rope", ONOFF, ONOFF_NAMES, 2);
-    y += ROW + 6;
-    label(x, y, "Port", DIM);
-    field(ui, x + 110, y - 3, 80, "sv_port", 5);
-    y += ROW + 10;
+    // the settings on the left, scrolling; the maps on the right, standing
+    float x = ui->x, w = ui->w, list_w = clampf(w * 0.4f, 160, 260);
+    ui->w = w - list_w - 20;
+    section(ui, "MATCH");
+    cvar_select(ui, "Mode", "sv_gamemode", MODES, MODE_NAMES, NULL, 3);
+    slider(ui, "Time limit", "sv_timelimit", 5, 60, 5, true, "%d min");
+    slider(ui, "Score limit", "sv_killlimit", 5, 100, 5, true, "%d");
+    section(ui, "BOTS");
+    slider(ui, "Deathmatch", "bots_random_noteam", 0, 15, 1, true, "%d");
+    slider(ui, "Alpha team", "bots_random_alpha", 0, 15, 1, true, "%d");
+    slider(ui, "Bravo team", "bots_random_bravo", 0, 15, 1, true, "%d");
+    cvar_select(ui, "Skill", "bots_difficulty", SKILLS, SKILL_NAMES, NULL, 5);
+    toggle(ui, "Bots chat", "bots_chat");
+    section(ui, "SERVER");
+    toggle(ui, "Rope", "sv_rope");
+    field_row(ui, "Port", "sv_port", 5, "23073", false);
+    ui->w = w;
 
-    if (!hosting) {
-        if (button(ui, x, y, 120, "Play")) snprintf(ui->m->command, sizeof ui->m->command, "host");
-    } else if (button(ui, x, y, 120, "Stop")) {
-        snprintf(ui->m->command, sizeof ui->m->command, "disconnect");
-    }
-    if (status && status[0]) label(x, y + 36, status, DIM);
-    label(x, y + 58, "A server starts here and you join it; friends can", DIM);
-    label(x, y + 72, "join too, at your address and this port.", DIM);
+    bool scrolling = ui->scrolling;
+    ui->scrolling = false;
+    float lx = x + w - list_w, ly = BODY_TOP;
+    const Cvar *cv = cvar_find(ui->con, "sv_maps");
+    const char *list = cv ? cv->value : "";
+    int chosen = rotation_count(list);
+    text_mid(F_BOLD, "MAP ROTATION", lx + 2, ly + SECTION_H - 9, ACCENT);
+    char counted[32];
+    snprintf(counted, sizeof counted, chosen ? "%d chosen" : "none chosen", chosen);
+    text_mid(F_BODY, counted, lx + list_w - 4 - width_of(F_BODY, counted), ly + SECTION_H - 9, MUTED);
+    ly += SECTION_H + 2;
+    float lh = ui->bottom - ly - 18;
+    map_list(ui, lx, ly, list_w, lh, maps, count);
+    text_fit(F_BODY, chosen ? "Ticked maps play in this order." : "None ticked: the current map plays again and again.", lx + 2,
+             ly + lh + 10, list_w - 4, FAINT);
 
-    float lx = x + 300;
-    label(lx, 70, "Maps in rotation (click to add or remove; the first plays first)", DIM);
-    map_list(ui, lx, 90, maps, count);
-    const Cvar *cv = cvar_find(con, "sv_maps");
-    if (!cv || !cv->value[0]) label(lx, 90 + MAP_ROWS * MAP_ROW + 6, "None chosen: the map cvar's plays, again and again.", DIM);
+    float bx = x + w;
+    if (big_button(ui, x + w, hosting ? "STOP" : "PLAY", !hosting, false, &bx))
+        snprintf(m->command, sizeof m->command, hosting ? "disconnect" : "host");
+    char hint[160];
+    if (status && status[0] && hosting) snprintf(hint, sizeof hint, "%s", status);
+    else snprintf(hint, sizeof hint, "Friends can join at your address, port %d.", cvar_int(ui->con, "sv_port", 0, 65535));
+    footer_text(ui, x, bx - x - 12, hint, MUTED);
+    ui->scrolling = scrolling;
 }
+
+// --- the player ---------------------------------------------------------------------
 
 static const char *const HAIR_STYLES[] = {"Army", "Dreadlocks", "Punk", "Mr. T", "Normal", "Fringe", "Bob"};
 static const char *const HEAD_STYLES[] = {"None", "Helmet", "Hat", "Waifu helmet"};
 static const char *const CHAIN_STYLES[] = {"None", "Dog tags", "Gold chain"};
 static const char *const SECONDARIES[] = {"USSOCOM", "Combat Knife", "Chainsaw", "LAW"};
 
-static int cvar_int(const Console *con, const char *name, int lo, int hi)
-{
-    const Cvar *cv = cvar_find(con, name);
-    return cv ? clampi(cv->integer, lo, hi) : lo;
-}
-
-static Rgba cvar_color(const Console *con, const char *name)
-{
-    Rgba color = {255, 255, 255, 255};
-    const Cvar *cv = cvar_find(con, name);
-    if (cv && !rgba_parse_hex(cv->value, &color)) rgba_parse_hex(cv->default_value, &color);
-    return color;
-}
-
-typedef struct PaletteColor {
-    Rgba color;
-    float hue, saturation, value;
-} PaletteColor;
-
-// Sort colors by hue, then from darker to lighter within each hue.
-static int compare_palette_colors(const void *a, const void *b)
-{
-    const PaletteColor *left = a, *right = b;
-    if (left->hue != right->hue) return left->hue < right->hue ? -1 : 1;
-    if (left->value != right->value) return left->value < right->value ? -1 : 1;
-    if (left->saturation != right->saturation) return left->saturation < right->saturation ? -1 : 1;
-    if (left->color.r != right->color.r) return left->color.r < right->color.r ? -1 : 1;
-    if (left->color.g != right->color.g) return left->color.g < right->color.g ? -1 : 1;
-    if (left->color.b != right->color.b) return left->color.b < right->color.b ? -1 : 1;
-    return 0;
-}
-
-// Build the 216 RGB colors and arrange them in hue and brightness order.
-static void make_palette(PaletteColor colors[216])
-{
-    static const uint8_t levels[] = {0, 51, 102, 153, 204, 255};
-    int at = 0;
-    for (int b = 0; b < 6; b++) {
-        for (int g = 0; g < 6; g++) {
-            for (int r = 0; r < 6; r++) {
-                float red = (float)levels[r] / 255.0f;
-                float green = (float)levels[g] / 255.0f;
-                float blue = (float)levels[b] / 255.0f;
-                float maximum = fmaxf(red, fmaxf(green, blue));
-                float minimum = fminf(red, fminf(green, blue));
-                float delta = maximum - minimum;
-                float hue = 0;
-                if (delta > 0) {
-                    if (maximum == red)
-                        hue = 60.0f * fmodf((green - blue) / delta, 6.0f);
-                    else if (maximum == green)
-                        hue = 60.0f * ((blue - red) / delta + 2.0f);
-                    else
-                        hue = 60.0f * ((red - green) / delta + 4.0f);
-                    if (hue < 0) hue += 360.0f;
-                } else {
-                    hue = -1.0f;
-                }
-                colors[at++] = (PaletteColor){
-                    .color = {levels[r], levels[g], levels[b], 255},
-                    .hue = hue,
-                    .saturation = maximum > 0 ? delta / maximum : 0,
-                    .value = maximum,
-                };
-            }
-        }
-    }
-    qsort(colors, 216, sizeof colors[0], compare_palette_colors);
-}
-
-static void color_picker(Ui *ui, const char *cvar, float x, float y, bool draw)
-{
-    if (strcmp(ui->m->color_picker, cvar) != 0) return;
-    PaletteColor colors[216];
-    make_palette(colors);
-    const float cell = 9, gap = 1, width = 12 * (cell + gap) - gap;
-    float left = clampf(x + 235, 20, ui->game_width - width - 30);
-    float top = y;
-    if (!draw) {
-        if (!ui->click) return;
-        if (!over(ui, left - 6, top - 5, width + 12, 209)) {
-            ui->m->color_picker[0] = '\0';
-            return;
-        }
-        ui->click = false;
-        if (over(ui, left + width - 12, top - 2, 14, 16)) {
-            ui->m->color_picker[0] = '\0';
-            return;
-        }
-        for (int row = 0; row < 18; row++) {
-            for (int col = 0; col < 12; col++) {
-                float sx = left + (float)col * (cell + gap);
-                float sy = top + 20 + (float)row * (cell + gap);
-                if (!over(ui, sx, sy, cell, cell)) continue;
-                Rgba color = colors[row * 12 + col].color;
-                char hex[7];
-                snprintf(hex, sizeof hex, "%02X%02X%02X", color.r, color.g, color.b);
-                cvar_set(ui->con, cvar, hex);
-                return;
-            }
-        }
-        return;
-    }
-    rect(left - 6, top - 5, left + width + 6, top + 204, FIELD_FOCUSED);
-    label(left, top, "Hex palette", TEXT);
-    label(left + width - 10, top, "X", DIM);
-
-    Rgba selected = cvar_color(ui->con, cvar);
-    for (int row = 0; row < 18; row++) {
-        for (int col = 0; col < 12; col++) {
-            float sx = left + (float)col * (cell + gap);
-            float sy = top + 20 + (float)row * (cell + gap);
-            Rgba color = colors[row * 12 + col].color;
-            bool current = color.r == selected.r && color.g == selected.g && color.b == selected.b;
-            if (current) rect(sx - 1, sy - 1, sx + cell + 1, sy + cell + 1, TEXT);
-            rect(sx, sy, sx + cell, sy + cell, color);
-        }
-    }
-}
-
 // The gostek as the cvars dress it, standing, at `at` in the menu's units, `scale`
 // times its size in the world. Drawn from the art of the style the cvars choose.
-static void preview(Ui *ui, const Gostek *gostek, const Anims *anims, Vec2 at, float scale)
+static void preview(Ui *ui, const Gostek *gostek, const Context *ctx, Vec2 at, float scale)
 {
-    if (!gostek || !anims) return;
+    if (!gostek || !ctx || !ctx->anims) return;
+    const Anims *anims = ctx->anims;
     Console *con = ui->con;
     Soldier s = {.active = true, .team = TEAM_NONE, .direction = 1, .health = DEFAULT_HEALTH, .aim = vec2(60, -12)};
     anim_set(anims, &s.legs, ANIM_STAND, 1);
@@ -643,120 +1398,124 @@ static void preview(Ui *ui, const Gostek *gostek, const Anims *anims, Vec2 at, f
             .style = (uint8_t)cvar_int(con, "cl_player_style", 0, GOSTEK_STYLE_COUNT - 1),
         },
     };
+    // the chain's and the dreadlocks' points, at rest, as soldier_swing would settle them
+    // on a soldier standing still: each end hanging straight down from its anchor by its
+    // constraint's length. Left at nothing, they drew the hair between the feet.
+    {
+        const Pose *p = &rs.pose;
+        rs.swing[0] = p->p[8];
+        rs.swing[2] = vec2_add(p->p[8], vec2_scale(vec2_sub(p->p[11], p->p[8]), 50.0f));
+        for (int k = 0; k < 2; k++) {
+            float rest = 0;
+            if (ctx->skeletons) {
+                const ParticleObject *sk = &ctx->skeletons->gostek;
+                int c = sk->constraint_count - 2 + k; // 22 to 21, then 24 to 23
+                if (c >= 0) rest = vec2_length(vec2_sub(sk->points[sk->constraints[c][1]], sk->points[sk->constraints[c][0]]));
+            }
+            rs.swing[2 * k + 1] = vec2_add(rs.swing[2 * k], vec2(0, rest));
+        }
+    }
     // the world's origin lands on `at`, the world `scale` times larger than the units
-    gfx_transform(mat3_ortho(-at.x / scale, (ui->game_width - at.x) / scale, -at.y / scale, (GAME_HEIGHT_UNITS - at.y) / scale));
+    gfx_transform(mat3_ortho(-at.x / scale, (ui->game_width - at.x) / scale, -at.y / scale, (VIEW_H - at.y) / scale));
     // the belt's grenades as the game will draw them: their art while no colour is set
     const Cvar *nades = cvar_find(con, "cl_grenade_color");
     Rgba nade_color = {0};
     if (nades && rgba_parse_hex(nades->value, &nade_color)) nade_color.a = 255;
     else nade_color = (Rgba){0};
     gostek_draw(gostek, &rs, false, nade_color);
-    gfx_transform(mat3_ortho(0, ui->game_width, 0, GAME_HEIGHT_UNITS));
+    gfx_transform(mat3_ortho(0, ui->game_width, 0, VIEW_H));
     text_pixel_ratio(vec2(ui->pixel, ui->pixel));
 }
 
-static void page_player(Ui *ui, const Gostek *gostek, const Anims *anims, const Weapons *weapons)
+static void page_player(Ui *ui, const Gostek *gostek, const Context *ctx)
 {
-    float x = PAGE_X, y = 100;
-    label(x, y, "Name", DIM);
-    field(ui, x + 110, y - 3, 170, "cl_player_name", NET_NAME_SIZE - 1);
-    y += ROW + 6;
-    static const char *const COLOURS[][2] = {{"Shirt", "cl_player_shirt"}, {"Pants", "cl_player_pants"}, {"Skin", "cl_player_skin"},
-                                             {"Hair", "cl_player_hair"},   {"Jet", "cl_player_jet"},
-                                             {"Grenades", "cl_grenade_color"}};
-    float colors_y = y;
-    for (size_t i = 0; i < sizeof COLOURS / sizeof COLOURS[0]; i++) {
-        if (strcmp(ui->m->color_picker, COLOURS[i][1]) == 0) {
-            color_picker(ui, COLOURS[i][1], x, colors_y + (float)i * ROW - 3, false);
-            break;
-        }
-    }
-    for (size_t i = 0; i < sizeof COLOURS / sizeof COLOURS[0]; i++) {
-        label(x, y, COLOURS[i][0], DIM);
-        field(ui, x + 110, y - 3, 90, COLOURS[i][1], 6);
-        Rgba c = cvar_color(ui->con, COLOURS[i][1]);
-        c.a = 255;
-        // the grenades with no colour set are their own art: the swatch stands empty
-        const Cvar *cv = cvar_find(ui->con, COLOURS[i][1]);
-        Rgba unset;
-        if (cv && !cv->default_value[0] && !rgba_parse_hex(cv->value, &unset)) c = FIELD;
-        rect(x + 210, y - 3, x + 210 + ROW - 4, y - 3 + ROW - 4, c);
-        if (take_click(ui, x + 210, y - 3, ROW - 4, ROW - 4)) {
-            if (strcmp(ui->m->color_picker, COLOURS[i][1]) == 0)
-                ui->m->color_picker[0] = '\0';
-            else
-                snprintf(ui->m->color_picker, sizeof ui->m->color_picker, "%s", COLOURS[i][1]);
-        }
-        y += ROW;
-    }
-    label(x, y, "Hair", DIM);
+    float x = ui->x, w = ui->w, pw = clampf(w * 0.34f, 150, 220);
+    ui->w = w - pw - 20;
     int style = cvar_int(ui->con, "cl_player_style", 0, GOSTEK_STYLE_COUNT - 1);
+    bool plain = style == GOSTEK_STYLE_RAT || style == GOSTEK_STYLE_FURRY; // they wear only some hair, and no headgear
+
+    section(ui, "IDENTITY");
+    field_row(ui, "Name", "cl_player_name", NET_NAME_SIZE - 1, "Major", false);
+    section(ui, "LOOK");
     {
+        static const int STYLES[] = {GOSTEK_STYLE_MALE, GOSTEK_STYLE_FEMALE, GOSTEK_STYLE_WAIFU, GOSTEK_STYLE_RAT, GOSTEK_STYLE_FURRY};
+        static const char *const STYLE_NAMES[] = {"Male", "Female", "Waifu", "Rat", "Furry"};
+        cvar_select(ui, "Style", "cl_player_style", STYLES, STYLE_NAMES, NULL, 5);
         static const int HAIR_VALUES[] = {0, 1, 2, 3, 4, 5, 6};
         // the rat and the furry wear only army, punk and Mr. T; everyone else may wear all six
         static const bool RAT_HAIR_LOCKED[] = {false, true, false, false, true, true, true};
-        static const bool HAIR_FREE[] = {false, false, false, false, false, false, false};
-        locked_choice(ui, x + 110, y - 3, "cl_player_hairstyle", HAIR_VALUES, HAIR_STYLES,
-                      style == GOSTEK_STYLE_RAT || style == GOSTEK_STYLE_FURRY ? RAT_HAIR_LOCKED : HAIR_FREE,
-                      (int)(sizeof HAIR_VALUES / sizeof HAIR_VALUES[0]));
-    }
-    y += ROW;
-    label(x, y, "Head", DIM);
-    {
+        cvar_select(ui, "Hair", "cl_player_hairstyle", HAIR_VALUES, HAIR_STYLES, plain ? RAT_HAIR_LOCKED : NULL, 7);
         static const int HEAD_VALUES[] = {0, 1, 2, 3};
-        // the rat and the furry wear no headgear; everyone else may wear all three
         static const bool RAT_HEAD_LOCKED[] = {false, true, true, true};
-        static const bool HEAD_FREE[] = {false, false, false, false};
-        locked_choice(ui, x + 110, y - 3, "cl_player_headstyle", HEAD_VALUES, HEAD_STYLES,
-                      style == GOSTEK_STYLE_RAT || style == GOSTEK_STYLE_FURRY ? RAT_HEAD_LOCKED : HEAD_FREE,
-                      (int)(sizeof HEAD_VALUES / sizeof HEAD_VALUES[0]));
+        cvar_select(ui, "Headgear", "cl_player_headstyle", HEAD_VALUES, HEAD_STYLES, plain ? RAT_HEAD_LOCKED : NULL, 4);
+        static const int CHAIN_VALUES[] = {0, 1, 2};
+        cvar_select(ui, "Chain", "cl_player_chainstyle", CHAIN_VALUES, CHAIN_STYLES, NULL, 3);
     }
-    y += ROW;
-    label(x, y, "Chain", DIM);
-    cycler(ui, x + 110, y - 3, "cl_player_chainstyle", 0, 2, CHAIN_STYLES[cvar_int(ui->con, "cl_player_chainstyle", 0, 2)]);
-    y += ROW;
-    label(x, y, "Style", DIM);
+    section(ui, "COLOURS");
+    color_row(ui, "Shirt", "cl_player_shirt");
+    color_row(ui, "Pants", "cl_player_pants");
+    color_row(ui, "Skin", "cl_player_skin");
+    color_row(ui, "Hair", "cl_player_hair");
+    color_row(ui, "Jets", "cl_player_jet");
+    color_row(ui, "Grenades", "cl_grenade_color");
+    section(ui, "LOADOUT");
     {
-        static const int STYLES[] = {GOSTEK_STYLE_MALE, GOSTEK_STYLE_FEMALE, GOSTEK_STYLE_WAIFU, GOSTEK_STYLE_RAT,
-                                     GOSTEK_STYLE_FURRY};
-        static const char *const STYLE_NAMES[] = {"Male", "Female", "Waifu", "Rat", "Furry"};
-        static const bool STYLE_LOCKED[] = {false, false, false, false, false}; // female and rat wear the male art as a template for now
-        locked_choice(ui, x + 110, y - 3, "cl_player_style", STYLES, STYLE_NAMES, STYLE_LOCKED,
-                      (int)(sizeof STYLES / sizeof STYLES[0]));
-    }
-    y += ROW;
-    int primary = cvar_int(ui->con, "cl_player_wep", WEAPON_EAGLE, WEAPON_MINIGUN);
-    label(x, y, "Primary", DIM);
-    cycler(ui, x + 110, y - 3, "cl_player_wep", WEAPON_EAGLE, WEAPON_MINIGUN, weapons && weapons->info[primary].name ? weapons->info[primary].name : "");
-    y += ROW;
-    label(x, y, "Secondary", DIM);
-    cycler(ui, x + 110, y - 3, "cl_player_secwep", 0, 3, SECONDARIES[cvar_int(ui->con, "cl_player_secwep", 0, 3)]);
-    y += ROW;
-    label(x, y, "Enter RRGGBB or click a swatch to pick. Team games use the team's shirt.", DIM);
-
-    preview(ui, gostek, anims, vec2(ui->game_width - 110, 250), 3.0f);
-    for (size_t i = 0; i < sizeof COLOURS / sizeof COLOURS[0]; i++) {
-        if (strcmp(ui->m->color_picker, COLOURS[i][1]) == 0) {
-            color_picker(ui, COLOURS[i][1], x, colors_y + (float)i * ROW - 3, true);
-            break;
+        int values[WEAPON_COUNT], count = 0;
+        const char *names[WEAPON_COUNT];
+        for (int i = WEAPON_EAGLE; i <= WEAPON_MINIGUN && count < MAINMENU_POPUP_ITEMS; i++) {
+            values[count] = i;
+            names[count++] = ctx && ctx->weapons.info[i].name ? ctx->weapons.info[i].name : "?";
         }
+        cvar_select(ui, "Primary", "cl_player_wep", values, names, NULL, count);
+        static const int SECONDARY_VALUES[] = {0, 1, 2, 3};
+        cvar_select(ui, "Secondary", "cl_player_secwep", SECONDARY_VALUES, SECONDARIES, NULL, 4);
     }
+    gap(ui, 4);
+    Row note = row(ui, 22, false);
+    if (note.shown) text_mid(F_BODY, "Team games dress you in your team's shirt.", note.x + 12, note.y + 11, FAINT);
+    ui->w = w;
+
+    // the soldier as dressed, on a stand of its own
+    float px = x + w - pw, py = BODY_TOP, ph = ui->bottom - BODY_TOP;
+    rrect(px, py, pw, ph, 8, (Rgba){28, 33, 45, 200});
+    float floor_y = py + ph * 0.64f;
+    char name[64];
+    const Cvar *cv = cvar_find(ui->con, "cl_player_name");
+    fit(F_LABEL, name, sizeof name, cv && cv->value[0] ? cv->value : "Major", pw - 20);
+    text_at(F_LABEL, name, px + (pw - width_of(F_LABEL, name)) / 2, py + 16, TEXT);
+    preview(ui, gostek, ctx, vec2(px + pw / 2 - 8, floor_y), 4.0f);
 }
 
-// The keys' rows: what each does, and the key that does it.
+// --- the controls -------------------------------------------------------------------
+
+// The keys' rows: what each does, and the key that does it, by what it is for.
 typedef struct Control {
     const char *label, *command;
 } Control;
 
 static const Control CONTROLS[] = {
-    {"Left", "+left"},          {"Right", "+right"},          {"Jump", "+jump"},         {"Crouch", "+crouch"},
-    {"Prone", "+prone"},        {"Jet", "+jet"},              {"Fire", "+fire"},         {"Throw grenade", "+throw"},
-    {"Reload", "+reload"},      {"Change weapon", "+change"}, {"Throw weapon", "+drop"}, {"Throw flag", "+flagthrow"},
-    {"Suicide", "+suicide"},    {"Chat", "chat"},             {"Team chat", "teamchat"}, {"Command", "cmd"},
-    {"Radio", "+radio"},        {"Weapons menu", "weaponsmenu"}, {"Team menu", "teammenu"}, {"Scoreboard", "fragsmenu"},
+    {"Left", "+left"},           {"Right", "+right"},          {"Jump", "+jump"},           {"Crouch", "+crouch"},
+    {"Prone", "+prone"},         {"Jet", "+jet"},              {"Fire", "+fire"},           {"Throw grenade", "+throw"},
+    {"Reload", "+reload"},       {"Change weapon", "+change"}, {"Throw weapon", "+drop"},   {"Throw flag", "+flagthrow"},
+    {"Suicide", "+suicide"},     {"Chat", "chat"},             {"Team chat", "teamchat"},   {"Command", "cmd"},
+    {"Radio", "+radio"},         {"Weapons menu", "weaponsmenu"}, {"Team menu", "teammenu"}, {"Scoreboard", "fragsmenu"},
     {"Weapon stats", "statsmenu"}, {"Minimap", "toggle ui_minimap"},
 };
 #define CONTROL_COUNT ((int)(sizeof CONTROLS / sizeof CONTROLS[0]))
+
+// The groups, as runs of CONTROLS: a title and where each begins.
+typedef struct ControlGroup {
+    const char *title;
+    int first, count;
+    int column;
+} ControlGroup;
+
+static const ControlGroup CONTROL_GROUPS[] = {
+    {"MOVEMENT", 0, 6, 0},
+    {"COMBAT", 6, 7, 0},
+    {"TALK", 13, 4, 1},
+    {"MENUS", 17, 5, 1},
+};
 
 // The key bound to `command`, the first if several; "" if none.
 static const char *key_of(const Console *con, const char *command)
@@ -781,214 +1540,133 @@ static void rebind(Console *con, const char *key, const char *command)
     console_bind(con, key, command);
 }
 
+// A control's row: what it does, and its key on a chip; a click, or Enter, waits for the
+// next key, which the events give it (mainmenu_event).
+static void bind_row(Ui *ui, int i)
+{
+    MainMenu *m = ui->m;
+    Row r = row(ui, 24, true);
+    bool capturing = m->capturing == i;
+    if ((r.shown && take(ui, r.id, r.x, r.y, r.w, r.h)) || take_enter(ui, r.focused)) m->capturing = i;
+    if (!r.shown) return;
+    char key[40];
+    const char *bound = key_of(ui->con, CONTROLS[i].command);
+    if (capturing) snprintf(key, sizeof key, "Press a key");
+    else if (!bound[0]) snprintf(key, sizeof key, "unbound");
+    else {
+        size_t n = 0;
+        for (; bound[n] && n + 1 < sizeof key; n++) key[n] = (char)toupper((unsigned char)bound[n]);
+        key[n] = '\0';
+    }
+    float kw = maxf(width_of(F_BOLD, key) + 18, 56), kx = r.x + r.w - 8 - kw, ky = r.y + (r.h - 18) / 2;
+    text_fit(F_LABEL, CONTROLS[i].label, r.x + 12, r.y + r.h / 2, kx - r.x - 20, TEXT);
+    if (capturing) {
+        float pulse = 0.5f + 0.5f * sinf((float)m->time * 6.0f);
+        rrect(kx, ky, kw, 18, 4, with_alpha(ACCENT, (uint8_t)(110 + 120 * pulse)));
+    } else {
+        rrect(kx, ky, kw, 18, 4, r.hot ? CONTROL_HOT : CONTROL);
+    }
+    text_mid(F_BOLD, key, kx + (kw - width_of(F_BOLD, key)) / 2, ky + 9, capturing ? TEXT : bound[0] ? TEXT : FAINT);
+}
+
 static void page_controls(Ui *ui)
 {
-    float x = PAGE_X, y = 90;
-    int half = (CONTROL_COUNT + 1) / 2;
-    for (int i = 0; i < CONTROL_COUNT; i++) {
-        float cx = x + (float)(i / half) * 260, cy = y + (float)(i % half) * 19;
-        bool capturing = ui->m->capturing == i;
-        bool hot = over(ui, cx, cy, 250, 18);
-        if (hot || capturing) rect(cx, cy, cx + 250, cy + 18, capturing ? (Rgba){255, 230, 170, 60} : (Rgba){255, 255, 255, 40});
-        label(cx + 4, cy + 2, CONTROLS[i].label, DIM);
-        label(cx + 150, cy + 2, capturing ? "press a key" : key_of(ui->con, CONTROLS[i].command), TEXT);
-        if (take_click(ui, cx, cy, 250, 18)) ui->m->capturing = i;
+    float x = ui->x, w = ui->w, top_y = ui->y;
+    bool two = w >= 400;
+    float col_w = two ? (w - 20) / 2 : w;
+    float ends[2] = {top_y, top_y};
+    for (size_t g = 0; g < sizeof CONTROL_GROUPS / sizeof CONTROL_GROUPS[0]; g++) {
+        const ControlGroup *group = &CONTROL_GROUPS[g];
+        int column = two ? group->column : 0;
+        ui->x = x + (float)column * (col_w + 20);
+        ui->w = col_w;
+        ui->y = ends[column];
+        section(ui, group->title);
+        for (int i = group->first; i < group->first + group->count; i++) bind_row(ui, i);
+        gap(ui, 6);
+        ends[column] = ui->y;
     }
-    label(x, y + (float)half * 19 + 10, "Click a key to change it, then press the new one. Escape keeps the old.", DIM);
+    ui->x = x;
+    ui->w = w;
+    ui->y = maxf(ends[0], ends[1]);
 }
+
+// --- options and graphics -----------------------------------------------------------
 
 typedef struct Resolution {
     int w, h;
 } Resolution;
-static const Resolution RESOLUTIONS[] = {{640, 480}, {800, 600}, {1024, 768}, {1280, 720}, {1280, 960}, {1600, 900}, {1920, 1080}, {2560, 1440}};
+static const Resolution RESOLUTIONS[] = {{640, 480},   {800, 600},   {1024, 768},  {1280, 720},
+                                         {1280, 960},  {1600, 900},  {1920, 1080}, {2560, 1440}};
 #define RESOLUTION_COUNT ((int)(sizeof RESOLUTIONS / sizeof RESOLUTIONS[0]))
-
-static void compact_stepper(Ui *ui, float x, float y, const char *cvar)
-{
-    const Cvar *cv = cvar_find(ui->con, cvar);
-    int value = cv ? clampi(cv->integer, 50, 200) : 100;
-    bool left = take_click(ui, x, y, 20, ROW - 4);
-    bool right = take_click(ui, x + 50, y, 20, ROW - 4);
-    if (left || right) {
-        char number[16];
-        snprintf(number, sizeof number, "%d", clampi(value + (right ? 10 : -10), 50, 200));
-        cvar_set(ui->con, cvar, number);
-    }
-    label(x + 4, y + 3, "<", over(ui, x, y, 20, ROW - 4) ? TEXT : DIM);
-    label(x + 54, y + 3, ">", over(ui, x + 50, y, 20, ROW - 4) ? TEXT : DIM);
-    char shown[16];
-    snprintf(shown, sizeof shown, "%d%%", value);
-    text_style(FONT_SMALL);
-    text_color(TEXT);
-    text_draw(shown, x + 35 - text_width(shown) / 2, y + 3);
-}
 
 static void page_options(Ui *ui)
 {
-    float x = PAGE_X, y = 100;
-    Console *con = ui->con;
-    static const char *const MODES[] = {"Windowed", "Fullscreen", "Borderless"};
-    label(x, y, "Window", DIM);
-    cycler(ui, x + 145, y - 3, "r_fullscreen", 0, 2, MODES[cvar_int(con, "r_fullscreen", 0, 2)]);
-    y += ROW;
-
-    // the resolution: the presets, stepped through; the current one shown even between them
-    int w = cvar_int(con, "r_screenwidth", 320, 16384), h = cvar_int(con, "r_screenheight", 240, 16384);
-    int at = -1;
-    for (int i = 0; i < RESOLUTION_COUNT; i++)
-        if (RESOLUTIONS[i].w == w && RESOLUTIONS[i].h == h) at = i;
-    char shown[32];
-    snprintf(shown, sizeof shown, "%dx%d", w, h);
-    label(x, y, "Resolution", DIM);
-    bool left = take_click(ui, x + 145, y - 3, 20, ROW - 4), right = take_click(ui, x + 295, y - 3, 20, ROW - 4);
-    if (left || right) {
-        int next = at < 0 ? (right ? 0 : RESOLUTION_COUNT - 1) : (at + (right ? 1 : RESOLUTION_COUNT - 1)) % RESOLUTION_COUNT;
-        char number[16];
-        snprintf(number, sizeof number, "%d", RESOLUTIONS[next].w);
-        cvar_set(con, "r_screenwidth", number);
-        snprintf(number, sizeof number, "%d", RESOLUTIONS[next].h);
-        cvar_set(con, "r_screenheight", number);
-    }
-    label(x + 149, y, "<", over(ui, x + 145, y - 3, 20, ROW - 4) ? TEXT : DIM);
-    label(x + 299, y, ">", over(ui, x + 295, y - 3, 20, ROW - 4) ? TEXT : DIM);
-    text_style(FONT_SMALL);
-    text_color(TEXT);
-    text_draw(shown, x + 230 - text_width(shown) / 2, y);
-    y += ROW;
-
-    label(x, y, "VSync", DIM);
-    cycler(ui, x + 145, y - 3, "r_swapeffect", 0, 1, cvar_int(con, "r_swapeffect", 0, 1) ? "On" : "Off");
-    y += ROW;
-    static const char *const CURSOR_COLOURS[][2] = {
-        {"Menu cursor", "cl_cursor_color"},
-        {"Aiming crosshair", "cl_crosshair_color"},
-    };
-    float cursor_colors_y = y;
-    for (size_t i = 0; i < sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]; i++) {
-        if (strcmp(ui->m->color_picker, CURSOR_COLOURS[i][1]) == 0) {
-            color_picker(ui, CURSOR_COLOURS[i][1], x, cursor_colors_y + (float)i * ROW - 3, false);
-            break;
-        }
-    }
-    for (size_t i = 0; i < sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]; i++) {
-        const char *cvar = CURSOR_COLOURS[i][1];
-        float row_y = y + (float)i * ROW;
-        label(x, row_y, CURSOR_COLOURS[i][0], DIM);
-        field(ui, x + 145, row_y - 3, 90, cvar, 6);
-        Rgba color = cvar_color(con, cvar);
-        color.a = 255;
-        rect(x + 245, row_y - 3, x + 245 + ROW - 4, row_y - 3 + ROW - 4, color);
-        if (take_click(ui, x + 245, row_y - 3, ROW - 4, ROW - 4)) {
-            if (strcmp(ui->m->color_picker, cvar) == 0)
-                ui->m->color_picker[0] = '\0';
-            else
-                snprintf(ui->m->color_picker, sizeof ui->m->color_picker, "%s", cvar);
-        }
-        compact_stepper(ui, x + 280, row_y - 3, i == 0 ? "cl_cursor_size" : "cl_crosshair_size");
-    }
-    y += ROW * (float)(sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]);
-    label(x, y, "Volume", DIM);
-    {
-        int v = cvar_int(con, "snd_volume", 0, 100);
-        snprintf(shown, sizeof shown, "%d", v);
-        bool l = take_click(ui, x + 145, y - 3, 20, ROW - 4), r = take_click(ui, x + 295, y - 3, 20, ROW - 4);
-        if (l || r) {
-            char number[16];
-            snprintf(number, sizeof number, "%d", clampi(v + (r ? 10 : -10), 0, 100));
-            cvar_set(con, "snd_volume", number);
-        }
-        label(x + 149, y, "<", DIM);
-        label(x + 299, y, ">", DIM);
-        text_style(FONT_SMALL);
-        text_color(TEXT);
-        text_draw(shown, x + 230 - text_width(shown) / 2, y);
-    }
-    y += ROW;
-    label(x, y, "Sensitivity", DIM);
-    {
-        const Cvar *cv = cvar_find(con, "cl_sensitivity");
-        float v = cv ? cv->number : 1.0f;
-        snprintf(shown, sizeof shown, "%.1f", v);
-        bool l = take_click(ui, x + 145, y - 3, 20, ROW - 4), r = take_click(ui, x + 295, y - 3, 20, ROW - 4);
-        if (l || r) {
-            char number[16];
-            snprintf(number, sizeof number, "%.1f", clampf(v + (r ? 0.1f : -0.1f), 0.1f, 5.0f));
-            cvar_set(con, "cl_sensitivity", number);
-        }
-        label(x + 149, y, "<", DIM);
-        label(x + 299, y, ">", DIM);
-        text_style(FONT_SMALL);
-        text_color(TEXT);
-        text_draw(shown, x + 230 - text_width(shown) / 2, y);
-    }
-    y += ROW;
-    label(x, y, "Player names", DIM);
-    cycler(ui, x + 145, y - 3, "ui_playernames", 0, 1, cvar_int(con, "ui_playernames", 0, 1) ? "On" : "Off");
-    y += ROW;
-    label(x, y, "Minimap", DIM);
-    cycler(ui, x + 145, y - 3, "ui_minimap", 0, 1, cvar_int(con, "ui_minimap", 0, 1) ? "On" : "Off");
-    y += ROW;
-    label(x, y, "Smoothing (ms)", DIM);
-    {
-        int v = cvar_int(con, "cl_smooth", 0, 500);
-        snprintf(shown, sizeof shown, "%d", v);
-        bool l = take_click(ui, x + 145, y - 3, 20, ROW - 4), r = take_click(ui, x + 295, y - 3, 20, ROW - 4);
-        if (l || r) {
-            char number[16];
-            snprintf(number, sizeof number, "%d", clampi(v + (r ? 25 : -25), 0, 500));
-            cvar_set(con, "cl_smooth", number);
-        }
-        label(x + 149, y, "<", DIM);
-        label(x + 299, y, ">", DIM);
-        text_style(FONT_SMALL);
-        text_color(TEXT);
-        text_draw(shown, x + 230 - text_width(shown) / 2, y);
-    }
-    y += ROW;
-    label(x, y, "Follow scoped shot", DIM);
-    cycler(ui, x + 145, y - 3, "cl_trackshot", 0, 1, cvar_int(con, "cl_trackshot", 0, 1) ? "On" : "Off");
-    y += ROW;
-    y += 6;
-    label(x, y, "Everything here is saved to config.cfg when the game closes.", DIM);
-    for (size_t i = 0; i < sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]; i++) {
-        if (strcmp(ui->m->color_picker, CURSOR_COLOURS[i][1]) == 0) {
-            color_picker(ui, CURSOR_COLOURS[i][1], x, cursor_colors_y + (float)i * ROW - 3, true);
-            break;
-        }
-    }
+    section(ui, "SOUND");
+    slider(ui, "Volume", "snd_volume", 0, 100, 5, true, "%d%%");
+    section(ui, "MOUSE");
+    slider(ui, "Sensitivity", "cl_sensitivity", 0.1f, 5.0f, 0.1f, false, "%.1f");
+    color_row(ui, "Menu cursor colour", "cl_cursor_color");
+    slider(ui, "Menu cursor size", "cl_cursor_size", 50, 200, 10, true, "%d%%");
+    color_row(ui, "Crosshair colour", "cl_crosshair_color");
+    slider(ui, "Crosshair size", "cl_crosshair_size", 50, 200, 10, true, "%d%%");
+    section(ui, "INTERFACE");
+    toggle(ui, "Player names", "ui_playernames");
+    toggle(ui, "Minimap", "ui_minimap");
+    toggle(ui, "Follow scoped shot", "cl_trackshot");
+    section(ui, "NETWORK");
+    slider(ui, "Smoothing", "cl_smooth", 0, 500, 25, true, "%d ms");
 }
 
-// What is drawn of the world: the map's scenery, its weather, the bullets' trails, and
-// the sky, the map's colours or two of the player's own.
+// What is drawn: the window, then the world's scenery, weather and trails, and the sky,
+// the map's colours or two of the player's own.
 static void page_graphics(Ui *ui)
 {
-    float x = PAGE_X, y = 100;
     Console *con = ui->con;
-    label(x, y, "Scenery", DIM);
-    cycler(ui, x + 145, y - 3, "r_scenery", 0, 1, cvar_int(con, "r_scenery", 0, 1) ? "On" : "Off");
-    y += ROW;
-    label(x, y, "Weather", DIM);
-    cycler(ui, x + 145, y - 3, "r_weathereffects", 0, 1, cvar_int(con, "r_weathereffects", 0, 1) ? "On" : "Off");
-    y += ROW;
-    label(x, y, "Bullet trails", DIM);
-    cycler(ui, x + 145, y - 3, "r_trails", 0, 1, cvar_int(con, "r_trails", 0, 1) ? "On" : "Off");
-    y += ROW;
-    label(x, y, "Map sky", DIM);
-    cycler(ui, x + 145, y - 3, "r_forcebg", 0, 1, cvar_int(con, "r_forcebg", 0, 1) ? "My colours" : "The map's");
-    y += ROW;
-    if (cvar_int(con, "r_forcebg", 0, 1)) { // the two colours, top and bottom, as the look's are edited
-        static const char *const SKY[][2] = {{"Sky top", "r_forcebg_color1"}, {"Sky bottom", "r_forcebg_color2"}};
-        for (size_t i = 0; i < sizeof SKY / sizeof SKY[0]; i++) {
-            label(x, y, SKY[i][0], DIM);
-            field(ui, x + 145, y - 3, 90, SKY[i][1], 6);
-            Rgba c = cvar_color(con, SKY[i][1]);
-            c.a = 255;
-            rect(x + 245, y - 3, x + 245 + ROW - 4, y - 3 + ROW - 4, c);
-            y += ROW;
+    section(ui, "DISPLAY");
+    {
+        static const int MODES[] = {0, 1, 2};
+        static const char *const MODE_NAMES[] = {"Windowed", "Fullscreen", "Borderless"};
+        cvar_select(ui, "Window", "r_fullscreen", MODES, MODE_NAMES, NULL, 3);
+    }
+    {
+        // the presets, and the size set by hand when it is none of them
+        int w = cvar_int(con, "r_screenwidth", 320, 16384), h = cvar_int(con, "r_screenheight", 240, 16384);
+        char labels[RESOLUTION_COUNT + 1][24];
+        const char *names[RESOLUTION_COUNT + 1];
+        int count = 0, current = -1;
+        for (int i = 0; i < RESOLUTION_COUNT; i++) {
+            snprintf(labels[count], sizeof labels[count], "%d x %d", RESOLUTIONS[i].w, RESOLUTIONS[i].h);
+            names[count] = labels[count];
+            if (RESOLUTIONS[i].w == w && RESOLUTIONS[i].h == h) current = count;
+            count++;
+        }
+        if (current < 0) {
+            snprintf(labels[count], sizeof labels[count], "%d x %d", w, h);
+            names[count] = labels[count];
+            current = count++;
+        }
+        int picked = select_box(ui, "Resolution", names, NULL, count, current);
+        if (picked >= 0 && picked < RESOLUTION_COUNT) {
+            set_int(con, "r_screenwidth", RESOLUTIONS[picked].w);
+            set_int(con, "r_screenheight", RESOLUTIONS[picked].h);
         }
     }
-    y += 6;
-    label(x, y, "Everything here is saved to config.cfg when the game closes.", DIM);
+    toggle(ui, "VSync", "r_swapeffect");
+    section(ui, "WORLD");
+    toggle(ui, "Scenery", "r_scenery");
+    toggle(ui, "Weather", "r_weathereffects");
+    toggle(ui, "Bullet trails", "r_trails");
+    section(ui, "SKY");
+    {
+        static const int SKY[] = {0, 1};
+        static const char *const SKY_NAMES[] = {"The map's", "My colours"};
+        cvar_select(ui, "Sky", "r_forcebg", SKY, SKY_NAMES, NULL, 2);
+    }
+    if (cvar_int(con, "r_forcebg", 0, 1)) {
+        color_row(ui, "Sky top", "r_forcebg_color1");
+        color_row(ui, "Sky bottom", "r_forcebg_color2");
+    }
 }
 
 // --- the menu -----------------------------------------------------------------------
@@ -999,14 +1677,43 @@ static void unfocus(MainMenu *m)
     m->focus_cvar[0] = '\0';
 }
 
+static void go_page(MainMenu *m, MainPage page)
+{
+    if (page == MAIN_SERVERS && m->page != MAIN_SERVERS) snprintf(m->command, sizeof m->command, "browse"); // the list as it is now
+    m->page = page;
+    m->side = (int)page;
+    m->nav = 0;
+    m->scroll = m->scroll_max = 0;
+    m->capturing = -1;
+    m->drag = -1;
+    popup_close(m);
+    unfocus(m);
+}
+
 void mainmenu_show(MainMenu *m, bool shown)
 {
     m->shown = shown;
-    m->page = MAIN_HOME;
-    m->color_picker[0] = '\0';
+    m->page = MAIN_SERVERS;
+    if (shown) snprintf(m->command, sizeof m->command, "browse"); // the list as it is now
+    m->zone = MAIN_ZONE_TABS;
+    m->side = 0;
+    m->nav = 0;
+    m->scroll = m->scroll_max = 0;
     m->capturing = -1;
-    m->clicked = false;
+    m->drag = -1;
+    m->picked_owner = -1;
+    m->clicked = m->mouse_down = false;
+    m->key_move = m->key_side = m->key_page = 0;
+    m->key_enter = m->key_back = false;
+    popup_close(m);
     unfocus(m);
+}
+
+// The edit into what the focused field edits.
+static void edit_commit(MainMenu *m, Console *con)
+{
+    if (m->focus_cvar[0] == '#') snprintf(m->search, sizeof m->search, "%s", m->edit);
+    else cvar_set(con, m->focus_cvar, m->edit);
 }
 
 // Text into the focused field, typed or pasted: what fits, control characters (a pasted
@@ -1019,7 +1726,17 @@ static void edit_insert(MainMenu *m, Console *con, const char *text)
         m->edit[len++] = *s;
         m->edit[len] = '\0';
     }
-    cvar_set(con, m->focus_cvar, m->edit);
+    edit_commit(m, con);
+}
+
+static void key_nav(MainMenu *m, int move, int side, bool enter, bool back)
+{
+    m->key_move += move;
+    m->key_side += side;
+    m->key_enter |= enter;
+    m->key_back |= back;
+    m->keys_used = true;
+    if (move) m->scroll_follow = true;
 }
 
 bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
@@ -1037,6 +1754,7 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
             m->capturing = -1;
             return true;
         }
+        if (e->type == SDL_CONTROLLERBUTTONDOWN && e->cbutton.button == SDL_CONTROLLER_BUTTON_B) m->capturing = -1;
         return e->type == SDL_KEYDOWN || e->type == SDL_KEYUP || e->type == SDL_MOUSEBUTTONDOWN || e->type == SDL_MOUSEBUTTONUP ||
                e->type == SDL_TEXTINPUT;
     }
@@ -1059,12 +1777,15 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
             case SDL_SCANCODE_BACKSPACE: {
                 size_t len = strlen(m->edit);
                 if (len) m->edit[len - 1] = '\0';
-                cvar_set(con, m->focus_cvar, m->edit);
+                edit_commit(m, con);
                 break;
             }
+            case SDL_SCANCODE_TAB: // on to the next, or back with Shift
+                unfocus(m);
+                key_nav(m, (e->key.keysym.mod & KMOD_SHIFT) ? -1 : 1, 0, false, false);
+                break;
             case SDL_SCANCODE_RETURN:
             case SDL_SCANCODE_KP_ENTER:
-            case SDL_SCANCODE_TAB:
             case SDL_SCANCODE_ESCAPE: unfocus(m); break;
             default: break;
             }
@@ -1074,87 +1795,420 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
     }
     switch (e->type) {
     case SDL_MOUSEBUTTONDOWN:
-        if (e->button.button == SDL_BUTTON_LEFT) m->clicked = true;
+        if (e->button.button == SDL_BUTTON_LEFT) m->clicked = m->mouse_down = true;
+        return true;
+    case SDL_MOUSEBUTTONUP:
+        if (e->button.button == SDL_BUTTON_LEFT) m->mouse_down = false;
         return true;
     case SDL_MOUSEWHEEL: m->wheel += e->wheel.y; return true;
-    case SDL_MOUSEBUTTONUP:
     case SDL_TEXTINPUT:
     case SDL_KEYUP: return true;
     case SDL_KEYDOWN:
-        if (e->key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-            if (m->page != MAIN_HOME) m->page = MAIN_HOME;
-            else if (m->joined) mainmenu_show(m, false); // nothing to go back to otherwise
+        switch (e->key.keysym.scancode) {
+        case SDL_SCANCODE_UP: key_nav(m, -1, 0, false, false); break;
+        case SDL_SCANCODE_DOWN: key_nav(m, 1, 0, false, false); break;
+        case SDL_SCANCODE_LEFT: key_nav(m, 0, -1, false, false); break;
+        case SDL_SCANCODE_RIGHT: key_nav(m, 0, 1, false, false); break;
+        case SDL_SCANCODE_TAB: key_nav(m, (e->key.keysym.mod & KMOD_SHIFT) ? -1 : 1, 0, false, false); break;
+        case SDL_SCANCODE_RETURN:
+        case SDL_SCANCODE_KP_ENTER:
+        case SDL_SCANCODE_SPACE: key_nav(m, 0, 0, true, false); break;
+        case SDL_SCANCODE_ESCAPE: key_nav(m, 0, 0, false, true); break;
+        case SDL_SCANCODE_Q: m->key_page--, m->keys_used = true; break;
+        case SDL_SCANCODE_E: m->key_page++, m->keys_used = true; break;
+        default: break;
         }
         return true;
+    case SDL_CONTROLLERBUTTONDOWN:
+        switch (e->cbutton.button) {
+        case SDL_CONTROLLER_BUTTON_DPAD_UP: key_nav(m, -1, 0, false, false); break;
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN: key_nav(m, 1, 0, false, false); break;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT: key_nav(m, 0, -1, false, false); break;
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: key_nav(m, 0, 1, false, false); break;
+        case SDL_CONTROLLER_BUTTON_A: key_nav(m, 0, 0, true, false); break;
+        case SDL_CONTROLLER_BUTTON_B: key_nav(m, 0, 0, false, true); break;
+        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: m->key_page--, m->keys_used = true; break;
+        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: m->key_page++, m->keys_used = true; break;
+        default: break;
+        }
+        return true;
+    case SDL_CONTROLLERAXISMOTION: { // the stick as the pad: a step each time it is pushed over
+        int axis = e->caxis.axis == SDL_CONTROLLER_AXIS_LEFTX ? 0 : e->caxis.axis == SDL_CONTROLLER_AXIS_LEFTY ? 1 : -1;
+        if (axis < 0) return true;
+        int dir = e->caxis.value > 20000 ? 1 : e->caxis.value < -20000 ? -1 : 0;
+        if (dir && dir != m->axis[axis]) key_nav(m, axis ? dir : 0, axis ? 0 : dir, false, false);
+        if (dir || abs(e->caxis.value) < 12000) m->axis[axis] = dir;
+        return true;
+    }
+    case SDL_CONTROLLERBUTTONUP: return true;
     default: return false;
     }
 }
 
-void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Anims *anims,
-                   const Weapons *weapons, Vec2 cursor, float game_width, float pixel, double time, const char *status,
+// The top bar's items, in the keys' order: the pages, then Resume (while a server has
+// us) and Quit.
+static int tab_count(bool joined) { return MAIN_PAGE_COUNT + (joined ? 1 : 0) + 1; }
+
+static MainPage group_first(MainPage page) { return page < MAIN_PLAYER ? MAIN_SERVERS : MAIN_PLAYER; }
+static MainPage group_end(MainPage page) { return page < MAIN_PLAYER ? MAIN_PLAYER : MAIN_PAGE_COUNT; }
+
+static void tab_activate(Ui *ui, int item, bool joined)
+{
+    MainMenu *m = ui->m;
+    if (item < MAIN_PAGE_COUNT) {
+        if ((int)m->page != item) go_page(m, (MainPage)item);
+        m->zone = MAIN_ZONE_CONTENT;
+        m->nav = 0;
+    } else if (joined && item == MAIN_PAGE_COUNT) {
+        mainmenu_show(m, false);
+    } else {
+        snprintf(m->command, sizeof m->command, "quit");
+    }
+}
+
+// The keys while the tabs have them: left and right go along them (a page shown as its
+// tab is reached), down or Enter goes into the page, Escape back to the game. In the
+// page, Escape (or up from its first widget) comes back out here; Q and E, or a
+// controller's shoulders, turn the pages from anywhere.
+static void tab_keys(Ui *ui, bool joined)
+{
+    MainMenu *m = ui->m;
+    if (ui->page) {
+        int to = ((int)m->page + ui->page + MAIN_PAGE_COUNT) % MAIN_PAGE_COUNT;
+        MainZone zone = m->zone;
+        go_page(m, (MainPage)to);
+        m->zone = zone;
+        ui->page = 0;
+    }
+    if (m->zone == MAIN_ZONE_CONTENT) {
+        if (ui->back) {
+            m->zone = MAIN_ZONE_TABS;
+            m->side = (int)m->page;
+            ui->back = false;
+        }
+        return;
+    }
+    int count = tab_count(joined);
+    m->side = clampi(m->side, 0, count - 1);
+    if (ui->side) {
+        m->side = clampi(m->side + ui->side, 0, count - 1);
+        if (m->side < MAIN_PAGE_COUNT && (int)m->page != m->side) go_page(m, (MainPage)m->side);
+    }
+    if (ui->enter || (ui->move > 0 && m->side < MAIN_PAGE_COUNT)) tab_activate(ui, m->side, joined);
+    if (ui->back && joined) mainmenu_show(m, false); // back to the game; with none, nothing to go back to
+    ui->enter = ui->back = false;
+    ui->side = ui->move = 0;
+}
+
+// A small button of the top bar, outside the page's order (the tabs' keys reach it).
+static bool bar_button(Ui *ui, float x, float y, float w, float h, const char *caption, bool primary, bool focused)
+{
+    bool hot = over(ui, x, y, w, h);
+    focus_ring(ui, focused, x, y, w, h, 5);
+    rrect(x, y, w, h, 5, primary ? (hot ? ACCENT_HOT : ACCENT) : hot ? CONTROL_HOT : CONTROL);
+    float tw = width_of(F_BUTTON, caption);
+    text_mid(F_BUTTON, caption, x + (w - tw) / 2, y + h / 2, TEXT);
+    return take(ui, -1, x, y, w, h);
+}
+
+// A tab: its caption, lit when chosen, under the cursor or the keys; a bar under it when
+// chosen. True when clicked.
+static bool tab(Ui *ui, Font font, float x, float cy, const char *caption, bool chosen, bool focused, float bar_y, float bar_h)
+{
+    float w = width_of(font, caption), h = line_height(font) + 10;
+    bool hot = over(ui, x - 6, cy - h / 2, w + 12, h);
+    focus_ring(ui, focused, x - 6, cy - h / 2, w + 12, h, 4);
+    text_mid(font, caption, x, cy, chosen || hot ? TEXT : MUTED);
+    if (chosen) rrect(x, bar_y, w, bar_h, bar_h / 2, ACCENT);
+    return take(ui, -1, x - 6, cy - h / 2, w + 12, h);
+}
+
+#define TOP_H 44.0f
+#define SUB_CY 62.0f
+#define EDGE 16.0f
+
+// The bar across the top: the wordmark, the groups (Play, Settings), and on the right
+// the version, Resume and Quit; under it, the group's pages.
+static void top_bar(Ui *ui, bool joined, float content_x)
+{
+    MainMenu *m = ui->m;
+    float W = ui->game_width;
+    rect(0, 0, W, TOP_H, SIDEBAR);
+    rect(0, TOP_H - 1, W, TOP_H, LINE);
+
+    float x = EDGE;
+    if (m->wordmark.handle) {
+        float h = TOP_H - 16, w = h * (float)m->wordmark.width / (float)m->wordmark.height, y = 8;
+        Rgba white = {255, 255, 255, 255};
+        GfxVertex v[4] = {gfx_vertex(x, y, 0, 0, white), gfx_vertex(x + w, y, 1, 0, white), gfx_vertex(x + w, y + h, 1, 1, white),
+                          gfx_vertex(x, y + h, 0, 1, white)};
+        gfx_draw_quad(m->wordmark, v);
+        x += w + 26;
+    } else {
+        text_mid(F_TITLE, "SOLDAT", x, TOP_H / 2, TEXT);
+        x += width_of(F_TITLE, "SOLDAT") + 26;
+    }
+
+    // the groups, as a segmented switch in the middle of the bar, iOS's way: equal
+    // segments on a rounded track, and a raised thumb under the chosen one that slides
+    // across when the other is chosen, its name in the accent (the pages under it are
+    // underlined instead, so the two rows read apart). A click goes to the group's first page.
+    static const char *const GROUPS[] = {"PLAY", "SETTINGS"};
+    float seg = maxf(width_of(F_GROUP, GROUPS[0]), width_of(F_GROUP, GROUPS[1])) + 36, h = 28, pad = 2;
+    float track_w = 2 * seg + 2 * pad, track_h = h + 2 * pad;
+    float tx = maxf((W - track_w) / 2, x), ty = (TOP_H - track_h) / 2;
+    float target = group_first(m->page) == MAIN_PLAYER ? 1.0f : 0.0f;
+    { // the thumb eases toward its segment, quick at first and settling, frame rate aside
+        float dt = clampf((float)(m->time - m->switch_time), 0, 0.1f);
+        m->switch_time = m->time;
+        m->switch_pos += (target - m->switch_pos) * (1.0f - expf(-dt * 16.0f));
+        if (fabsf(target - m->switch_pos) < 0.002f) m->switch_pos = target;
+    }
+    rrect(tx, ty, track_w, track_h, 9, (Rgba){255, 255, 255, 12});
+    float thumb_x = tx + pad + m->switch_pos * seg;
+    rrect(thumb_x, ty + pad + 2, seg, h, 7, (Rgba){0, 0, 0, 70});            // its shadow
+    rrect(thumb_x, ty + pad, seg, h, 7, (Rgba){58, 66, 86, 255});             // the thumb
+    rrect(thumb_x + 1, ty + pad, seg - 2, 1, 0.5f, (Rgba){255, 255, 255, 30}); // its lit top edge
+    for (int g = 0; g < 2; g++) {
+        MainPage first = g == 0 ? MAIN_SERVERS : MAIN_PLAYER;
+        bool chosen = group_first(m->page) == first;
+        float sx = tx + pad + (float)g * seg, y = ty + pad;
+        bool hot = !chosen && over(ui, sx, y, seg, h);
+        // the name's colour follows the thumb across, so it warms as the thumb arrives
+        float lit = 1.0f - minf(fabsf(m->switch_pos - (float)g), 1.0f);
+        Rgba rest = hot ? TEXT : MUTED;
+        Rgba color = {(uint8_t)(rest.r + (ACCENT.r - rest.r) * lit), (uint8_t)(rest.g + (ACCENT.g - rest.g) * lit),
+                      (uint8_t)(rest.b + (ACCENT.b - rest.b) * lit), 255};
+        float tw = width_of(F_GROUP, GROUPS[g]);
+        text_mid(F_GROUP, GROUPS[g], sx + (seg - tw) / 2, TOP_H / 2, color);
+        if (take(ui, -1, sx, y, seg, h) && !chosen) {
+            go_page(m, first);
+            m->zone = MAIN_ZONE_TABS;
+        }
+    }
+
+    // on the right: Quit, Resume, and the version
+    bool focus_tabs = m->zone == MAIN_ZONE_TABS;
+    float bh = 24, by = (TOP_H - bh) / 2, right = W - EDGE;
+    float qw = width_of(F_BUTTON, "Quit") + 28;
+    if (bar_button(ui, right - qw, by, qw, bh, "Quit", false, focus_tabs && m->side == tab_count(joined) - 1))
+        snprintf(m->command, sizeof m->command, "quit");
+    right -= qw + 8;
+    if (joined) {
+        float rw = width_of(F_BUTTON, "Resume") + 28;
+        if (bar_button(ui, right - rw, by, rw, bh, "Resume", true, focus_tabs && m->side == MAIN_PAGE_COUNT)) mainmenu_show(m, false);
+        right -= rw + 8;
+    }
+    const char *version = "v" SOLDATRELOADED_VERSION;
+    text_mid(F_BODY, version, right - 6 - width_of(F_BODY, version), TOP_H / 2, FAINT);
+
+    // the group's pages
+    float px = content_x;
+    for (int i = group_first(m->page); i < (int)group_end(m->page); i++) {
+        bool focused = focus_tabs && m->side == i;
+        if (tab(ui, F_NAV, px, SUB_CY, PAGE_NAMES[i], m->page == (MainPage)i, focused, SUB_CY + 10, 2)) {
+            go_page(m, (MainPage)i);
+            m->zone = MAIN_ZONE_TABS;
+        }
+        px += width_of(F_NAV, PAGE_NAMES[i]) + 26;
+    }
+}
+
+// A glow: `color` at the middle, fading to nothing at `r`.
+static void glow(float cx, float cy, float r, Rgba color)
+{
+    enum { SEGMENTS = 32 };
+    GfxVertex v[SEGMENTS * 3];
+    Rgba rim = with_alpha(color, 0);
+    for (int s = 0; s < SEGMENTS; s++) {
+        float a0 = 2 * (float)M_PI * (float)s / SEGMENTS, a1 = 2 * (float)M_PI * (float)(s + 1) / SEGMENTS;
+        v[s * 3] = gfx_vertex(cx, cy, 0, 0, color);
+        v[s * 3 + 1] = gfx_vertex(cx + r * cosf(a0), cy + r * sinf(a0), 0, 0, rim);
+        v[s * 3 + 2] = gfx_vertex(cx + r * cosf(a1), cy + r * sinf(a1), 0, 0, rim);
+    }
+    gfx_draw_triangles(gfx_white(), v, SEGMENTS * 3);
+}
+
+// A quad from `a` along one edge to `b` along the other.
+static void shade(float x0, float y0, float x1, float y1, Rgba a, Rgba b, bool across)
+{
+    GfxVertex v[4];
+    if (across) { // `a` on the left, `b` on the right
+        v[0] = gfx_vertex(x0, y0, 0, 0, a), v[1] = gfx_vertex(x1, y0, 0, 0, b);
+        v[2] = gfx_vertex(x1, y1, 0, 0, b), v[3] = gfx_vertex(x0, y1, 0, 0, a);
+    } else { // `a` at the top, `b` at the bottom
+        v[0] = gfx_vertex(x0, y0, 0, 0, a), v[1] = gfx_vertex(x1, y0, 0, 0, a);
+        v[2] = gfx_vertex(x1, y1, 0, 0, b), v[3] = gfx_vertex(x0, y1, 0, 0, b);
+    }
+    gfx_draw_quad(gfx_white(), v);
+}
+
+// A number from 0 to 1 that `n` always gives.
+static float hash01(uint32_t n)
+{
+    n = (n ^ 61u) ^ (n >> 16);
+    n *= 9u;
+    n ^= n >> 4;
+    n *= 0x27d4eb2du;
+    n ^= n >> 15;
+    return (float)(n & 0xffffff) / (float)0x1000000;
+}
+
+#define EMBERS 70
+
+// What is behind the menu: night falling to steel, a warm glow low on the left and a
+// cool one high on the right, the edges darkened, and embers rising slowly through it,
+// each flickering and fading as it goes. All of it from the clock alone: nothing kept.
+static void background(float W, double time)
+{
+    float t = (float)time;
+    shade(0, 0, W, VIEW_H, (Rgba){18, 24, 38, 255}, (Rgba){10, 12, 18, 255}, false);
+    float breathe = 0.85f + 0.15f * sinf(t * 0.4f);
+    glow(W * 0.12f, VIEW_H * 1.02f, VIEW_H * 0.85f, (Rgba){255, 104, 24, (uint8_t)(72 * breathe)});
+    glow(W * 0.9f, -VIEW_H * 0.05f, VIEW_H * 0.75f, (Rgba){79, 163, 255, 20});
+    for (int i = 0; i < EMBERS; i++) {
+        float speed = 6 + 16 * hash01(i * 7 + 1), size = 0.8f + 1.7f * hash01(i * 7 + 2);
+        float span = VIEW_H + 60, rise = fmodf(t * speed + hash01(i * 7 + 3) * span, span);
+        float y = VIEW_H + 20 - rise, life = rise / span; // 0 as it starts, 1 as it goes
+        float x = hash01(i * 7 + 4) * W + sinf(t * (0.3f + 0.5f * hash01(i * 7 + 5)) + (float)i) * 14 + life * 30;
+        float flicker = 0.7f + 0.3f * sinf(t * (3 + 4 * hash01(i * 7 + 6)) + (float)i);
+        float fade = (1 - life) * minf(life * 8, 1) * flicker;
+        uint8_t g = (uint8_t)(110 + 80 * hash01(i * 7 + 7));
+        glow(x, y, size * 6, (Rgba){255, g, 40, (uint8_t)(70 * fade)});
+        circle(x, y, size * 0.6f, (Rgba){255, (uint8_t)mini(g + 60, 255), 120, (uint8_t)(255 * fade)});
+    }
+    // the vignette
+    Rgba dark = {0, 0, 0, 120}, none = {0, 0, 0, 0};
+    shade(0, 0, W * 0.18f, VIEW_H, dark, none, true);
+    shade(W * 0.82f, 0, W, VIEW_H, none, dark, true);
+    shade(0, VIEW_H * 0.75f, W, VIEW_H, none, dark, false);
+}
+
+// What the action bar says on the pages with nothing of their own to say there.
+static const char *page_note(MainPage page)
+{
+    switch (page) {
+    case MAIN_CONTROLS: return "Click a binding, then press the new key. Escape cancels.";
+    case MAIN_PLAYER:
+    case MAIN_OPTIONS:
+    case MAIN_GRAPHICS: return "Saved to config.cfg when the game closes.";
+    default: return "";
+    }
+}
+
+void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Context *ctx,
+                   Vec2 cursor, float game_width, float pixel, double time, const char *status,
                    bool joined, bool hosting, const char (*maps)[64], int map_count, const Browser *browser)
 {
     if (!m->shown) {
         m->wheel = 0;
+        m->key_move = m->key_side = m->key_page = 0;
+        m->key_enter = m->key_back = false;
         return;
     }
     m->time = time;
     m->joined = joined;
-    Ui ui = {.m = m, .con = con, .hud = hud, .cursor = cursor, .game_width = game_width, .pixel = pixel, .click = m->clicked};
+    if (fabsf(cursor.x - m->last_cursor.x) > 0.01f || fabsf(cursor.y - m->last_cursor.y) > 0.01f || m->clicked) m->keys_used = false;
+    m->last_cursor = cursor;
+    if (!m->mouse_down) m->drag = -1;
+    Ui ui = {.m = m,
+             .con = con,
+             .hud = hud,
+             .cursor = cursor,
+             .game_width = game_width,
+             .pixel = pixel,
+             .click = m->clicked,
+             .held = m->mouse_down,
+             .move = m->key_move,
+             .side = m->key_side,
+             .page = m->key_page,
+             .enter = m->key_enter,
+             .back = m->key_back,
+             .show_focus = m->keys_used};
     m->clicked = false;
+    m->key_move = m->key_side = m->key_page = 0;
+    m->key_enter = m->key_back = false;
 
-    gfx_transform(mat3_ortho(0, game_width, 0, GAME_HEIGHT_UNITS));
+    gfx_transform(mat3_ortho(0, game_width, 0, VIEW_H));
     text_pixel_ratio(vec2(pixel, pixel));
-    text_shadow(1, 1, (Rgba){0, 0, 0, 200});
+    text_shadow(1, 1, (Rgba){0, 0, 0, 160});
     text_align(TEXT_TOP);
     text_scale(1.0f);
 
-    { // the background: a gradient, dusk at the top to night below
-        Rgba top = {28, 34, 52, 255}, bottom = {6, 7, 12, 255};
-        GfxVertex v[4] = {gfx_vertex(0, 0, 0, 0, top), gfx_vertex(game_width, 0, 0, 0, top),
-                          gfx_vertex(game_width, GAME_HEIGHT_UNITS, 0, 0, bottom), gfx_vertex(0, GAME_HEIGHT_UNITS, 0, 0, bottom)};
-        gfx_draw_quad(gfx_white(), v);
-    }
-    interface_draw_box(hud, 20, 20, game_width - 40, GAME_HEIGHT_UNITS - 40, BOX);
+    background(game_width, time);
 
-    text_style_scaled(FONT_BIG, 1.0f);
-    text_color(TEXT);
-    text_draw("SoldatReloaded", LEFT, 36);
+    // the page's panel: from the left, as wide as it wants, the background beside it on a wide screen
+    float w = minf(game_width - 2 * EDGE - 28, 780), x = EDGE + 14;
 
-    // the home column
-    float y = 120;
-    static const char *const PAGES[] = {"Servers", "Join by Address", "Local Play", "Player", "Controls", "Options", "Graphics"};
-    for (int i = 0; i < 7; i++) {
-        if (button(&ui, LEFT, y, 200, PAGES[i])) {
-            m->page = (MainPage)(MAIN_SERVERS + i);
-            if (m->page == MAIN_SERVERS) snprintf(m->command, sizeof m->command, "browse"); // the list as it is now
-            m->color_picker[0] = '\0';
-            m->capturing = -1;
-            unfocus(m);
-        }
-        y += BUTTON_H + 6;
-    }
-    y += 10;
-    if (joined) {
-        if (button(&ui, LEFT, y, 200, "Resume")) mainmenu_show(m, false);
-        y += BUTTON_H + 6;
-    }
-    if (button(&ui, LEFT, y, 200, "Quit")) snprintf(m->command, sizeof m->command, "quit");
+    popup_input(&ui); // the popup first: it has the keys and the clicks while open
+    tab_keys(&ui, joined);
+    top_bar(&ui, joined, x);
+
+    rrect(x - 14, PANEL_TOP, w + 28, PANEL_BOTTOM - PANEL_TOP, 8, PANEL);
+    // the action bar along the bottom
+    rect(0, VIEW_H - ACTION_H, game_width, VIEW_H, SIDEBAR);
+    rect(0, VIEW_H - ACTION_H, game_width, VIEW_H - ACTION_H + 1, LINE);
+
+    m->scroll = clampf(m->scroll, 0, m->scroll_max);
+    ui.x = x;
+    ui.w = w;
+    ui.top = BODY_TOP;
+    ui.bottom = BODY_BOTTOM;
+    ui.y = BODY_TOP - m->scroll;
+    ui.extent = BODY_TOP;
+    ui.scrolling = true;
 
     switch (m->page) {
     case MAIN_SERVERS: page_servers(&ui, browser); break;
     case MAIN_JOIN: page_join(&ui, status, joined); break;
     case MAIN_LOCAL: page_local(&ui, status, hosting, maps, map_count); break;
-    case MAIN_PLAYER: page_player(&ui, gostek, anims, weapons); break;
+    case MAIN_PLAYER: page_player(&ui, gostek, ctx); break;
     case MAIN_CONTROLS: page_controls(&ui); break;
-    case MAIN_OPTIONS: page_options(&ui); break;
-    case MAIN_GRAPHICS: page_graphics(&ui); break;
-    default:
-        label(PAGE_X, 120, "Find a server to join (Servers), or play here against bots (Local Play). Escape returns here from the game.", DIM);
-        break;
+    case MAIN_OPTIONS: ui.w = minf(w, 520); page_options(&ui); break;
+    case MAIN_GRAPHICS: ui.w = minf(w, 520); page_graphics(&ui); break;
+    default: break;
     }
-    if (ui.click) unfocus(m); // a click on nothing takes the focus away
+    ui.x = x;
+    ui.w = w;
+    const char *note = page_note(m->page);
+    if (note[0]) { // a settings page: a note, and the way back to the game while there is one
+        ui.scrolling = false;
+        float left = x + w;
+        if (joined && big_button(&ui, x + w, "RESUME", true, false, &left)) mainmenu_show(m, false);
+        footer_text(&ui, x, left - x - 16, note, MUTED);
+    }
+
+    // what no widget took: up and down move the focus along the page, up from its
+    // first widget back out to the tabs
+    if (m->zone == MAIN_ZONE_CONTENT) {
+        if (ui.move < 0 && m->nav == 0) {
+            m->zone = MAIN_ZONE_TABS;
+            m->side = (int)m->page;
+        } else if (ui.move) {
+            m->nav += ui.move;
+        }
+    }
+    m->nav = clampi(m->nav, 0, maxi(ui.nav_count - 1, 0));
+    if (m->zone == MAIN_ZONE_CONTENT && ui.nav_count == 0) m->zone = MAIN_ZONE_TABS;
+
+    // the page's scroll, by the wheel over it; its bar, when there is more than shows
+    m->scroll_max = maxf(ui.extent - BODY_BOTTOM, 0);
+    if (m->wheel && m->popup.kind == MAIN_POPUP_NONE && inside(cursor, x - 14, BODY_TOP, w + 28, BODY_BOTTOM - BODY_TOP)) {
+        m->scroll -= (float)m->wheel * SCROLL_STEP;
+        m->scroll_follow = false;
+    }
+    m->scroll = clampf(m->scroll, 0, m->scroll_max);
+    if (m->scroll_max > 0) {
+        float track = BODY_BOTTOM - BODY_TOP, view = track / (track + m->scroll_max);
+        float knob = maxf(track * view, 16), top = BODY_TOP + (track - knob) * (m->scroll / m->scroll_max);
+        rrect(x + w + 6, top, 3, knob, 1.5f, FAINT);
+    }
     m->wheel = 0;
+
+    popup_draw(&ui);
+    if (ui.click) { // a click on nothing takes the keyboard from a field
+        unfocus(m);
+    }
 
     text_shadow(0, 0, (Rgba){0});
     interface_draw_pointer(hud, cursor, cvar_color(con, "cl_cursor_color"),
@@ -1168,3 +2222,22 @@ bool mainmenu_take_command(MainMenu *m, char *out, size_t size)
     m->command[0] = '\0';
     return true;
 }
+
+void mainmenu_open_page(MainMenu *m, MainPage page)
+{
+    go_page(m, page);
+    m->zone = MAIN_ZONE_TABS;
+}
+
+void mainmenu_load(MainMenu *m, const char *assets)
+{
+    char path[512];
+    snprintf(path, sizeof path, "%s/interface-gfx/wordmark.png", assets);
+    if (!gfx_texture_load(&m->wordmark, path, NULL)) {
+        fprintf(stderr, "no %s: the menu writes the name instead\n", path);
+        return;
+    }
+    gfx_texture_mipmap(m->wordmark); // drawn far smaller than it is
+}
+
+void mainmenu_unload(MainMenu *m) { gfx_texture_delete(&m->wordmark); }
