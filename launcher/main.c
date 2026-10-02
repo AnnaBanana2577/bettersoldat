@@ -310,11 +310,14 @@ int main(int argc, char **argv)
             window = SDL_CreateWindow("Soldat Reloaded", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH,
                                       WINDOW_HEIGHT, 0);
             if (window) {
+#ifndef _WIN32
+                // on Windows SDL gives the window the executable's own icon (assets/icon.ico)
                 SDL_Surface *icon = SDL_LoadBMP("assets/icon.bmp");
                 if (icon) {
                     SDL_SetWindowIcon(window, icon);
                     SDL_FreeSurface(icon);
                 }
+#endif
                 renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
                 if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
             } else if (waiting) {

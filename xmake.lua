@@ -43,6 +43,18 @@ add_requires("libcurl", {configs = {shared = false, mbedtls = not is_plat("windo
 -- on Windows, and the deflate inside a Linux tar.gz.
 add_requires("miniz")
 
+-- The game's icon, assets/icon.ico, built into an executable on Windows: the one
+-- Explorer, the taskbar and the window show, as SDL takes a window's icon from the first
+-- in its executable. The resource script that names it is written here, at build time.
+rule("icon")
+    on_load(function (target)
+        if not target:is_plat("windows") then return end
+        local ico = path.join(os.projectdir(), "assets", "icon.ico"):gsub("\\", "/")
+        local rc = path.join(target:autogendir(), "icon.rc")
+        io.writefile(rc, ("1 ICON \"%s\"\n"):format(ico))
+        target:add("files", rc)
+    end)
+
 -- The simulation and the data it reads, shared by the client and the server. No
 -- rendering, audio or networking dependencies.
 target("shared")
@@ -60,6 +72,7 @@ target("shared")
 --   xmake run client [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 target("client")
     set_kind("binary")
+    add_rules("icon")
     add_deps("shared")
     add_files("client/**.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c")
     add_includedirs("client", "server")
@@ -101,6 +114,7 @@ target("server")
 -- the directory it sits in, so it is tried in an unpacked package, not under xmake run.
 target("launcher")
     set_kind("binary")
+    add_rules("icon")
     set_basename(is_plat("windows") and "Soldat Reloaded" or "soldatreloaded-launcher")
     add_files("launcher/*.c")
     add_includedirs("launcher")
@@ -178,7 +192,8 @@ task("dist")
         -- the art and the sound: the client's alone
         local function server_needs(name)
             return not (name:endswith("-gfx") or name == "textures" or name == "custom-interfaces" or name == "sfx"
-                        or name == "icon.bmp" or name == "play-regular.ttf" or name == "OFL.txt" or name == "mod.ini")
+                        or name == "icon.bmp" or name == "icon.ico" or name == "play-regular.ttf" or name == "OFL.txt"
+                        or name == "mod.ini")
         end
 
         -- the package's directory, laid out as an install
@@ -233,7 +248,8 @@ task("dist")
             return lines
         end
 
-        local full = lay_out(stem, {client, server, launcher}, function () return true end)
+        -- everything but icon.ico, which the executables already hold
+        local full = lay_out(stem, {client, server, launcher}, function (name) return name ~= "icon.ico" end)
         local files = manifest(full)
         io.writefile(path.join(full, "manifest.txt"),
                      "// What this install holds, which the launcher checks it against.\n" .. table.concat(files, "\n") .. "\n")
