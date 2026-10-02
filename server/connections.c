@@ -311,6 +311,22 @@ void connections_new_round(Connections *c, Game *g, const char *map)
     say(c->console, "round %u on %s\n", c->round, c->map);
 }
 
+// A soldier leaving the world, as the original's TSprite.Kill has it: the flag it
+// carried falls where it is, and the stationary gun it manned is free for the next.
+// Without this a leaver's flag stayed with nobody, held by a soldier no longer there,
+// and its gun stayed manned by nobody.
+static void soldier_leave(Game *g, int slot)
+{
+    Soldier *s = &g->world.soldiers[slot];
+    if (!s->active) return;
+    if (s->held) things_let_go(&g->world, (uint8_t)slot, NULL);
+    if (s->stat) {
+        g->world.things[s->stat - 1].is_static = false;
+        s->stat = 0;
+    }
+    s->active = false;
+}
+
 static void leave(Connections *c, Game *g, ENetPeer *peer)
 {
     int slot = slot_of(c, peer);
@@ -319,7 +335,7 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     Team team = g->world.soldiers[slot].team;
     if (conn->joined) {
         say(c->console, "%s left\n", conn->name);
-        g->world.soldiers[slot].active = false;
+        soldier_leave(g, slot);
     }
     char name[NET_NAME_SIZE];
     snprintf(name, sizeof name, "%s", conn->name);
@@ -758,9 +774,8 @@ void connections_remove_bot(Connections *c, Game *g, int slot)
     Connection *conn = &c->items[slot];
     if (!conn->bot) return;
     Soldier *s = &g->world.soldiers[slot];
-    if (s->active && s->held) things_let_go(&g->world, slot, NULL);
     Team team = s->team;
-    s->active = false;
+    soldier_leave(g, slot);
     s->bot = false;
     char name[NET_NAME_SIZE];
     snprintf(name, sizeof name, "%s", conn->name);

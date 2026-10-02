@@ -260,6 +260,12 @@ void join_tests(void)
     net_close(&p.link);
     connections_set_password(&conns, "");
 
+    // the first leaves carrying bravo's flag and manning a stationary gun
+    Thing *flag = &g->world.things[MAX_THINGS - 1], *gun = &g->world.things[MAX_THINGS - 2];
+    *flag = (Thing){.style = THING_BRAVO_FLAG, .holder = 1, .points = 4};
+    *gun = (Thing){.style = THING_STAT_GUN, .is_static = true, .points = 4};
+    g->world.soldiers[0].held = MAX_THINGS;
+    g->world.soldiers[0].stat = MAX_THINGS - 1;
     net_close(&d.link);
     net_close(&a.link);
     for (int round = 0; round < ROUNDS && conns.items[0].peer; round++) {
@@ -267,6 +273,10 @@ void join_tests(void)
         enet_host_service(server.host, NULL, 10);
     }
     CHECK(!conns.items[0].peer && !g->world.soldiers[0].active, "a client that leaves frees its slot and its soldier");
+    CHECK(flag->style == THING_BRAVO_FLAG && flag->holder == 0 && g->world.soldiers[0].held == 0,
+          "and the flag it carried falls, held by nobody (holder %d)", flag->holder);
+    CHECK(!gun->is_static && g->world.soldiers[0].stat == 0, "and the stationary gun it manned is free");
+    *flag = *gun = (Thing){0};
 
     net_close(&b.link);
     net_close(&server);
