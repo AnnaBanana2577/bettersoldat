@@ -62,12 +62,13 @@ float scale_data_get(const ScaleData *sd, const char *path)
 {
     char key[128];
     normalize(key, path, sizeof(key));
-    while (true) { // the file, then every folder above it, down to the base
-        const ScaleEntry *e = find(sd, key);
-        if (e) return e->scale;
-        char *slash = strrchr(key, '/');
-        if (!slash) break;
-        *slash = '\0';
+    const ScaleEntry *e = find(sd, key);
+    if (!e) {
+        char *slash = strrchr(key, '/'); // then the folder
+        if (slash) {
+            *slash = '\0';
+            e = find(sd, key);
+        }
     }
-    return sd->default_scale;
+    return e ? e->scale : sd->default_scale;
 }

@@ -14,8 +14,7 @@
 // The hairstyles are one list of six — 1 to 4 the male's, 5 to 6 the waifu's — and
 // the headgear one of three (1-2 the male's, 3 the waifu's). They all live in their
 // own shared folders under gostek-gfx, hair/ and headgear/, each file named by its
-// style (hair1 to hair6, helm, kap, helm3), whichever gostek wears it; the waifu's
-// files are 20.5-scale art, as mod.ini says. The rat and
+// style (hair1 to hair6, helm, kap, helm3), whichever gostek wears it. The rat and
 // the furry wear only army, punk and Mr. T, and no headgear. The chains and the
 // dreadlocks hang from the skeleton's points 21 to 24, which the
 // simulation swings behind the neck and the head (Soldier.swing, the ragdoll's own
@@ -24,7 +23,6 @@
 // wiped or it is taken off (the antics).
 
 #include "render/render_state.h"
-#include "render/scale_data.h"
 #include "render/sprite.h"
 
 #define GOSTEK_PART_COUNT 59
@@ -38,10 +36,10 @@ typedef struct Gostek {
 } Gostek;
 
 // The gostek's and the weapons' art from <base>/gostek-gfx/<style> and
-// <base>/weapons-gfx, each sprite at the scale mod.ini gives its folder — except the
-// hair, which comes from the hairstyle's own folder at its scale. A style with no art
-// loads empty and draws nothing.
-void gostek_load(Gostek *g, const char *base, const ScaleData *scales, GostekStyle style);
+// <base>/weapons-gfx, all at the one gostek scale; the hair and the headgear come from
+// the shared hair/ and headgear/ folders. A style with no art loads empty and draws
+// nothing.
+void gostek_load(Gostek *g, const char *base, GostekStyle style);
 void gostek_unload(Gostek *g);
 
 // The soldier's sprites on its pose. For a corpse (once ragdolls exist) the face hangs

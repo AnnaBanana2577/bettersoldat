@@ -7,9 +7,7 @@
 #include "gfx/gfx.h"
 #include "utils/utils.h"
 
-// The scale of an image with no mod.ini key of its own: DefaultScale, 4.5 pixels per
-// world unit.
-#define SPRITE_DEFAULT_SCALE 4.5f
+#define GOSTEK_SCALE (1.0f / 4.5f) // sprite pixels per world unit, from mod.ini DefaultScale
 
 typedef struct Sprite {
     GfxTexture tex;
@@ -18,8 +16,7 @@ typedef struct Sprite {
 
 // Loads an image as a sprite; false if it is missing. With `color_key`, pixels exactly
 // that colour become transparent (the original keys scenery and sparks on pure green).
-bool sprite_load(Sprite *s, const char *path, const Rgba *color_key); // at SPRITE_DEFAULT_SCALE
-bool sprite_load_scaled(Sprite *s, const char *path, const Rgba *color_key, float scale); // at `scale` pixels per world unit
+bool sprite_load(Sprite *s, const char *path, const Rgba *color_key);
 void sprite_unload(Sprite *s);
 
 // A rotated, scaled quad whose `center` (world units from the sprite's top-left) lands

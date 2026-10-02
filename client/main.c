@@ -1541,7 +1541,7 @@ static bool world_reload(App *app, const char *map)
     render_destroy(&app->render);
     game_close(app);
     if (!game_open(app, false)) return false;
-    render_init(&app->render, app->assets->value, &app->game->ctx, &app->scales);
+    render_init(&app->render, app->assets->value, &app->game->ctx);
     interface_open(app);
     app->previous = app->latest = (TickSnapshot){0};
     app->limbo_lock = false;
@@ -1586,8 +1586,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    scale_data_load(&app.scales, app.assets->value); // the scales the gostek's sprites load with
-    render_init(&app.render, app.assets->value, &app.game->ctx, &app.scales);
+    scale_data_load(&app.scales, app.assets->value); // the scales the interface loads with
+    render_init(&app.render, app.assets->value, &app.game->ctx);
     audio_init(&app.audio, app.assets->value);
     interface_load(&app.hud, app.assets->value, &app.scales);
     interface_open(&app);

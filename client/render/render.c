@@ -2,10 +2,10 @@
 
 #define BONE_THICKNESS 1.2f // world units, as the original's debug bones
 
-void render_init(Render *r, const char *base, const Context *ctx, const ScaleData *scales)
+void render_init(Render *r, const char *base, const Context *ctx)
 {
     *r = (Render){.bones = &ctx->skeletons->gostek};
-    for (int style = 0; style < GOSTEK_STYLE_COUNT; style++) gostek_load(&r->gosteks[style], base, scales, (GostekStyle)style);
+    for (int style = 0; style < GOSTEK_STYLE_COUNT; style++) gostek_load(&r->gosteks[style], base, (GostekStyle)style);
     bullet_art_load(&r->bullet_art, base);
     things_art_load(&r->things_art, base);
     sparks_load(&r->sparks, base);

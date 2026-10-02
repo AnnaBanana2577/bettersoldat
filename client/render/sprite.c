@@ -1,17 +1,12 @@
 #include "render/sprite.h"
 
-bool sprite_load_scaled(Sprite *s, const char *path, const Rgba *color_key, float scale)
+bool sprite_load(Sprite *s, const char *path, const Rgba *color_key)
 {
     *s = (Sprite){0};
     if (!gfx_texture_load(&s->tex, path, color_key)) return false;
-    s->width = (float)s->tex.width / scale;
-    s->height = (float)s->tex.height / scale;
+    s->width = (float)s->tex.width * GOSTEK_SCALE;
+    s->height = (float)s->tex.height * GOSTEK_SCALE;
     return true;
-}
-
-bool sprite_load(Sprite *s, const char *path, const Rgba *color_key)
-{
-    return sprite_load_scaled(s, path, color_key, SPRITE_DEFAULT_SCALE);
 }
 
 void sprite_unload(Sprite *s)
