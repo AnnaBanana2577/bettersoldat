@@ -10,7 +10,7 @@
 
 #include "utils/utils.h"
 
-#define FACE_COUNT 2
+#define FACE_COUNT 5 // the original's two, then Play Bold, Russo One and Black Ops One
 #define FIRST_GLYPH 32
 #define LAST_GLYPH 255 // ASCII and Latin-1: what the interface prints
 #define GLYPH_COUNT (LAST_GLYPH - FIRST_GLYPH + 1)
@@ -65,7 +65,14 @@ static const struct {
     [FONT_SMALLEST] = {1, 7, true, 1.25f},     [FONT_BIG] = {0, 28, false, 1.5f},
     [FONT_MENU] = {0, 12, true, 1.5f},         [FONT_WEAPONS_MENU] = {1, 8, true, 1.25f},
     [FONT_WORLD] = {0, 128, true, 1.5f},
+    [FONT_UI] = {1, 9, true, 1.0f},            [FONT_UI_BOLD] = {2, 9, true, 1.0f},
+    [FONT_DISPLAY] = {3, 12, true, 1.0f},      [FONT_LOGO] = {4, 12, true, 1.0f},
 };
+
+// Each face's file under the assets. After the first two come the menu's, which may be
+// missing, in which case the first stands in for them.
+static const char *const FACE_FILES[FACE_COUNT] = {"play-regular.ttf", "play-regular.ttf", "play-bold.ttf", "russo-one.ttf",
+                                                   "black-ops-one.ttf"};
 
 static struct {
     Face faces[FACE_COUNT];
@@ -82,7 +89,11 @@ static struct {
     float scale;
     Vec2 pixel_ratio;
     TextAlign align;
+    float tracking; // em
 } text;
+
+// The face a table draws from: the one asked for, or the first when it did not load.
+static const Face *face_of(int face) { return text.faces[face].data ? &text.faces[face] : &text.faces[0]; }
 
 // --- faces and tables --------------------------------------------------------------
 
@@ -102,7 +113,7 @@ static bool face_load(Face *face, const char *path)
 static void table_init(Table *t, int face, float pixels, float stretch)
 {
     memset(t, 0, sizeof(*t));
-    const Face *f = &text.faces[face];
+    const Face *f = face_of(face);
     t->face = face;
     t->pixels = pixels;
     t->stretch = stretch;
@@ -147,11 +158,12 @@ bool fonts_load(const char *base, float render_height)
     fonts_unload();
 
     // the defaults: font_1_filename and font_2_filename are both play-regular.ttf
-    char path[512];
-    snprintf(path, sizeof(path), "%s/play-regular.ttf", base);
     for (int i = 0; i < FACE_COUNT; i++) {
-        if (!face_load(&text.faces[i], path)) {
-            fprintf(stderr, "font not found: %s\n", path);
+        char path[512];
+        snprintf(path, sizeof(path), "%s/%s", base, FACE_FILES[i]);
+        if (face_load(&text.faces[i], path)) continue;
+        fprintf(stderr, "font not found: %s\n", path);
+        if (i < 2) {
             fonts_unload();
             return false;
         }
@@ -213,7 +225,7 @@ static const Glyph *glyph_get(Table *t, int c)
     g->baked = true;
     g->page = -1;
 
-    const Face *face = &text.faces[t->face];
+    const Face *face = face_of(t->face);
     int index = stbtt_FindGlyphIndex(&face->info, c);
     int advance, lsb, x0, y0, x1, y1;
     stbtt_GetGlyphHMetrics(&face->info, index, &advance, &lsb);
@@ -293,9 +305,19 @@ void text_align(TextAlign align)
     text.align = align;
 }
 
+void text_tracking(float em)
+{
+    text.tracking = em;
+}
+
 float text_style_size(FontStyleId style)
 {
     return text.style_points[style];
+}
+
+float text_size_pixels(void)
+{
+    return text.loaded ? text.table->pixels : 0;
 }
 
 // --- drawing -----------------------------------------------------------------------
@@ -334,10 +356,10 @@ typedef struct Placed {
 
 static int layout(Table *t, const char *utf8, Placed *out, int max)
 {
-    const Face *face = &text.faces[t->face];
+    const Face *face = face_of(t->face);
     float x = 0, y = 0;
     int n = 0, prev = 0;
-    float line = t->ascent + t->descent;
+    float line = t->ascent + t->descent, tracking = text.tracking * t->pixels;
     for (int c; n < max && (c = next_codepoint(&utf8)) != 0;) {
         if (c == '\n') {
             x = 0;
@@ -345,7 +367,7 @@ static int layout(Table *t, const char *utf8, Placed *out, int max)
             prev = 0;
             continue;
         }
-        if (prev) x += (float)stbtt_GetCodepointKernAdvance(&face->info, prev, c) * t->scale_x;
+        if (prev) x += (float)stbtt_GetCodepointKernAdvance(&face->info, prev, c) * t->scale_x + tracking;
         const Glyph *g = glyph_get(t, c);
         out[n++] = (Placed){g, x, y};
         x += g->advance;

@@ -207,7 +207,8 @@ task("dist")
         -- the art and the sound: the client's alone
         local function server_needs(name)
             return not (name:endswith("-gfx") or name == "textures" or name == "custom-interfaces" or name == "sfx"
-                        or name == "icon.png" or name == "icon.ico" or name == "play-regular.ttf" or name == "OFL.txt"
+                        or name == "icon.png" or name == "icon.ico" or name == "play-regular.ttf" or name == "play-bold.ttf"
+                        or name == "russo-one.ttf" or name == "black-ops-one.ttf" or name == "OFL.txt"
                         or name == "mod.ini")
         end
 

@@ -101,7 +101,7 @@ typedef struct App {
     Cvar *lobby;          // the lobby the server browser asks (cl_lobby)
     Cvar *sensitivity;
     Cvar *wireframe, *debug;
-    Cvar *scenery;        // r_scenery: the map's props drawn
+    Cvar *scenery;        // r_scenery: the props behind the map drawn
     Cvar *trails;         // r_trails: the streaks behind the rounds
     Cvar *weather;        // r_weathereffects: the map's rain, sand or snow, and its wind
     Cvar *track_shot;     // cl_trackshot: the camera follows a scoped Barrett shot
@@ -813,7 +813,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->forcebg = cvar_register(con, "r_forcebg", "0", CVAR_ARCHIVE, "1: the sky in r_forcebg_color1 and 2 on every map instead of the map's own colours");
     app->forcebg_color1 = cvar_register(con, "r_forcebg_color1", "000000", CVAR_ARCHIVE, "the forced sky's colour at the top, RRGGBB");
     app->forcebg_color2 = cvar_register(con, "r_forcebg_color2", "000000", CVAR_ARCHIVE, "the forced sky's colour at the bottom, RRGGBB");
-    app->scenery = cvar_register(con, "r_scenery", "1", CVAR_ARCHIVE, "the map's scenery, its props; 0 leaves them out");
+    app->scenery = cvar_register(con, "r_scenery", "1", CVAR_ARCHIVE, "the scenery behind the map; 0 leaves it out, the middle and front scenery stay");
     app->trails = cvar_register(con, "r_trails", "1", CVAR_ARCHIVE, "the streaks behind the bullets, grenades and rockets; 0 leaves them out");
     app->weather = cvar_register(con, "r_weathereffects", "1", CVAR_ARCHIVE, "the map's weather: its rain, sandstorm or snow, and the wind; 0 leaves them out");
     app->wireframe = cvar_register(con, "r_wireframe", "0", 0, "draw the map's polygons as lines");
@@ -1826,7 +1826,6 @@ int main(int argc, char *argv[])
 
     scale_data_load(&app.scales, app.assets->value); // the scales the interface loads with
     render_init(&app.render, app.assets->value, &app.game->ctx);
-    mainmenu_load(&app.mainmenu, app.assets->value);
     audio_init(&app.audio, app.assets->value);
     interface_load(&app.hud, app.assets->value, &app.scales);
     interface_open(&app);
@@ -1986,7 +1985,6 @@ int main(int argc, char *argv[])
     client_net_shutdown(&app.net);
     audio_shutdown(&app.audio);
     fonts_unload();
-    mainmenu_unload(&app.mainmenu);
     interface_unload(&app.hud);
     render_destroy(&app.render);
     window_close(&app);
