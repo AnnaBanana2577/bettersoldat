@@ -79,7 +79,8 @@ MatchSettings match_default_settings(void)
         .respawn_time = DEFAULT_RESPAWN_TIME,
         .max_grenades = DEFAULT_MAX_GRENADES,
         .medikit_cooldown = DEFAULT_MEDIKIT_COOLDOWN,
-        .rope = false, // experimental: off unless a server allows it (sv_rope)
+        .hook = false, // experimental: off unless a server allows it (sv_hook)
+        .hook_tuning = {HOOK_DEFAULT_LENGTH, HOOK_DEFAULT_FIRE_SPEED, HOOK_DEFAULT_DRAG_ACCEL, HOOK_DEFAULT_DRAG_SPEED},
     };
 }
 
@@ -100,7 +101,8 @@ WorldRules match_rules(const Match *m)
         .respawn_time = m->settings.respawn_time,
         .max_grenades = m->settings.max_grenades,
         .flags = m->settings.mode == MATCH_CTF,
-        .rope = m->settings.rope,
+        .hook = m->settings.hook,
+        .hook_tuning = m->settings.hook_tuning,
     };
 }
 

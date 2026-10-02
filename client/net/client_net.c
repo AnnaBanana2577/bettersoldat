@@ -88,7 +88,8 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         n->round = m.round;
         snprintf(n->map, sizeof n->map, "%s", m.map);
         snprintf(n->hostname, sizeof n->hostname, "%s", m.hostname);
-        n->rope = m.rope;
+        n->hook = m.hook;
+        n->hook_tuning = m.hook_tuning;
         n->mapped = true;
         client_stream_reset(&n->stream, m.round);
         n->had_map = true;

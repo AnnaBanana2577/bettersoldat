@@ -41,7 +41,8 @@ typedef struct HostSettings {
     int flood_packets;               // net_floodingpackets; 0 for the default
     int flood_warnings;              // sv_warnings_flood; 0 for the default
     bool quiet;                      // no lines of its own to the console but the first: a client beside it says what matters
-    bool rope;                       // sv_rope: the rope is allowed; off, the boots are jets
+    bool hook;                       // sv_hook: the grappling hook is allowed; off, the boots are jets
+    HookTuning hook_tuning;          // sv_hook_*: each above 0 replaces Teeworlds' value as brought here
 } HostSettings;
 
 // What a server script hangs on the host (host_set_hooks): it hears every tick once it
@@ -59,7 +60,6 @@ typedef struct Host {
     HostSettings settings;
     Console *console; // hears who came and went; may be NULL
     const Cvar *password; // sv_password, if the console has it: read every pump, as a script may set it
-    Cvar *rope_debug; // sv_rope_debug, when the dedicated server hosts: the rope's state logged
     Game *game;       // large; on the heap
     NetLink link;
     Connections connections;
@@ -80,12 +80,6 @@ typedef struct Host {
     int map_count;
     HostHooks hooks;
     LineHooks line_hooks;
-    // sv_rope_debug's memory: each soldier's rope as of the last line, to log changes
-    struct {
-        uint8_t rope, wraps;
-        Vec2 pos;
-    } rope_seen[MAX_PLAYERS];
-    uint32_t rope_dropped[MAX_PLAYERS]; // each stream's dropped states, as of the last line
 } Host;
 
 // Everything up on `settings`: the map loaded, the port listening, the bots in. False,

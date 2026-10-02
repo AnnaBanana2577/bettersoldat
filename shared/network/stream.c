@@ -122,12 +122,12 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     Soldier *soldier = &g->world.soldiers[slot];
     bool paused = g->match.state == MATCH_PAUSED;
     if (soldier->active && !soldier->dead && m.life == soldier->life && !paused) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
-    if (!g->world.rules.rope && soldier->rope != ROPE_NONE) { // sv_rope off: none rides in on the wire
-        soldier->rope = ROPE_NONE;
-        soldier->rope_wraps_count = 0;
+    if (!g->world.rules.hook && soldier->hook != HOOK_IDLE) { // sv_hook off: none rides in on the wire
+        soldier->hook = HOOK_IDLE;
+        soldier->hook_pos = soldier->pos;
     }
     soldier->typing = m.typing;
-    soldier->gear = !g->world.rules.rope && m.owned.gear == GEAR_ROPE ? GEAR_JETS : m.owned.gear; // and the boots stay jets
+    soldier->gear = !g->world.rules.hook && m.owned.gear == GEAR_HOOK ? GEAR_JETS : m.owned.gear; // and the boots stay jets
     soldier->primary_choice = weapon_is_primary(m.owned.primary_choice) ? m.owned.primary_choice : WEAPON_EAGLE;
     soldier->secondary_choice = weapon_is_secondary(m.owned.secondary_choice) ? m.owned.secondary_choice : WEAPON_KNIFE;
     return true;

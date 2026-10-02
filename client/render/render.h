@@ -28,6 +28,7 @@ typedef struct Render {
     Sparks sparks;
     MapView map_view;
     const ParticleObject *bones; // the gostek's skeleton, for the debug overlay; borrowed
+    Sprite hook_head, hook_chain; // Teeworlds' grappling hook art (assets/hook-gfx)
 } Render;
 
 // The gostek's art and the map's, from `base`. The window must be open; the context

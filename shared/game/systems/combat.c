@@ -561,8 +561,8 @@ float movement_inaccuracy(const Context *ctx, const Soldier *s)
     default:
         break;
     }
-    // jetting, or riding a rope, spoils the aim
-    if ((s->controls & BUTTON_JET) && (s->gear == GEAR_JETS ? s->jets > 0 : s->rope != ROPE_NONE)) return acc * 7.0f;
+    // jetting spoils the aim; the hook, as in Teeworlds, does not
+    if (s->gear == GEAR_JETS && (s->controls & BUTTON_JET) && s->jets > 0) return acc * 7.0f;
 
     AnimId legs = s->legs.id;
     bool lying_or_crouched = legs == ANIM_PRONE || legs == ANIM_PRONE_MOVE || legs == ANIM_CROUCH ||

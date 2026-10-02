@@ -106,7 +106,8 @@ typedef struct Connections {
     char map[NET_MAP_SIZE];        // on which map
     char hostname[NET_NAME_SIZE];  // the server's name, told with the map (sv_hostname)
     char password[NET_PASSWORD_SIZE]; // what a Hello must say to join; empty asks none (sv_password)
-    bool rope;                     // whether the rope is allowed (sv_rope), told with the map
+    bool hook;                     // whether the grappling hook is allowed (sv_hook), told with the map
+    HookTuning hook_tuning;        // and how it plays (sv_hook_*), told with it
     char maps_dir[512];            // where a voted map must be found, <assets>/maps; empty accepts any
     const char (*maps)[64];        // the server's list of maps (the original's MapsList), for the map window and
     int map_count;                 // the votes; NULL, and a voted map is looked for in maps_dir instead

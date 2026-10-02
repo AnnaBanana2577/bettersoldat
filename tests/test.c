@@ -161,7 +161,7 @@ int main(void)
     thing_tests();
     corpse_tests();
     events_tests();
-    rope_tests();
+    hook_tests();
     network_tests();
     join_tests();
     wire_tests();

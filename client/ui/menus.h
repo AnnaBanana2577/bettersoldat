@@ -42,8 +42,8 @@ typedef struct GameMenus {
     bool players_active[MAX_PLAYERS];
     int me;
     int map_count;
-    Gear gear;                        // the boots the weapons menu offers: jets, or a rope
-    bool rope;                        // whether the rope is allowed here (sv_rope): the boots offer it, or not
+    Gear gear;                        // the boots the weapons menu offers: jets, or a grappling hook
+    bool hook;                        // whether the hook is allowed here (sv_hook): the boots offer it, or not
     bool weapons_active[WEAPON_COUNT]; // what the server allows (WeaponActive)
 } GameMenus;
 

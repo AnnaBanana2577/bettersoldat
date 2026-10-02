@@ -182,9 +182,7 @@ static void cover_check(const Context *ctx, World *w, uint8_t index)
 static void animation_slowdown(Soldier *s)
 {
     Anim *legs = &s->legs;
-    // A rope out: the roll's slowed pace is a pose, not speeded-up play — it must not
-    // rob the swing's or the climb's momentum.
-    if (s->rope != ROPE_NONE || legs->speed <= 1) return;
+    if (legs->speed <= 1) return;
 
     switch (legs->id) {
     case ANIM_JUMP:
@@ -524,25 +522,17 @@ void soldier_control(const Context *ctx, World *w, uint8_t index, Events *events
     s->fired = false; // set again by the weapon if a shot goes off this tick
 
     ControlInput input = resolve_left_right(s);
-    if (s->gear == GEAR_ROPE) rope_control(ctx, w, index, events);
+    // the jets, or the grappling hook on their key; it takes nothing else away
+    if (s->gear == GEAR_HOOK && w->rules.hook) hook_control(ctx, w, index);
     else jets_control(ctx, w, s, input);
     if (armed) combat_control(ctx, w, index, events);
-    // A rope out takes the locomotion away: hung, reeled, or throwing, the soldier
-    // doesn't lie down, cover-check, walk or roll (the weapon still works). Each step
-    // stays in its place in the original's order, so a soldier without a rope out moves
-    // exactly as before: the slowdown before the walk, the reload before the roll.
-    bool afoot = s->rope == ROPE_NONE;
-    if (afoot) {
-        prone_control(ctx, s, &input);
-        if (armed) combat_after_prone(ctx, w, s);
-    }
+    prone_control(ctx, s, &input);
+    if (armed) combat_after_prone(ctx, w, s);
     animation_slowdown(s);
-    if (afoot) {
-        cover_check(ctx, w, index);
-        movement_control(ctx, s, input);
-    }
+    cover_check(ctx, w, index);
+    movement_control(ctx, s, input);
     if (armed) combat_reload_animation(ctx, s);
-    if (afoot) roll_control(ctx, s, input);
+    roll_control(ctx, s, input);
     body_pose_control(ctx, s);
     sniper_view(s);
 }

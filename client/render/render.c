@@ -1,6 +1,19 @@
 #include "render/render.h"
 
+#include <stdio.h>
+
 #define BONE_THICKNESS 1.2f // world units, as the original's debug bones
+
+// Teeworlds' hook art: its head and a link of its chain, cut from its game.png
+// (CC BY-SA 3.0, assets/NOTICE.md). Missing, the hook goes undrawn.
+static void hook_art_load(Render *r, const char *base)
+{
+    char path[512];
+    snprintf(path, sizeof path, "%s/hook-gfx/hook-head.png", base);
+    sprite_load(&r->hook_head, path, NULL);
+    snprintf(path, sizeof path, "%s/hook-gfx/hook-chain.png", base);
+    sprite_load(&r->hook_chain, path, NULL);
+}
 
 void render_init(Render *r, const char *base, const Context *ctx)
 {
@@ -9,12 +22,15 @@ void render_init(Render *r, const char *base, const Context *ctx)
     bullet_art_load(&r->bullet_art, base);
     things_art_load(&r->things_art, base);
     sparks_load(&r->sparks, base);
+    hook_art_load(r, base);
     map_view_load(&r->map_view, base, ctx->map);
 }
 
 void render_destroy(Render *r)
 {
     map_view_unload(&r->map_view);
+    sprite_unload(&r->hook_chain);
+    sprite_unload(&r->hook_head);
     sparks_unload(&r->sparks);
     things_art_unload(&r->things_art);
     bullet_art_unload(&r->bullet_art);
@@ -34,45 +50,38 @@ static void draw_soldiers(const Render *r, const RenderState *state, Rgba grenad
     }
 }
 
-// One stretch of a rope, dipped under its own weight: the curve's middle hangs a
-// part of the stretch's length below the line, so the rope curves the way a rope
-// hangs instead of cutting straight.
-static void draw_rope_stretch(Vec2 a, Vec2 b, Rgba color)
+// Teeworlds' hook art, drawn at Teeworlds' sizes brought to this world as the hook's
+// lengths are (game.h, HookTuning): its 24 by 16 head and 16 by 16 links.
+#define HOOK_ART_SCALE 0.55f
+#define HOOK_HEAD_W (24.0f * HOOK_ART_SCALE)
+#define HOOK_HEAD_H (16.0f * HOOK_ART_SCALE)
+#define HOOK_LINK (16.0f * HOOK_ART_SCALE)
+
+// `sprite` as a `w` by `h` quad centred on `at`, its right turned to `angle`.
+static void draw_centred(Sprite sprite, Vec2 at, float w, float h, float angle)
 {
-    Vec2 d = vec2_sub(b, a);
-    float len = vec2_length(d);
-    if (len < 0.001f) return;
-    Vec2 mid = vec2_scale(vec2_add(a, b), 0.5f);
-    Vec2 c = vec2_add(mid, vec2(0.0f, fminf(len * 0.05f, 6.0f))); // down is +y
-    Vec2 prev = a;
-    for (int i = 1; i <= 6; i++) {
-        float t = (float)i / 6.0f;
-        Vec2 p = vec2_add(vec2_add(vec2_scale(a, (1.0f - t) * (1.0f - t)), vec2_scale(c, 2.0f * t * (1.0f - t))),
-                          vec2_scale(b, t * t));
-        gfx_draw_line(prev, p, BONE_THICKNESS, color);
-        prev = p;
-    }
+    sprite.width = w;
+    sprite.height = h;
+    draw_sprite(sprite, at, vec2(w / 2, h / 2), vec2(1, 1), angle, RGBA_WHITE);
 }
 
-// The ropes: a line in the owner's colour, from the hand through the corners the
-// rope is caught around to the anchor, each stretch dipping under its own weight —
-// a rope that curves, the way a rope hangs, and never a straight cut through the
-// map. Drawn behind the soldiers, whose sprites cover the hand that holds it.
-static void draw_ropes(const Render *r, const RenderState *state)
+// The grappling hooks, as Teeworlds' RenderHook draws them (players.cpp): the head
+// at the hook, turned away from its owner, and a link every link's length back toward
+// the hand that holds it. Drawn behind the soldiers, whose sprites cover that hand.
+static void draw_hooks(const Render *r, const RenderState *state)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const RenderSoldier *s = &state->soldiers[i];
-        if (!s->active || s->dead || s->rope == ROPE_NONE) continue;
-        if (s->rope == ROPE_THROWING) { // flying: pulled taut, a straight line
-            gfx_draw_line(s->pose.p[14], s->rope_tip, BONE_THICKNESS, s->look.jet);
-            continue;
-        }
-        Vec2 a = s->pose.p[14];
-        for (int w = (int)s->rope_wraps_count - 1; w >= -1; w--) {
-            Vec2 b = w < 0 ? s->rope_tip : s->rope_wraps[w];
-            draw_rope_stretch(a, b, s->look.jet);
-            a = b;
-        }
+        if (!s->active || s->dead || s->hook < HOOK_RETRACT_1) continue;
+        Vec2 hand = s->pose.p[14], head = s->hook_pos;
+        Vec2 back = vec2_sub(hand, head);
+        float distance = vec2_length(back);
+        if (distance < 0.001f) continue;
+        back = vec2_scale(back, 1.0f / distance);
+        float angle = atan2f(-back.y, -back.x); // the way it flew: from the hand out to the head
+        draw_centred(r->hook_head, head, HOOK_HEAD_W, HOOK_HEAD_H, angle);
+        for (float f = HOOK_LINK; f < distance; f += HOOK_LINK)
+            draw_centred(r->hook_chain, vec2_add(head, vec2_scale(back, f)), HOOK_LINK, HOOK_LINK, angle);
     }
 }
 
@@ -175,7 +184,7 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
     map_draw_background_polys(v);
     if (options.scenery) map_draw_scenery(v, 0);
     bullets_draw(&r->bullet_art, state->bullets, state->alpha, grenade_color, seconds);
-    draw_ropes(r, state);
+    draw_hooks(r, state);
     draw_soldiers(r, state, grenade_color);
     things_draw(&r->things_art, THINGS_SPRITES, state->things, state->soldiers, state->alpha, seconds);
     sparks_draw(&r->sparks, state->alpha);

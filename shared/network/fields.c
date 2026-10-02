@@ -22,25 +22,10 @@ const NetField SOLDIER_OWNED_FIELDS[] = {
     NETFIELD_ENUM(Soldier, stance, STANCE_PRONE),
     NETFIELD(Soldier, on_ground, NET_BOOL, 0),
     NETFIELD(Soldier, jets, NET_I, 32), // a map's fuel can be anything
-    NETFIELD_ENUM(Soldier, rope, ROPE_PHASE_COUNT - 1),
-    NETFIELD(Soldier, rope_tip, NET_VEC2, 0),
-    NETFIELD(Soldier, rope_tip_vel, NET_VEC2, 0),
-    NETFIELD(Soldier, rope_len, NET_F32, 0),
-    NETFIELD(Soldier, rope_grab, NET_F32, 0),
-    NETFIELD(Soldier, rope_climb, NET_F32, 0),
-    // the rope's per-machine memory, carried so every machine sees the same rope:
-    // the corners it is wound around (rope.c's comment) and the key's press edge.
-    // Derived locally they diverge a tick — a corner caught from a stale position
-    // pins the rope elsewhere, and a press re-read on the owner's cut state throws
-    // a phantom rope.
-    NETFIELD(Soldier, rope_wraps_count, NET_U, 8),
-    NETFIELD(Soldier, rope_wraps[0], NET_VEC2, 0),
-    NETFIELD(Soldier, rope_wraps[1], NET_VEC2, 0),
-    NETFIELD(Soldier, rope_wraps[2], NET_VEC2, 0),
-    NETFIELD(Soldier, rope_wraps[3], NET_VEC2, 0),
-    NETFIELD(Soldier, rope_wraps[4], NET_VEC2, 0),
-    NETFIELD(Soldier, rope_wraps[5], NET_VEC2, 0),
-    NETFIELD(Soldier, was_jet, NET_BOOL, 0),
+    // the grappling hook, its owner's to play: what it is doing, its head, its way
+    NETFIELD_ENUM(Soldier, hook, HOOK_STATE_COUNT - 1),
+    NETFIELD(Soldier, hook_pos, NET_VEC2, 0),
+    NETFIELD(Soldier, hook_dir, NET_VEC2, 0),
     NETFIELD_ENUM(Soldier, legs.id, ANIM_COUNT - 1),
     NETFIELD(Soldier, legs.frame, NET_I, 8),
     NETFIELD_ENUM(Soldier, body.id, ANIM_COUNT - 1),

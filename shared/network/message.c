@@ -54,7 +54,11 @@ void msg_map(NetBuf *b, MsgMap *m)
     net_u16(b, &m->round);
     net_string(b, m->map, sizeof m->map);
     net_string(b, m->hostname, sizeof m->hostname);
-    net_bool(b, &m->rope);
+    net_bool(b, &m->hook);
+    net_f32(b, &m->hook_tuning.length);
+    net_f32(b, &m->hook_tuning.fire_speed);
+    net_f32(b, &m->hook_tuning.drag_accel);
+    net_f32(b, &m->hook_tuning.drag_speed);
 }
 
 void msg_vote(NetBuf *b, MsgVote *m)

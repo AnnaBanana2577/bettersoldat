@@ -26,7 +26,8 @@ typedef struct ClientNet {
     uint16_t round;         // the round being played, as of the last Map
     char map[NET_MAP_SIZE]; // on which map
     char hostname[NET_NAME_SIZE]; // the server's name, as the Map said
-    bool rope; // whether the rope is allowed in this game (sv_rope), as the Map said
+    bool hook; // whether the grappling hook is allowed in this game (sv_hook), as the Map said
+    HookTuning hook_tuning; // and how it plays (sv_hook_*)
     char address[64];       // the server's, as connected to
     uint16_t port;
     bool had_map;           // a Map came since the join: the next is a change of map

@@ -18,9 +18,26 @@ Credits named in the upstream `Credits.md`:
 
 ## What here is not from base
 
-One file sits in this directory without being part of that content, and it is not
-under CC BY 4.0. (The game's own `config.cfg`, under the MIT licence in
-[../license.md](../license.md), sits beside this directory rather than in it.)
+Two things sit in this directory without being part of that content, and neither is
+under CC BY 4.0.
+
+**`hook-gfx/`**, the grappling hook's head and chain, is Teeworlds' art: the
+`hook_head` and `hook_chain` sprites, cut unchanged from its `data/game.png`. It is
+licensed under **Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)**,
+<https://creativecommons.org/licenses/by-sa/3.0/>, and stays under it here.
+
+- **Source:** <https://github.com/teeworlds/teeworlds> (`datasrc/game.png`)
+- **Authors**, as Teeworlds credits its content: android272, Chi11y (chi1), Crises,
+  Daniel, Echchouik, Fisico, leovilok, Landil, Lappi, LordSk, maikka, matricks,
+  Pocram, red_com, serpis, SkizZ, somerunce, Sonix, Stephanator, teetow, Ubu, Zatline
+- **Modifications:** the two sprites were cut out of the sprite sheet; the game draws
+  them scaled.
+
+The hook's rules (shared/game/systems/hook.c) are a port of Teeworlds' code, Copyright
+(C) 2007-2024 Magnus Auvinen, under the zlib licence; this is an altered version of it.
+
+The game's own `config.cfg`, under the MIT licence in [../license.md](../license.md),
+sits beside this directory rather than in it.
 
 **`play-regular.ttf`** is licensed under the SIL Open Font License, Version 1.1:
 

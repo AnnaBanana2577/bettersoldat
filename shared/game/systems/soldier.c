@@ -214,15 +214,9 @@ void soldier_copy_owned(const Anims *anims, Soldier *dst, const Soldier *src)
     dst->stance = src->stance;
     dst->on_ground = src->on_ground;
     dst->jets = src->jets;
-    dst->rope = src->rope;
-    dst->rope_tip = src->rope_tip;
-    dst->rope_tip_vel = src->rope_tip_vel;
-    dst->rope_len = src->rope_len;
-    dst->rope_grab = src->rope_grab;
-    dst->rope_climb = src->rope_climb;
-    dst->rope_wraps_count = src->rope_wraps_count;
-    for (int i = 0; i < ROPE_WRAPS; i++) dst->rope_wraps[i] = src->rope_wraps[i];
-    dst->was_jet = src->was_jet;
+    dst->hook = src->hook;
+    dst->hook_pos = src->hook_pos;
+    dst->hook_dir = src->hook_dir;
     anim_copy(anims, &dst->legs, src->legs);
     anim_copy(anims, &dst->body, src->body);
     dst->weapon = src->weapon;
@@ -232,7 +226,11 @@ void soldier_copy_owned(const Anims *anims, Soldier *dst, const Soldier *src)
     dst->grenade_type = src->grenade_type;
     dst->use_time = src->use_time;
     dst->stat = src->stat;
-    dst->idle = src->idle;
+    // field by field: the struct's padding is nobody's, and copied whole it carries
+    // whatever bytes the source happened to hold there
+    dst->idle.time = src->idle.time;
+    dst->idle.random = src->idle.random;
+    dst->idle.seen = src->idle.seen;
     dst->has_cigar = src->has_cigar;
     dst->wear_helmet = src->wear_helmet;
     dst->can_mercy = src->can_mercy;
@@ -291,7 +289,6 @@ void soldier_copy_rest(Soldier *dst, const Soldier *src)
     dst->old_direction = src->old_direction;
     dst->was_running_left = src->was_running_left;
     dst->was_jumping = src->was_jumping;
-    dst->was_jet = src->was_jet;
     dst->on_ground_last = src->on_ground_last;
     dst->on_ground_permanent = src->on_ground_permanent;
     dst->on_ground_for_law = src->on_ground_for_law;

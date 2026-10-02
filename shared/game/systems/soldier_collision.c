@@ -308,12 +308,8 @@ void soldier_collide(const Context *ctx, World *w, uint8_t index, Events *events
 
     bg_test_reset(&s->bg);
 
-    // A rope soldier flies by its own rules: the travel along the rope and the momentum
-    // a cut keeps run past the walking clamp — but only as far as the swing's own cut
-    // (ROPE_SWING_MAX), what the collision's push-out is built to resolve.
-    float max_vel = s->gear == GEAR_ROPE ? ROPE_SWING_MAX : MAX_VELOCITY;
-    s->vel.x = clampf(s->vel.x, -max_vel, max_vel);
-    s->vel.y = clampf(s->vel.y, -max_vel, max_vel);
+    s->vel.x = clampf(s->vel.x, -MAX_VELOCITY, MAX_VELOCITY);
+    s->vel.y = clampf(s->vel.y, -MAX_VELOCITY, MAX_VELOCITY);
 }
 
 bool soldier_collides_with(const Soldier *s, PolyType t)

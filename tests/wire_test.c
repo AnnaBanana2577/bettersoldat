@@ -43,7 +43,7 @@ void wire_tests(void)
         {.type = EVENT_FLAG_THROW, .flag_throw = {.player = 9}},
         {.type = EVENT_DAMAGE, .damage = {.attacker = 1, .target = 2, .weapon = WEAPON_M79, .amount = 42.5f, .vest = true}},
         {.type = EVENT_KILL, .kill = {.killer = 4, .target = 5, .weapon = WEAPON_KNIFE, .pos = {9, 10}, .health = -30.0f, .part = 12, .kills = -1}},
-        {.type = EVENT_RESPAWN, .respawn = {.target = 6, .life = 200, .team = TEAM_BRAVO, .gear = GEAR_ROPE, .primary = WEAPON_MINIGUN, .secondary = WEAPON_LAW, .pos = {11, 12}}},
+        {.type = EVENT_RESPAWN, .respawn = {.target = 6, .life = 200, .team = TEAM_BRAVO, .gear = GEAR_HOOK, .primary = WEAPON_MINIGUN, .secondary = WEAPON_LAW, .pos = {11, 12}}},
         {.type = EVENT_FLAG_GRAB, .flag_grab = {.player = 7, .thing = 3, .flag = THING_BRAVO_FLAG, .pos = {13, 14}}},
         {.type = EVENT_FLAG_RETURN, .flag_return = {.player = 255, .flag = THING_ALPHA_FLAG, .pos = {15, 16}}},
         {.type = EVENT_FLAG_SCORE, .flag_score = {.player = 8, .flag = THING_ALPHA_FLAG, .pos = {17, 18}}},

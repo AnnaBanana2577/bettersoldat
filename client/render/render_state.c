@@ -84,10 +84,9 @@ static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, cons
     out.fired = to->fired;
     out.spawn_protected = to->cease_fire_counter >= 0;
     out.look = to->look;
-    out.rope = to->rope;
-    out.rope_tip = to->rope_tip;
-    out.rope_wraps_count = to->rope_wraps_count;
-    for (int w = 0; w < to->rope_wraps_count; w++) out.rope_wraps[w] = to->rope_wraps[w];
+    out.hook = to->hook;
+    // the head between its last two ticks, as Teeworlds draws it, while it was out at both
+    out.hook_pos = from->hook >= HOOK_RETRACT_1 && to->hook >= HOOK_RETRACT_1 ? lerp(from->hook_pos, to->hook_pos, alpha) : to->hook_pos;
     out.gear = to->gear;
     if (team_game) out.look.shirt = team_shirt(to->team);
     return out;

@@ -119,10 +119,11 @@ void die(const Context *ctx, World *w, Hit hit, Events *events)
         });
     }
     // What it held is the things': the things pass lets the flag go on the kill, and a
-    // parachute keeps holding the body, so the corpse floats down under it. The rope
-    // drops with the hand that held it.
+    // parachute keeps holding the body, so the corpse floats down under it. The hook
+    // is put away with the hand that held it.
     s->weapon = weapon_state(ctx, WEAPON_NONE);
-    if (s->rope != ROPE_NONE) rope_cut(w, hit.target, s->pos, events);
+    s->hook = HOOK_IDLE;
+    s->hook_pos = s->pos;
     s->dead = true;
     s->vel = (Vec2){0};
     s->respawn_counter = w->rules.respawn_time;

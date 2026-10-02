@@ -25,7 +25,7 @@
 
 #include "game/entities.h"
 
-#define NET_VERSION 16
+#define NET_VERSION 17
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
 #define NET_PASSWORD_SIZE 32 // the server's password, with its terminator (sv_password, cl_password)
@@ -167,7 +167,7 @@ typedef struct MsgHello {
     char name[NET_NAME_SIZE];
     char password[NET_PASSWORD_SIZE]; // the server's (sv_password), or empty
     PlayerLook look;             // how the player dresses its soldier, for the game
-    Gear gear;                   // the gear of its first placing: jets, or a rope
+    Gear gear;                   // the gear of its first placing: jets, or a grappling hook
     WeaponId primary, secondary; // the loadout of its first placing
 } MsgHello;
 
@@ -183,7 +183,8 @@ typedef struct MsgMap {
     uint16_t round;
     char map[NET_MAP_SIZE];
     char hostname[NET_NAME_SIZE]; // the server's, for the scoreboard
-    bool rope;                    // whether the rope is allowed in this game (sv_rope)
+    bool hook;                    // whether the grappling hook is allowed in this game (sv_hook)
+    HookTuning hook_tuning;       // and how it plays (sv_hook_*): every machine plays its own soldier's
 } MsgMap;
 
 // A vote as the HUD shows it: what is voted on and by whom, and how long it has. The

@@ -579,47 +579,6 @@ static void thing_collide(const Context *ctx, World *w, Bullet *b, float nearest
     }
 }
 
-// --- the ropes ----------------------------------------------------------------------
-
-// A knife, LAW, M79 or Barrett cuts a rope it crosses; any other bullet passes it by.
-static bool rope_cuts(WeaponId weapon)
-{
-    switch (weapon) {
-    case WEAPON_KNIFE:
-    case WEAPON_THROWN_KNIFE:
-    case WEAPON_LAW:
-    case WEAPON_M79:
-    case WEAPON_BARRETT:
-        return true;
-    default:
-        return false;
-    }
-}
-
-// The cut is every machine's to compute (the bullets fly identically everywhere); the
-// EVENT_ROPE_CUT rope_cut emits is for the sparks alone. The bullet keeps flying.
-static void rope_collide(const Context *ctx, World *w, Bullet *b, float nearest, Events *events)
-{
-    if (!rope_cuts(b->weapon)) return;
-    // The stab (the knife's flight is a single tick) sweeps the same line the body
-    // hit does: from the hand along the aim, out past the blade.
-    Vec2 start = b->old_pos, end = b->pos;
-    if (b->style == BULLET_KNIFE || b->style == BULLET_PUNCH) {
-        const Soldier *owner = &w->soldiers[b->owner];
-        Pose owner_pose = soldier_pose(ctx->anims, owner, owner->pos);
-        start = vec2_add(owner_pose.p[14], vec2_scale(hands_aim_direction(&owner_pose), 4.0f));
-        end = vec2_add(b->pos, b->vel);
-    }
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        Soldier *s = &w->soldiers[i];
-        if (!s->active || s->rope == ROPE_NONE || i == b->owner) continue; // not your own rope
-        Vec2 point;
-        if (!rope_crosses(ctx, s, start, end, &point)) continue;
-        if (nearest > -1.0f && vec2_length(vec2_sub(point, b->old_pos)) > nearest) continue; // a nearer stop ends the flight before it
-        rope_cut(w, (uint8_t)i, point, events);
-    }
-}
-
 // --- the tick ----------------------------------------------------------------------
 
 void bullet_collide(const Context *ctx, World *w, Bullet *b, uint16_t index, Events *events)
@@ -652,8 +611,6 @@ void bullet_collide(const Context *ctx, World *w, Bullet *b, uint16_t index, Eve
         Vec2 stop = hit_body ? body : hit_collider ? collider : wall;
         nearest = vec2_length(vec2_sub(stop, saved_old));
     }
-
-    rope_collide(ctx, w, b, nearest, events);
 
     thing_collide(ctx, w, b, nearest, events);
 }

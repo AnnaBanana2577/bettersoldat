@@ -111,33 +111,22 @@ void soldier_control(const Context *ctx, World *w, uint8_t index, Events *events
 // Leg transitions are blocked while lying down; Get_Up is the only way out of Prone.
 void legs_apply(const Anims *anims, Soldier *s, AnimId id, int32_t frame);
 
-// --- rope.c ------------------------------------------------------------------------
+// --- hook.c ------------------------------------------------------------------------
 
-// The LAW's bullet speed: the pace the throw's flying end is flung at, and the pace
-// the climb's ramp is a part of (a tenth at first, a fifth at most).
-#define ROPE_SPEED 23.0f
-// The swing's gathered momentum, cut at the walking clamp: faster, and a tick's
-// travel outruns the collision's push-out and the swing carries its owner through
-// polygons. The cut is on the gain — the push against the momentum still works.
-#define ROPE_SWING_MAX MAX_VELOCITY
-#define ROPE_GIVE 0.1875f // the part of its length a rope stretches at most, pulled past it
+// Teeworlds' fixed lengths, scaled as the tuning's are (game.h): the hook leaves the
+// hand this far out (PHYS_SIZE * 1.5, 42), and stops pulling this near its head (46).
+#define HOOK_START 23.1f
+#define HOOK_NEAR 25.3f
 
-// The rope's control step, in place of the jets' for a soldier of the rope gear: the
-// key held flings the rope at the aim, a rocket's flight that slows and falls, until
-// it holds a poly the player can stand on; pressed while it holds, it cuts. The up
-// key climbs the hold to its anchor, where the rope lets go — a slow pull that builds,
-// a tenth of the rope's pace gaining a hundredth a tick held, to a fifth at most —
-// and left and right swing on it. A release while it throws retracts it. Called from
-// soldier_control.
-void rope_control(const Context *ctx, World *w, uint8_t index, Events *events);
-
-// A cut from outside, where every machine's bullets pass computes it: the soldier
-// falls at its current velocity. `at` is where the cut happened, for the sparks.
-void rope_cut(World *w, uint8_t player, Vec2 at, Events *events);
-
-// Does the segment a-b cross the soldier's rope — the hanging part or the part wound
-// around its corners? Gives the crossing point. For the bullets' pass to cut it.
-bool rope_crosses(const Context *ctx, const Soldier *s, Vec2 a, Vec2 b, Vec2 *point);
+// The grappling hook's control step, in place of the jets' for a soldier of the hook
+// gear, as Teeworlds' CCharacterCore::Tick has it (gamecore.cpp): the key held fires
+// it at the aim, straight and fast, and it holds the first poly its owner would stand
+// on; past its length it gives up. Holding, it pulls its owner toward it, three times
+// harder up than down, a little harder the way the owner is moving, adding speed only
+// up to its pace. Let go, it is put away; holding the key after it gave up does
+// nothing until it is let go. The walking, the jumping and the aim go on as ever.
+// Called from soldier_control.
+void hook_control(const Context *ctx, World *w, uint8_t index);
 
 // --- soldier_collision.c -----------------------------------------------------------
 

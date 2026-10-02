@@ -17,7 +17,12 @@ static MatchSettings match_settings(const Host *h, const Map *map)
 {
     MatchSettings s = match_settings_for_map(map);
     s.mode = match_mode_choose(map, h->settings.mode);
-    s.rope = h->settings.rope; // sv_rope
+    s.hook = h->settings.hook; // sv_hook
+    const HookTuning *t = &h->settings.hook_tuning; // sv_hook_*, each above 0 in place of the default
+    if (t->length > 0) s.hook_tuning.length = t->length;
+    if (t->fire_speed > 0) s.hook_tuning.fire_speed = t->fire_speed;
+    if (t->drag_accel > 0) s.hook_tuning.drag_accel = t->drag_accel;
+    if (t->drag_speed > 0) s.hook_tuning.drag_speed = t->drag_speed;
     if (h->settings.time_limit > 0) s.time_limit = h->settings.time_limit * 60 * TICK_RATE;
     if (h->settings.score_limit > 0) s.score_limit = h->settings.score_limit;
     return s;
@@ -124,7 +129,8 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
         h->connections.maps = (const char (*)[64])h->maps;
         h->connections.map_count = h->map_count;
     }
-    h->connections.rope = h->game->world.rules.rope; // what the map tells every client
+    h->connections.hook = h->game->world.rules.hook; // what the map tells every client
+    h->connections.hook_tuning = h->game->world.rules.hook_tuning;
 
     bots_init(&h->bots, (BotSettings){.difficulty = settings->bots_difficulty, .chat = settings->bots_chat}, bot_say, h);
     h->profiles = calloc(BOT_PROFILES, sizeof *h->profiles);
@@ -223,36 +229,6 @@ static bool round_change(Host *h)
     return true;
 }
 
-// sv_rope_debug: each tick a soldier's rope changed, and every 30th tick every
-// soldier's, one line of the state as this machine has it (the authority); each
-// stream's states dropped since the last line too. A client whose rope disagrees can
-// be read off the two consoles side by side.
-static void rope_debug_tick(Host *h)
-{
-    if (!h->rope_debug || !h->rope_debug->integer) return;
-    World *w = &h->game->world;
-    bool periodic = w->tick % 30 == 0;
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        Soldier *s = &w->soldiers[i];
-        if (!s->active) continue;
-        bool changed = s->rope != h->rope_seen[i].rope || s->rope_wraps_count != h->rope_seen[i].wraps ||
-                       vec2_length(vec2_sub(s->pos, h->rope_seen[i].pos)) > 30.0f;
-        if (!periodic && !changed) continue;
-        h->rope_seen[i].rope = (uint8_t)s->rope;
-        h->rope_seen[i].wraps = s->rope_wraps_count;
-        h->rope_seen[i].pos = s->pos;
-        console_print(h->console, "rope %d t%u %d tip (%.0f,%.0f) len %.0f wraps %d pos (%.0f,%.0f) vel (%.1f,%.1f)\n", i,
-                      w->tick, s->rope, s->rope_tip.x, s->rope_tip.y, s->rope_len, s->rope_wraps_count, s->pos.x, s->pos.y,
-                      s->vel.x, s->vel.y);
-    }
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (h->connections.streams[i].dropped != h->rope_dropped[i]) {
-            console_print(h->console, "rope %d: %u states dropped\n", i, h->connections.streams[i].dropped);
-            h->rope_dropped[i] = h->connections.streams[i].dropped;
-        }
-    }
-}
-
 bool host_pump(Host *h, double dt)
 {
     if (h->password) connections_set_password(&h->connections, h->password->value);
@@ -269,7 +245,6 @@ bool host_pump(Host *h, double dt)
         if (h->hooks.ticked) h->hooks.ticked(h->hooks.user);
         bots_hear(&h->bots, h->game);
         connections_snapshots(&h->connections, h->game);
-        rope_debug_tick(h);
         h->accumulator -= TICK_SECONDS;
         if (!round_change(h)) return false;
     }
