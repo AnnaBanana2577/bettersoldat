@@ -1,7 +1,13 @@
 # A version tag (v0.1.0) builds the packages on Windows and Linux, runs the tests, and
-# attaches the archives that `xmake dist` makes to a GitHub release named after the tag,
-# with the tag's own message as its notes (docs/git.md, Releases). A tag whose version
-# is not the one in xmake.lua, or whose tests fail, makes no release.
+# attaches what `xmake dist` makes to a GitHub release named after the tag, with the
+# tag's own message as its notes (docs/git.md, Releases): for each platform the
+# client's full package, its update package, the server's, and latest-<platform>.txt,
+# the manifest the launcher reads. A tag whose version is not the one in xmake.lua, or
+# whose tests fail, makes no release.
+#
+# The launcher asks for releases/latest/download/latest-<platform>.txt, which is the
+# newest published release's. So the release is made as a draft, given every file, and
+# only then published: a launcher never sees a manifest whose packages aren't there yet.
 
 name: release
 
@@ -65,6 +71,7 @@ jobs:
           path: |
             build/dist/*.zip
             build/dist/*.tar.gz
+            build/dist/latest-*.txt
           if-no-files-found: error
 
   release:
@@ -93,7 +100,15 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           body_path: notes.md
+          draft: true
           files: |
             dist/*.zip
             dist/*.tar.gz
+            dist/latest-*.txt
           fail_on_unmatched_files: true
+
+      # every file attached: now the launchers may see it
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

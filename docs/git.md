@@ -68,10 +68,27 @@ The wire decides the rest. A Hello carries the layout of the state and a build t
 does not match is refused, so any release that changes the protocol will not talk to
 the one before it. Say so in the tag's message, every time.
 
-A tag is the version; what ships beside it is the client, the server and the contents
-of `assets/`, unpacked flat so that config.cfg and the art sit beside the executable:
-the packages `xmake dist` makes (see xmake.lua). The tag alone is not a release until
-those exist.
+A tag is the version; what ships beside it is the client, the server, the launcher and
+the contents of `assets/`, unpacked flat so that config.cfg and the art sit beside the
+executable: the packages `xmake dist` makes (see xmake.lua). The tag alone is not a
+release until those exist.
+
+Players start the launcher (`Soldat Reloaded.exe`, `soldatreloaded-launcher` on
+Linux), which keeps their copy at the newest release (launcher/update.h). Each release
+carries, for each platform, a manifest naming every file of an install by its hash; the
+launcher compares the install with it and downloads the small update package (the
+executables) when only those differ, and the full package when anything in `assets/`
+or `scripts/` does. config.cfg is the player's and is never replaced. So:
+
+- A release that adds a cvar registers it in code with its default (`cvar_register`).
+  A player's config.cfg is from whatever version they first installed, and a cvar
+  that only config.cfg mentions doesn't exist for them. A new archived cvar is
+  written into their config on the way out.
+- A new default bind reaches only new players: binds live in config.cfg, which starts
+  with `unbindall`, and the player's own copy is left as it is. Say so in the tag's
+  message when a release adds one.
+- The newest *published* release is the one every launcher moves to, so a release that
+  shouldn't go out to players is made a pre-release or left a draft.
 
 Pushing the tag makes them. The release workflow (.github/workflows/release.yml)
 builds the packages on Windows and Linux, runs the tests, and attaches the archives to
