@@ -171,17 +171,31 @@ static MenuAction menu_action(GameMenus *m, MenuId id, int button)
         return (MenuAction){MENU_ACTION_PICK_TEAM, button};
     case MENU_KICK:
         switch (button) {
-        case 0: m->kick_index = (m->kick_index + MAX_PLAYERS - 1) % MAX_PLAYERS; return (MenuAction){MENU_ACTION_CLOSED, 0};
-        case 1: m->kick_index = (m->kick_index + 1) % MAX_PLAYERS; return (MenuAction){MENU_ACTION_CLOSED, 0};
-        case 2: menus_show(m, MENU_ESC, false, 0, 0); return (MenuAction){MENU_ACTION_KICK, m->kick_index};
+        case 0: // <<<< and >>>>: to the next player on, either way, wrapping (GameMenus.pas)
+        case 1: {
+            int step = button == 0 ? MAX_PLAYERS - 1 : 1;
+            int i = m->kick_index;
+            for (int n = 0; n < MAX_PLAYERS; n++) {
+                i = (i + step) % MAX_PLAYERS;
+                if (m->players_active[i]) break;
+            }
+            if (m->players_active[i]) m->kick_index = i;
+            return (MenuAction){MENU_ACTION_CLOSED, 0};
+        }
+        case 2: // Kick: never me, and the button does nothing then
+            if (m->kick_index == m->me) return none;
+            menus_show(m, MENU_ESC, false, 0, 0);
+            return (MenuAction){MENU_ACTION_KICK, m->kick_index};
         default: return none;
         }
     case MENU_MAP:
         switch (button) {
-        case 0:
+        case 0: // <<<< and >>>>: within the server's list, each asking it the map's name anew
             if (m->map_index > 0) m->map_index--;
             return (MenuAction){MENU_ACTION_CLOSED, 0};
-        case 1: m->map_index++; return (MenuAction){MENU_ACTION_CLOSED, 0};
+        case 1:
+            if (m->map_index < m->map_count - 1) m->map_index++;
+            return (MenuAction){MENU_ACTION_CLOSED, 0};
         case 2: menus_show(m, MENU_ESC, false, 0, 0); return (MenuAction){MENU_ACTION_VOTE_MAP, m->map_index};
         default: return none;
         }

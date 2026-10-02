@@ -7,8 +7,8 @@
 // is relayed to everyone with the sender's slot. A player's client states are taken as
 // its soldier's word (stream.h), and every tick each player gets a snapshot. A line of
 // chat beginning with '/' is a command: a vote to change the map or kick a player,
-// and the answers to it; one vote runs at a time, for a minute, and passes on 51% of
-// the players. A map vote passed is the server's to act on (connections_take_vote_map);
+// and the answers to it; one vote runs at a time, for twenty seconds, and passes on
+// sv_votepercent of the players. A map vote passed is the server's to act on (connections_take_vote_map);
 // a kick is done here.
 // A player heard from too often is warned and then kicked for flooding, and so is one
 // who chats too fast (flood_tick).
@@ -52,6 +52,7 @@ typedef struct Connection {
 #define VOTE_COOLDOWN_TICKS (2 * 60 * TICK_RATE) // DEFAULT_VOTE_TIME
 #define VOTE_PERCENT_DEFAULT 60                  // sv_votepercent
 #define VOTE_KICK_BAN_TICKS (60 * 60 * TICK_RATE) // an hour
+#define VOTE_LEFT_BAN_TICKS (5 * 60 * TICK_RATE)  // a kick vote's target who leaves before it is decided
 #define MAX_BANS 32
 
 // Flooding (ServerLoop.pas): a player heard from more than net_floodingpackets times in a

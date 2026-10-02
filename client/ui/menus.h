@@ -36,6 +36,12 @@ typedef struct GameMenus {
     bool noob_show;                   // the keys help in the escape menu (cl_runs < 3)
     int kick_index;                   // the player the kick window shows
     int map_index;                    // the map the map window shows
+    // what the windows page through, as the app keeps them: who is on (the kick window
+    // passes over empty slots, as GameMenus.pas does), which is me (whom it will not
+    // kick), and how many maps the server offers (0 before it has said)
+    bool players_active[MAX_PLAYERS];
+    int me;
+    int map_count;
     bool weapons_active[WEAPON_COUNT]; // what the server allows (WeaponActive)
 } GameMenus;
 

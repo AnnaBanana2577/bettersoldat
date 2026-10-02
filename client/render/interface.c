@@ -1244,12 +1244,20 @@ static void draw_menu_boxes(const Interface *hud, const Frame *f, const HudData 
 }
 
 // The vote's box and its texts.
+// The vote's box, in the sprite pass under every text, before the team box
+// (InterfaceGraphics.pas), so the console's lines are never covered by it.
+static void draw_vote_back(const Interface *hud, const Frame *f, const HudData *d)
+{
+    if (d->vote == HUD_VOTE_NONE) return;
+    draw_sprite_scaled(&hud->back, 45 * f->iscale_x, 400, 252 / BACKGROUND_WIDTH, 40 / BACKGROUND_WIDTH,
+                       (Rgba){255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.36f)});
+}
+
 static void draw_vote(const Interface *hud, const Frame *f, const HudData *d)
 {
+    (void)hud;
     if (d->vote != HUD_VOTE_NONE) {
         float x = 45 * f->iscale_x, y = 400;
-        draw_sprite_scaled(&hud->back, x, y, 252 / BACKGROUND_WIDTH, 40 / BACKGROUND_WIDTH,
-                           (Rgba){255, 255, 255, (uint8_t)(STATUS_TRANSPARENCY * 0.36f)});
         char str[HUD_TEXT + 16];
         text_style(FONT_WEAPONS_MENU);
         text_color((Rgba){254, 104, 104, 225});
@@ -1501,6 +1509,7 @@ void interface_draw(const Interface *hud, const HudData *d, const GameMenus *men
     float frags_bottom = 0;
     if (d->frags_menu) frags_bottom = draw_frags_background(hud, &f, d, viewport);
     draw_menu_boxes(hud, &f, d, menus);
+    draw_vote_back(hud, &f, d);
     draw_team_box(hud, &f, d);
 
     // the texts, shadowed

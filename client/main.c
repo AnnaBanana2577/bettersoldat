@@ -294,21 +294,15 @@ static void chat_heard(App *app, int slot, bool team, ChatKind kind, Rgba own, c
 
 // Something I say: to the server, which says it back to everyone, me among them; alone,
 // straight to my own console and head.
-// The original's word to me on my own votes (ControlGame.pas, Game.pas): a yes to the
-// vote on, and a kick I begin, in the vote's colour; a map vote begun says nothing.
+// The original's word to me on my own yes to the vote on (ControlGame.pas), in the
+// vote's colour. Starting a vote says nothing: its box says it (the original's "You have
+// voted to kick ... from the game" is in a branch of StartVote that never runs).
 static void vote_said(App *app, const char *text)
 {
     const MsgVote *v = &app->net.vote;
     if (strcmp(text, "/yes") == 0) {
         if (v->kind == VOTE_MAP) console_print_color(app->console, HUD_COLOR_VOTE, "You have voted on %s\n", v->target);
         else if (v->kind == VOTE_KICK) console_print_color(app->console, HUD_COLOR_VOTE, "You have voted to kick %s\n", v->target);
-    } else if (strncmp(text, "/votekick ", 10) == 0) {
-        char who[HUD_TEXT] = "", name[HUD_NAME], *end;
-        sscanf(text + 10, "%159s", who);
-        long slot = strtol(who, &end, 10);
-        if (who[0] && *end == '\0' && slot >= 0 && slot < MAX_PLAYERS) player_name(app, (int)slot, name, sizeof name);
-        else snprintf(name, sizeof name, "%s", who);
-        console_print_color(app->console, HUD_COLOR_VOTE, "You have voted to kick %s from the game\n", name);
     }
 }
 
@@ -453,13 +447,14 @@ static void chat_send(App *app)
     HudChatType type = d->chat_type;
     snprintf(app->chat_last, sizeof app->chat_last, "%s", line);
     app->chat_last_type = type;
+    bool reason = app->vote_reason_typing; // read before the close clears it
     chat_close(app);
-    if (app->vote_reason_typing) { // the kick window's reason: the vote, with it, if enough was typed
-        app->vote_reason_typing = false;
-        app->hud_data.vote_reason_typing = false;
+    if (reason) { // the kick window's reason (ControlGame.pas): the vote, with it, if enough was typed
+        // the reason as typed, its leading space and all, as the original's box shows it
+        // ("Reason:" then " afk"); the prompt held it to REASON_CHARS - 1
         if (strlen(line) > 3) {
             char text[HUD_TEXT];
-            snprintf(text, sizeof text, "/votekick %d %.*s", app->kick_target, NET_REASON_SIZE - 1, line + 1);
+            snprintf(text, sizeof text, "/votekick %d %.*s", app->kick_target, NET_REASON_SIZE - 1, line);
             say(app, false, text);
         }
         return;
@@ -481,7 +476,10 @@ static void chat_insert(App *app, const char *str)
     char *text = d->chat_text;
     size_t len = strlen(text), add = strlen(str);
     int at = clampi(d->chat_cursor, 0, (int)len);
-    if (len >= MAXCHATTEXT) return;
+    // a kick's reason holds REASON_CHARS - 1, its leading space among them (ControlGame.pas)
+    size_t max = app->vote_reason_typing ? NET_REASON_SIZE - 1 : MAXCHATTEXT;
+    if (len >= max) return;
+    if (len + add > max) add = max - len;
     if (len + add >= sizeof d->chat_text) add = sizeof d->chat_text - 1 - len;
     memmove(text + at + add, text + at, len - (size_t)at + 1);
     memcpy(text + at, str, add);
@@ -716,10 +714,10 @@ static void radio_choose(App *app, int digit)
     if (digit < 1 || digit > RADIO_CALLS) return;
     if (!d->radio_state) {
         d->radio_state = digit;
-    // the original's radio line: '*', the call and the place as digits, then the words
-    // (ClientSendStringMessage, MSGTYPE_RADIO), to the team; chat_heard reads it back
         return;
     }
+    // the original's radio line: '*', the call and the place as digits, then the words
+    // (ClientSendStringMessage, MSGTYPE_RADIO), to the team; chat_heard reads it back
     char text[CONSOLE_TEXT_SIZE];
     snprintf(text, sizeof text, "say_team \"*%d%d%s %s\"", d->radio_state, digit, app->radio_first[d->radio_state - 1]->value,
              app->radio_second[d->radio_state - 1][digit - 1]->value);
@@ -740,7 +738,15 @@ static void cmd_menu(Console *con, int argc, char **argv, void *user)
     HudData *d = &app->hud_data;
     GameMenus *m = &app->menus;
     const char *name = argv[0];
-    if (strcmp(name, "escmenu") == 0) menus_show(m, MENU_ESC, !m->menus[MENU_ESC].active, d->mode, 1);
+    if (strcmp(name, "escmenu") == 0) {
+        // the kick or map window open, Escape goes back to the escape menu alone (ControlGame.pas)
+        if (m->menus[MENU_KICK].active || m->menus[MENU_MAP].active) {
+            menus_show(m, MENU_KICK, false, d->mode, 1);
+            menus_show(m, MENU_MAP, false, d->mode, 1);
+        } else {
+            menus_show(m, MENU_ESC, !m->menus[MENU_ESC].active, d->mode, 1);
+        }
+    }
     else if (strcmp(name, "weaponsmenu") == 0) {
         // ControlGame.pas (TAction.Weapons): dead, the key opens and closes the menu, and
         // closed that way it stays closed through the spawn (the lock) until opened again.
@@ -1211,13 +1217,13 @@ static void tick(App *app)
     app->was_watching = watching;
     for (int i = 0; i < MAX_PLAYERS; i++) // what was said fades
         if (app->hud_data.players[i].chat_delay > 0) app->hud_data.players[i].chat_delay--;
+    if (app->radio_cooldown > 0) app->radio_cooldown--;
 }
 
 // How many ticks this frame owes: a whole tick comes out per tick, and the rest waits
 // for the next frame.
 static int ticks_owed(App *app, double dt)
 {
-    if (app->radio_cooldown > 0) app->radio_cooldown--;
     app->accumulator += dt;
     if (app->accumulator > MAX_FRAME) app->accumulator = MAX_FRAME;
     int n = (int)(app->accumulator / TICK_SECONDS);
@@ -1403,28 +1409,36 @@ static void hud_data_build(App *app)
         flags++;
     }
     d->flags_known = flags == 2;
-    // The vote on, as the server last said, and its box: up until I answer (F12, F11),
-    // and never for a kick vote of my own, whose yes went with it (Game.pas StartVote).
+    // The vote on, as the server last said, and its box: up until I answer (F12, F11).
+    // A kick vote of my own too: the original's StartVote means to send its starter's
+    // yes and hide the box, but it reads the vote's kind before it is set, so in play
+    // the starter sees the box and presses F12 as everyone does; this does as it plays.
     const MsgVote *v = &app->net.vote;
-    bool my_kick = v->kind == VOTE_KICK && strcmp(v->starter, app->player_name->value) == 0;
-    bool box = v->kind != VOTE_NONE && !app->vote_hidden && !my_kick;
+    bool box = v->kind != VOTE_NONE && !app->vote_hidden;
     d->vote = !box ? HUD_VOTE_NONE : v->kind == VOTE_KICK ? HUD_VOTE_KICK : HUD_VOTE_MAP;
     snprintf(d->vote_target, sizeof d->vote_target, "%s", v->target);
     snprintf(d->vote_starter, sizeof d->vote_starter, "%s", v->starter);
     snprintf(d->vote_reason, sizeof d->vote_reason, "%s", v->reason);
     snprintf(d->hostname, sizeof(d->hostname), "%s", client_net_joined(&app->net) ? app->net.hostname : "SoldatReloaded");
-    // the map window's offer: the server's n-th map, as it answered (GameMenus.pas, the
-    // VoteMapReply); the maps here only with no server to ask
+    // the map window's offer: the server's last answer (GameMenus.pas shows VoteMapName,
+    // whichever map it was asked for), paged within the count it gave; the maps here
+    // only with no server to ask
     if (client_net_joined(&app->net)) {
         const MsgMapReply *r = &app->net.map_reply;
+        app->menus.map_count = r->count;
         if (r->count > 0) app->menus.map_index = clampi(app->menus.map_index, 0, r->count - 1);
-        snprintf(d->map_offered, sizeof d->map_offered, "%s", r->index == app->menus.map_index ? r->map : "");
+        snprintf(d->map_offered, sizeof d->map_offered, "%s", r->map);
     } else if (app->map_count > 0) {
+        app->menus.map_count = app->map_count;
         app->menus.map_index = clampi(app->menus.map_index, 0, app->map_count - 1);
         snprintf(d->map_offered, sizeof d->map_offered, "%s", app->maps[app->menus.map_index]);
     } else {
+        app->menus.map_count = 1;
         snprintf(d->map_offered, sizeof d->map_offered, "%s", app->map->value);
     }
+    // the kick window's: who is on, and which is me
+    for (int i = 0; i < MAX_PLAYERS; i++) app->menus.players_active[i] = g->world.soldiers[i].active;
+    app->menus.me = app->me;
     d->kill_limit = g->match.settings.score_limit;
     d->time_left_min = g->match.time_left / TICK_RATE / 60;
     d->time_left_sec = g->match.time_left / TICK_RATE % 60;

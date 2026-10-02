@@ -202,17 +202,25 @@ void join_tests(void)
     pump(&conns, g, three, 3, answered);
     CHECK(conns.vote.kind == VOTE_NONE && strstr(a.chat.text, "Map not found") != NULL,
           "a vote for a map the server doesn't have never begins (%s)", a.chat.text);
-    // A kick vote against the third: the starter's yes goes with it, one of two, and the
-    // third, its target, may not vote. At the two players' 60% it would run out; at a
-    // server's 50% the starter's yes passes it at once, and the third is cut off and
-    // barred for an hour.
+    // A kick vote against the third. Myself, or nobody, is no vote. Starting one is no
+    // yes, as the original plays: its starter presses F12 as everyone does. The third, its
+    // target, may not vote. Unanswered it runs out; at a server's 50% the starter's yes
+    // passes it, and the third is cut off and barred for an hour. The kick window's
+    // reason keeps its leading space.
     conns.vote_cooldown[0] = -1;
-    snprintf(cmd.text, sizeof cmd.text, "/votekick 1");
+    snprintf(cmd.text, sizeof cmd.text, "/votekick 0 me");
+    client_send(&a, MSG_CHAT, route_chat, &cmd);
+    snprintf(cmd.text, sizeof cmd.text, "/votekick");
+    client_send(&a, MSG_CHAT, route_chat, &cmd);
+    pump(&conns, g, three, 3, never);
+    CHECK(conns.vote.kind == VOTE_NONE && conns.vote_cooldown[0] < 0, "a kick of myself, or of nobody, never begins");
+    snprintf(cmd.text, sizeof cmd.text, "/votekick 1  afk");
     client_send(&a, MSG_CHAT, route_chat, &cmd);
     want_votes = 3;
     pump(&conns, g, three, 3, vote_heard);
-    CHECK(conns.vote.kind == VOTE_KICK && conns.vote.slot == 1 && conns.vote.answer[0] == 1,
-          "a kick vote names the player by slot, the starter's yes counted (kind %d, slot %d)", conns.vote.kind, conns.vote.slot);
+    CHECK(conns.vote.kind == VOTE_KICK && conns.vote.slot == 1 && conns.vote.answer[0] == 0 && strcmp(a.vote.reason, " afk") == 0,
+          "a kick vote names the player by slot, nobody's yes yet, the reason as typed (kind %d, slot %d, reason '%s')",
+          conns.vote.kind, conns.vote.slot, a.vote.reason);
     snprintf(cmd.text, sizeof cmd.text, "/yes");
     client_send(&d, MSG_CHAT, route_chat, &cmd);
     pump(&conns, g, three, 3, never);
@@ -224,6 +232,11 @@ void join_tests(void)
     conns.vote_percent = 50;
     conns.vote_cooldown[0] = -1;
     snprintf(cmd.text, sizeof cmd.text, "/votekick 1 afk");
+    client_send(&a, MSG_CHAT, route_chat, &cmd);
+    want_votes = 5;
+    pump(&conns, g, three, 3, vote_heard);
+    CHECK(conns.vote.kind == VOTE_KICK && conns.items[1].joined, "begun again, it waits on a yes");
+    snprintf(cmd.text, sizeof cmd.text, "/yes");
     client_send(&a, MSG_CHAT, route_chat, &cmd);
     pump(&conns, g, three, 3, third_cut_off);
     for (int round = 0; round < 50 && conns.items[1].joined; round++) { // the server hears the line close
@@ -266,6 +279,8 @@ void join_tests(void)
     *gun = (Thing){.style = THING_STAT_GUN, .is_static = true, .points = 4};
     g->world.soldiers[0].held = MAX_THINGS;
     g->world.soldiers[0].stat = MAX_THINGS - 1;
+    // and with a kick vote against it on
+    conns.vote = (Vote){.kind = VOTE_KICK, .slot = 0, .starter = 1, .ticks_left = VOTE_TICKS, .max_votes = 2};
     net_close(&d.link);
     net_close(&a.link);
     for (int round = 0; round < ROUNDS && conns.items[0].peer; round++) {
@@ -276,6 +291,12 @@ void join_tests(void)
     CHECK(flag->style == THING_BRAVO_FLAG && flag->holder == 0 && g->world.soldiers[0].held == 0,
           "and the flag it carried falls, held by nobody (holder %d)", flag->holder);
     CHECK(!gun->is_static && g->world.soldiers[0].stat == 0, "and the stationary gun it manned is free");
+    bool left_ban = false;
+    for (int i = 0; i < MAX_BANS; i++)
+        left_ban |= conns.bans[i].host != 0 && strcmp(conns.bans[i].reason, "Vote Kicked (Left game)") == 0 &&
+                    conns.bans[i].until == conns.ticks + VOTE_LEFT_BAN_TICKS;
+    CHECK(conns.vote.kind == VOTE_NONE && left_ban,
+          "and leaving before the kick vote against it is decided ends the vote, and bars it five minutes");
     *flag = *gun = (Thing){0};
 
     net_close(&b.link);

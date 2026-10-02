@@ -327,6 +327,8 @@ static void soldier_leave(Game *g, int slot)
     s->active = false;
 }
 
+static void vote_end(Connections *c, bool passed);
+
 static void leave(Connections *c, Game *g, ENetPeer *peer)
 {
     int slot = slot_of(c, peer);
@@ -336,6 +338,13 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     if (conn->joined) {
         say(c->console, "%s left\n", conn->name);
         soldier_leave(g, slot);
+    }
+    // the target of a kick vote leaving before it is decided (NetworkServerConnection.pas):
+    // barred five minutes, and the vote is over; else it ran on against the slot, and
+    // whoever came into it next could be the one kicked
+    if (c->vote.kind == VOTE_KICK && c->vote.slot == slot) {
+        connections_ban(c, slot, VOTE_LEFT_BAN_TICKS, "Vote Kicked (Left game)");
+        vote_end(c, false);
     }
     char name[NET_NAME_SIZE];
     snprintf(name, sizeof name, "%s", conn->name);
@@ -484,7 +493,7 @@ void connections_snapshots(Connections *c, const Game *g)
 // A line from the server to one player: an answer to its command.
 static void tell(Connections *c, int slot, const char *fmt, ...)
 {
-    MsgChat m = {.slot = MAX_PLAYERS, .kind = CHAT_ENTER};
+    MsgChat m = {.slot = MAX_PLAYERS, .kind = CHAT_SERVER}; // "*SERVER*: ", as ServerSendStringMessage from 255
     va_list args;
     va_start(args, fmt);
     vsnprintf(m.text, sizeof m.text, fmt, args);
@@ -512,15 +521,18 @@ static bool map_exists(const Connections *c, const char *map)
     return f != NULL;
 }
 
-// The player a kick names: a slot's number, or a name, whole or as much of it as typed.
+// The player a kick names, a bot among them as in the original: a slot's number, or a
+// name, whole or as much of it as typed; nobody for nothing.
 static int player_named(const Connections *c, const char *name)
 {
+    if (!name[0]) return -1;
     char *end;
     long slot = strtol(name, &end, 10);
-    if (*end == '\0' && end != name) return slot >= 0 && slot < MAX_PLAYERS && c->items[slot].joined ? (int)slot : -1;
+    if (*end == '\0' && end != name)
+        return slot >= 0 && slot < MAX_PLAYERS && (c->items[slot].joined || c->items[slot].bot) ? (int)slot : -1;
     int found = -1;
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (!c->items[i].joined) continue;
+        if (!c->items[i].joined && !c->items[i].bot) continue;
         if (strcmp(c->items[i].name, name) == 0) return i;
         if (strncmp(c->items[i].name, name, strlen(name)) == 0 && found < 0) found = i;
     }
@@ -539,7 +551,7 @@ static void vote_end(Connections *c, bool passed)
 // A yes from `slot` (CountVote): once each; passed when the yeses reach sv_votepercent
 // of the players there were when the vote began. A kick passed puts the player off for
 // an hour; a map passed is the server's to play next.
-static void vote_count(Connections *c, int slot)
+static void vote_count(Connections *c, Game *g, int slot)
 {
     if (c->vote.kind == VOTE_NONE || c->vote.answer[slot]) return;
     c->vote.answer[slot] = 1;
@@ -556,6 +568,7 @@ static void vote_count(Connections *c, int slot)
         connections_kick(c, v.slot, "Vote Kicked");
     }
     vote_end(c, true);
+    if (v.kind == VOTE_KICK && c->items[v.slot].bot) connections_remove_bot(c, g, v.slot); // a bot is taken off
 }
 
 // Each tick (TimerVote): the vote runs out, and the cooldowns run down.
@@ -567,9 +580,10 @@ static void vote_tick(Connections *c)
     if (--c->vote.ticks_left <= 0) vote_end(c, false);
 }
 
-// StartVote: the players on now are the votes there are to gather; the starter may not
-// start another for two minutes. A kick's starter has voted by starting it (the
-// original's client sends its yes as the box would); a map's has not, and presses F12.
+// StartVote: the players on now, people alone, are the votes there are to gather; the
+// starter may not start another for two minutes. Nobody has voted by starting it: the
+// starter presses F12 as everyone does, kick or map, as the original plays (its client
+// means to send a kick starter's yes, but reads the vote's kind before it is set).
 static void vote_start(Connections *c, int slot, VoteKind kind, const char *target, int target_slot, const char *reason)
 {
     c->vote = (Vote){.kind = kind, .slot = target_slot, .starter = slot, .ticks_left = VOTE_TICKS, .max_votes = connections_count(c)};
@@ -577,10 +591,7 @@ static void vote_start(Connections *c, int slot, VoteKind kind, const char *targ
     snprintf(c->vote.reason, sizeof c->vote.reason, "%s", reason ? reason : "");
     c->vote_cooldown[slot] = VOTE_COOLDOWN_TICKS;
     tell_vote(c, NULL); // the vote's box says who wants what; the original's console says nothing
-    if (kind == VOTE_KICK) {
-        say(c->console, "%s started votekick against %s - Reason:%s\n", c->items[slot].name, target, c->vote.reason);
-        vote_count(c, slot);
-    }
+    if (kind == VOTE_KICK) say(c->console, "%s started votekick against %s - Reason:%s\n", c->items[slot].name, target, c->vote.reason);
 }
 
 // /team <n>: the team menu's choice, the original's numbering: 0 to play with no teams,
@@ -620,8 +631,9 @@ static void vote_command(Connections *c, Game *g, int slot, const char *text)
     } else if (strcmp(word, "votemap") == 0) {
         // CommandVotemap: with a vote on, a yes to it if it is for this map; else a new one,
         // for a map the server has, by a player who may
+        if (!rest[0]) return; // with nothing named, nothing
         if (c->vote.kind != VOTE_NONE) {
-            if (c->vote.kind == VOTE_MAP && strcmp(c->vote.target, rest) == 0) vote_count(c, slot);
+            if (c->vote.kind == VOTE_MAP && strcmp(c->vote.target, rest) == 0) vote_count(c, g, slot);
             return;
         }
         if (!map_exists(c, rest)) {
@@ -635,12 +647,14 @@ static void vote_command(Connections *c, Game *g, int slot, const char *text)
         vote_start(c, slot, VOTE_MAP, rest, -1, "---");
     } else if (strcmp(word, "votekick") == 0) {
         // ServerHandleVoteKick: a yes to the kick on, unless I am its target; else a new one,
-        // quietly refused within the cooldown
+        // quietly refused within the cooldown, and never against myself (the kick window's
+        // button refuses it). The reason is the rest as said, past one space: the kick
+        // window's keeps its leading space, as the original's box shows it ("Reason: afk").
         char who[NET_TEXT_SIZE];
         int k = 0;
         while (*rest && *rest != ' ' && k < (int)sizeof who - 1) who[k++] = *rest++;
         who[k] = '\0';
-        while (*rest == ' ') rest++;
+        if (*rest == ' ') rest++;
         int target = player_named(c, who);
         if (c->vote.kind != VOTE_NONE) {
             if (c->vote.kind != VOTE_KICK) return;
@@ -648,12 +662,12 @@ static void vote_command(Connections *c, Game *g, int slot, const char *text)
                 tell(c, slot, "A vote has been cast against you. You can not vote.");
                 return;
             }
-            if (target == c->vote.slot) vote_count(c, slot);
+            if (target == c->vote.slot) vote_count(c, g, slot);
             return;
         }
-        if (c->vote_cooldown[slot] >= 0) return;
+        if (c->vote_cooldown[slot] >= 0 || target == slot) return;
         if (target < 0) {
-            tell(c, slot, "No such player: %s", who);
+            if (who[0]) tell(c, slot, "No such player: %s", who);
             return;
         }
         vote_start(c, slot, VOTE_KICK, c->items[target].name, target, rest);
@@ -664,7 +678,7 @@ static void vote_command(Connections *c, Game *g, int slot, const char *text)
             tell(c, slot, "A vote has been cast against you. You can not vote.");
             return;
         }
-        vote_count(c, slot);
+        vote_count(c, g, slot);
     } else if (strcmp(word, "no") == 0) {
         // F11 is the voter's own business: the original's client only drops the box
     } else if (strcmp(word, "tabac") == 0 || strcmp(word, "smoke") == 0 || strcmp(word, "takeoff") == 0 ||
@@ -777,6 +791,7 @@ void connections_remove_bot(Connections *c, Game *g, int slot)
     Team team = s->team;
     soldier_leave(g, slot);
     s->bot = false;
+    if (c->vote.kind == VOTE_KICK && c->vote.slot == slot) vote_end(c, false); // a kick vote against it is over
     char name[NET_NAME_SIZE];
     snprintf(name, sizeof name, "%s", conn->name);
     *conn = (Connection){0};
