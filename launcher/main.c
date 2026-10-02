@@ -17,7 +17,8 @@
 //
 // The work runs on a thread of its own and the window draws what it last said. The
 // window opens only if the work takes longer than a glance, so a start with nothing to
-// do goes straight to the game. Text is stb_easy_font's: no font file to find.
+// do goes straight to the game. The window is drawn in the main menu's look, with the
+// game's own fonts from assets/; stb_easy_font stands in when they can't be read.
 
 #include <SDL.h>
 #if defined(__GNUC__)
@@ -29,6 +30,9 @@
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
+#define STB_TRUETYPE_IMPLEMENTATION
+#define STBTT_STATIC
+#include <stb_truetype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,8 +66,8 @@
 #define SOLDATRELOADED_RELEASES ""
 #endif
 
-#define WINDOW_WIDTH 520
-#define WINDOW_HEIGHT 180
+#define WINDOW_WIDTH 540
+#define WINDOW_HEIGHT 196
 #define WINDOW_DELAY_MS 300 // the window opens if the work is still going after this
 
 // What the worker last said, for the window to draw.
@@ -111,9 +115,101 @@ static int work(void *user)
     return 0;
 }
 
-// --- drawing ---------------------------------------------------------------------------
+// --- text --------------------------------------------------------------------------------
 
-static void text(SDL_Renderer *r, float x, float y, float scale, SDL_Color color, const char *s)
+// The game's faces, from assets/ beside the launcher, as the main menu sets them: Play
+// for what is read, its Bold for emphasis, Black Ops One for the name. Each style is one
+// face at one pixel size, its ASCII glyphs baked into a texture the first time it is
+// used. A face that can't be read (an install the launcher is about to repair) leaves
+// its styles to stb_easy_font, so the window still says what is going on.
+typedef enum FaceId { FACE_PLAY, FACE_PLAY_BOLD, FACE_LOGO, FACE_COUNT } FaceId;
+static const char *const FACE_FILES[FACE_COUNT] = {"assets/play-regular.ttf", "assets/play-bold.ttf", "assets/black-ops-one.ttf"};
+
+typedef struct Face {
+    unsigned char *data;
+    stbtt_fontinfo info;
+} Face;
+
+#define ATLAS 512
+#define FIRST_CHAR 32
+#define CHAR_COUNT 96
+
+typedef struct Style {
+    FaceId face;
+    float pixels;       // the size
+    float tracking;     // between glyphs, in pixels
+    SDL_Texture *atlas; // baked on first use
+    stbtt_bakedchar glyphs[CHAR_COUNT];
+    float ascent;
+} Style;
+
+static Face faces[FACE_COUNT];
+
+static Style S_LOGO = {FACE_LOGO, 34, 1};
+static Style S_LOGO_SUB = {FACE_PLAY_BOLD, 11, 0}; // its tracking is worked out to fit under the name
+static Style S_BODY = {FACE_PLAY, 15, 0};
+static Style S_SMALL = {FACE_PLAY, 13, 0};
+static Style S_SMALL_BOLD = {FACE_PLAY_BOLD, 13, 0};
+
+static void fonts_load(void)
+{
+    for (int i = 0; i < FACE_COUNT; i++) {
+        Face *f = &faces[i];
+        f->data = (unsigned char *)files_read(FACE_FILES[i], NULL);
+        if (f->data && !stbtt_InitFont(&f->info, f->data, stbtt_GetFontOffsetForIndex(f->data, 0))) {
+            free(f->data);
+            f->data = NULL;
+        }
+    }
+}
+
+static void fonts_unload(void)
+{
+    Style *styles[] = {&S_LOGO, &S_LOGO_SUB, &S_BODY, &S_SMALL, &S_SMALL_BOLD};
+    for (size_t i = 0; i < sizeof styles / sizeof styles[0]; i++) {
+        if (styles[i]->atlas) SDL_DestroyTexture(styles[i]->atlas);
+        styles[i]->atlas = NULL;
+    }
+    for (int i = 0; i < FACE_COUNT; i++) {
+        free(faces[i].data);
+        faces[i].data = NULL;
+    }
+}
+
+// The style's glyphs baked, if its face loaded: false leaves it to stb_easy_font.
+static bool style_ready(SDL_Renderer *r, Style *s)
+{
+    if (s->atlas) return true;
+    const Face *f = &faces[s->face];
+    if (!f->data || !r) return false;
+    unsigned char *alpha = malloc(ATLAS * ATLAS);
+    unsigned char *rgba = malloc((size_t)ATLAS * ATLAS * 4);
+    if (!alpha || !rgba || stbtt_BakeFontBitmap(f->data, 0, s->pixels, alpha, ATLAS, ATLAS, FIRST_CHAR, CHAR_COUNT, s->glyphs) <= 0) {
+        free(alpha);
+        free(rgba);
+        return false;
+    }
+    for (int i = 0; i < ATLAS * ATLAS; i++) {
+        rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = 255;
+        rgba[i * 4 + 3] = alpha[i];
+    }
+    s->atlas = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, ATLAS, ATLAS);
+    if (s->atlas) {
+        SDL_UpdateTexture(s->atlas, NULL, rgba, ATLAS * 4);
+        SDL_SetTextureBlendMode(s->atlas, SDL_BLENDMODE_BLEND);
+        int ascent, descent, gap;
+        stbtt_GetFontVMetrics(&f->info, &ascent, &descent, &gap);
+        s->ascent = (float)ascent * stbtt_ScaleForPixelHeight(&f->info, s->pixels);
+    }
+    free(alpha);
+    free(rgba);
+    return s->atlas != NULL;
+}
+
+// stb_easy_font, for a style whose face is missing: its letters scaled to the style's size.
+static float easy_scale(const Style *s) { return s->pixels / 13.0f; }
+
+static void easy_text(SDL_Renderer *r, float x, float y, float scale, SDL_Color color, const char *s)
 {
     static char quads[64 * 1024];
     static SDL_Vertex vertices[(sizeof quads / 64) * 6];
@@ -131,11 +227,43 @@ static void text(SDL_Renderer *r, float x, float y, float scale, SDL_Color color
     SDL_RenderGeometry(r, NULL, vertices, n, NULL, 0);
 }
 
-static float text_width(const char *s, float scale) { return (float)stb_easy_font_width((char *)s) * scale; }
+// `s` in `style` with its top-left at `x, y`; with no renderer, only measured. The width.
+static float text_run(SDL_Renderer *r, Style *style, float x, float y, SDL_Color color, const char *s)
+{
+    if (!style_ready(r, style)) {
+        float scale = easy_scale(style);
+        if (r) easy_text(r, x, y + 1, scale, color, s);
+        return (float)stb_easy_font_width((char *)s) * scale;
+    }
+    float pen_x = 0, pen_y = y + style->ascent;
+    if (r) {
+        SDL_SetTextureColorMod(style->atlas, color.r, color.g, color.b);
+        SDL_SetTextureAlphaMod(style->atlas, color.a);
+    }
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        int c = *p < FIRST_CHAR || *p >= FIRST_CHAR + CHAR_COUNT ? '?' : *p;
+        stbtt_aligned_quad q;
+        float qx = x + pen_x;
+        stbtt_GetBakedQuad(style->glyphs, ATLAS, ATLAS, c - FIRST_CHAR, &qx, &pen_y, &q, 1);
+        if (r) {
+            SDL_Rect src = {(int)(q.s0 * ATLAS), (int)(q.t0 * ATLAS), (int)((q.s1 - q.s0) * ATLAS + 0.5f),
+                            (int)((q.t1 - q.t0) * ATLAS + 0.5f)};
+            SDL_FRect dst = {q.x0, q.y0, q.x1 - q.x0, q.y1 - q.y0};
+            SDL_RenderCopyF(r, style->atlas, &src, &dst);
+        }
+        pen_x = qx - x + (p[1] ? style->tracking : 0);
+    }
+    return pen_x;
+}
+
+static void text(SDL_Renderer *r, Style *style, float x, float y, SDL_Color color, const char *s) { text_run(r, style, x, y, color, s); }
+static float text_width(Style *style, const char *s) { return text_run(NULL, style, 0, 0, (SDL_Color){0, 0, 0, 0}, s); }
+
+static float line_height(const Style *s) { return s->pixels * 1.3f; }
 
 // `s` in lines no wider than `width`, broken at spaces; the y below the last. With no
 // renderer it only measures.
-static float wrapped(SDL_Renderer *r, float x, float y, float width, float scale, SDL_Color color, const char *s)
+static float wrapped(SDL_Renderer *r, Style *style, float x, float y, float width, SDL_Color color, const char *s)
 {
     char line[512];
     while (*s) {
@@ -143,60 +271,100 @@ static float wrapped(SDL_Renderer *r, float x, float y, float width, float scale
         while (s[n] && n < sizeof line - 1) {
             memcpy(line, s, n + 1);
             line[n + 1] = '\0';
-            if (text_width(line, scale) > width) break;
+            if (text_width(style, line) > width) break;
             n++;
             if (s[n] == ' ' || !s[n]) fit = n;
         }
         if (fit == 0) fit = n ? n : 1;
         memcpy(line, s, fit);
         line[fit] = '\0';
-        if (r) text(r, x, y, scale, color, line);
-        y += 12 * scale;
+        if (r) text(r, style, x, y, color, line);
+        y += line_height(style);
         s += fit;
         while (*s == ' ') s++;
     }
     return y;
 }
 
-static const SDL_Color BACKGROUND = {21, 23, 26, 255}, TITLE = {235, 235, 230, 255}, DIM = {140, 145, 150, 255},
-                       ACCENT = {232, 163, 61, 255}, TROUBLE = {235, 110, 95, 255}, TRACK = {44, 48, 54, 255};
+// --- drawing ---------------------------------------------------------------------------
+
+// The main menu's look (client/ui/mainmenu.c): night for the ground, white for what is
+// read, and the one accent, ember, for what moves.
+static const SDL_Color SURFACE = {14, 17, 25, 255}, TEXT = {236, 239, 244, 255}, MUTED = {146, 155, 172, 255},
+                       FAINT = {94, 102, 120, 255}, ACCENT = {232, 80, 30, 255}, WARN = {236, 192, 84, 255},
+                       TRACK = {48, 56, 74, 255}, LINE = {255, 255, 255, 14};
+
+#define MARGIN 28
+#define HEADER_H 84 // the name and the version, and the rule under them
+
+static void fill(SDL_Renderer *r, float x, float y, float w, float h, SDL_Color c)
+{
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+    SDL_FRect box = {x, y, w, h};
+    SDL_RenderFillRectF(r, &box);
+}
+
+// The name, written: SOLDAT in the stencil face, and RELOADED under it in the accent,
+// its letters spaced out to the same width.
+static void wordmark(SDL_Renderer *r, float x, float y)
+{
+    float w = text_width(&S_LOGO, "SOLDAT");
+    text(r, &S_LOGO, x, y, TEXT, "SOLDAT");
+    S_LOGO_SUB.tracking = 0;
+    float natural = text_width(&S_LOGO_SUB, "RELOADED");
+    S_LOGO_SUB.tracking = natural < w ? (w - natural) / 7.0f : 0; // seven gaps
+    text(r, &S_LOGO_SUB, x, y + S_LOGO.pixels + 2, ACCENT, "RELOADED");
+}
 
 static void draw(SDL_Renderer *r, const Shared *s, bool waiting)
 {
-    SDL_SetRenderDrawColor(r, BACKGROUND.r, BACKGROUND.g, BACKGROUND.b, 255);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(r, SURFACE.r, SURFACE.g, SURFACE.b, 255);
     SDL_RenderClear(r);
-    text(r, 24, 20, 3, TITLE, "SOLDAT RELOADED");
+    wordmark(r, MARGIN, 22);
     if (s->version[0]) {
         char version[48];
         snprintf(version, sizeof version, "v%s", s->version);
-        text(r, WINDOW_WIDTH - 24 - text_width(version, 2), 26, 2, DIM, version);
+        text(r, &S_SMALL, WINDOW_WIDTH - MARGIN - text_width(&S_SMALL, version), 30, FAINT, version);
     }
+    fill(r, MARGIN, HEADER_H, WINDOW_WIDTH - 2 * MARGIN, 1, LINE);
 
+    float y = HEADER_H + 22, w = WINDOW_WIDTH - 2 * MARGIN;
     if (waiting) {
-        // the window grows to hold all of what went wrong
-        int height = (int)wrapped(NULL, 24, 70, WINDOW_WIDTH - 48, 2, TROUBLE, s->error) + 46;
+        // what went wrong, as a sentence; the window grows to hold all of it
+        char error[sizeof s->error];
+        snprintf(error, sizeof error, "%s", s->error);
+        if (error[0] >= 'a' && error[0] <= 'z') error[0] = (char)(error[0] - 'a' + 'A');
+        float bottom = wrapped(NULL, &S_BODY, MARGIN, y, w, WARN, error);
+        int height = (int)bottom + 52;
         if (height < WINDOW_HEIGHT) height = WINDOW_HEIGHT;
-        int w, h;
+        int ww, wh;
         SDL_Window *window = SDL_RenderGetWindow(r);
-        SDL_GetWindowSize(window, &w, &h);
-        if (h != height) SDL_SetWindowSize(window, WINDOW_WIDTH, height);
-        wrapped(r, 24, 70, WINDOW_WIDTH - 48, 2, TROUBLE, s->error);
-        text(r, 24, (float)height - 34, 2, DIM,
-             files_exists(CLIENT_FILE) ? "Enter: play anyway      Esc: quit" : "Esc: quit");
+        SDL_GetWindowSize(window, &ww, &wh);
+        if (wh != height) SDL_SetWindowSize(window, WINDOW_WIDTH, height);
+        wrapped(r, &S_BODY, MARGIN, y, w, WARN, error);
+        // the keys, along the bottom: each named in bold, what it does beside it
+        float hy = (float)height - MARGIN - S_SMALL.pixels, hx = MARGIN;
+        if (files_exists(CLIENT_FILE)) {
+            text(r, &S_SMALL_BOLD, hx, hy, TEXT, "Enter");
+            hx += text_width(&S_SMALL_BOLD, "Enter") + 6;
+            text(r, &S_SMALL, hx, hy, MUTED, "Play the version installed");
+            hx += text_width(&S_SMALL, "Play the version installed") + 28;
+        }
+        text(r, &S_SMALL_BOLD, hx, hy, TEXT, "Esc");
+        hx += text_width(&S_SMALL_BOLD, "Esc") + 6;
+        text(r, &S_SMALL, hx, hy, MUTED, "Quit");
     } else {
-        text(r, 24, 78, 2, TITLE, s->phase);
-        SDL_Rect track = {24, 110, WINDOW_WIDTH - 48, 12};
-        SDL_SetRenderDrawColor(r, TRACK.r, TRACK.g, TRACK.b, 255);
-        SDL_RenderFillRect(r, &track);
+        text(r, &S_BODY, MARGIN, y, TEXT, s->phase);
+        float ty = y + S_BODY.pixels + 18;
+        fill(r, MARGIN, ty, w, 4, TRACK);
         if (s->total > 0) {
             double part = (double)s->done / (double)s->total;
-            SDL_Rect fill = track;
-            fill.w = (int)(track.w * (part > 1 ? 1 : part));
-            SDL_SetRenderDrawColor(r, ACCENT.r, ACCENT.g, ACCENT.b, 255);
-            SDL_RenderFillRect(r, &fill);
+            if (part > 1) part = 1;
+            fill(r, MARGIN, ty, (float)(w * part), 4, ACCENT);
             char percent[16];
             snprintf(percent, sizeof percent, "%d%%", (int)(part * 100 + 0.5));
-            text(r, 24, 134, 2, DIM, percent);
+            text(r, &S_SMALL, WINDOW_WIDTH - MARGIN - text_width(&S_SMALL, percent), y + 1, MUTED, percent);
         }
     }
     SDL_RenderPresent(r);
@@ -341,6 +509,7 @@ int main(int argc, char **argv)
 #endif
                 renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
                 if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+                fonts_load();
             } else if (waiting) {
                 SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Soldat Reloaded", now.error, NULL);
                 play = files_exists(CLIENT_FILE);
@@ -362,6 +531,7 @@ int main(int argc, char **argv)
 
     // Closed part way through an update: the thread is cut off with the process, and
     // the next start finishes what it began (update.h).
+    fonts_unload();
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
     if (play) {
