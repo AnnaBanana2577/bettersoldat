@@ -123,6 +123,7 @@ typedef struct App {
     Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
     Cvar *hud_demo;       // the HUD full of sample data, to see every part of it: page 1, 2 or 3
+    Cvar *menu_page;      // the main menu's page at start: for a screenshot of it
     char screenshot[512]; // a PNG of the 60th frame, then quit
     // Local Play's: the server's own cvars, which the main menu edits and the config
     // keeps, so a dedicated server started beside this config plays the same game.
@@ -742,6 +743,8 @@ static void radio_choose(App *app, int digit)
 
 static void cmd_freecam(Console *con, int argc, char **argv, void *user);
 
+static HudGameMode hud_mode(const App *app);
+
 // escmenu / weaponsmenu / teammenu / fragsmenu / statsmenu: each toggles its menu. The
 // scoreboard and the stats sit in the same place, so one closes the other, and neither
 // opens over the escape menu.
@@ -755,10 +758,10 @@ static void cmd_menu(Console *con, int argc, char **argv, void *user)
     if (strcmp(name, "escmenu") == 0) {
         // the kick or map window open, Escape goes back to the escape menu alone (ControlGame.pas)
         if (m->menus[MENU_KICK].active || m->menus[MENU_MAP].active) {
-            menus_show(m, MENU_KICK, false, d->mode, 1);
-            menus_show(m, MENU_MAP, false, d->mode, 1);
+            menus_show(m, MENU_KICK, false, hud_mode(app), 1);
+            menus_show(m, MENU_MAP, false, hud_mode(app), 1);
         } else {
-            menus_show(m, MENU_ESC, !m->menus[MENU_ESC].active, d->mode, 1);
+            menus_show(m, MENU_ESC, !m->menus[MENU_ESC].active, hud_mode(app), 1);
         }
     }
     else if (strcmp(name, "weaponsmenu") == 0) {
@@ -769,17 +772,17 @@ static void cmd_menu(Console *con, int argc, char **argv, void *user)
         const Soldier *me = &app->game->world.soldiers[app->me];
         if (m->menus[MENU_ESC].active || !me->active || me->team == TEAM_SPECTATOR) return;
         if (me->dead) {
-            menus_show(m, MENU_LIMBO, !m->menus[MENU_LIMBO].active, d->mode, 1);
+            menus_show(m, MENU_LIMBO, !m->menus[MENU_LIMBO].active, hud_mode(app), 1);
             app->limbo_lock = !m->menus[MENU_LIMBO].active;
         } else {
             bool armed = me->weapon.id != WEAPON_NONE && me->secondary.id != WEAPON_NONE;
             if (m->menus[MENU_LIMBO].active && !armed) return;
-            menus_show(m, MENU_LIMBO, false, d->mode, 1);
+            menus_show(m, MENU_LIMBO, false, hud_mode(app), 1);
             app->limbo_lock = !app->limbo_lock;
         }
         console_print_color(con, HUD_COLOR_GAME, app->limbo_lock ? "Weapons menu disabled\n" : "Weapons menu active\n");
     }
-    else if (strcmp(name, "teammenu") == 0) menus_show(m, MENU_TEAM, !m->menus[MENU_TEAM].active, d->mode, 1);
+    else if (strcmp(name, "teammenu") == 0) menus_show(m, MENU_TEAM, !m->menus[MENU_TEAM].active, hud_mode(app), 1);
     else if (m->menus[MENU_ESC].active) return;
     else if (strcmp(name, "fragsmenu") == 0) {
         d->frags_menu = !d->frags_menu;
@@ -862,6 +865,7 @@ static bool console_open(App *app, int argc, char *argv[])
         }
     }
     app->hud_demo = cvar_register(con, "hud_demo", "0", 0, "fill the HUD with sample data: page 1, 2 or 3");
+    app->menu_page = cvar_register(con, "ui_menupage", "0", 0, "the main menu's page at start, 0 servers to 6 graphics (for screenshots)");
     // the server's, for Local Play; saved, as the menu sets them
     app->sv_port = cvar_register(con, "sv_port", "23073", CVAR_ARCHIVE, "the UDP port a game hosted here listens on");
     app->sv_maps = cvar_register(con, "sv_maps", "", CVAR_ARCHIVE, "the maps in rotation, space-separated; the first plays first");
@@ -921,6 +925,12 @@ static void console_close(App *app)
 // A team game: the match's mode says, which the map decides alone and the server's
 // snapshots carry online.
 static bool team_game(const App *app) { return match_has_teams(&app->game->match); }
+
+// The mode as the HUD and the menus take it, from the match as it is now. A menu opened
+// on a join's first snapshot goes by this, not by the HUD's copy, which is built only
+// as a frame is drawn and still holds the last match's mode (or none) until then: the
+// team menu offered "0 Player" and Spectator in a CTF game.
+static HudGameMode hud_mode(const App *app) { return team_game(app) ? HUD_MODE_CTF : HUD_MODE_DEATHMATCH; }
 
 // cl_grenade_color as the drawing takes it: alpha 0, the grenades' own art, while it
 // holds no colour (empty, its default); else that colour, solid.
@@ -1061,6 +1071,8 @@ static bool window_open(App *app)
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
     }
+    // a controller works the main menu; without the subsystem the game goes on without one
+    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) fprintf(stderr, "no controllers: %s\n", SDL_GetError());
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     app->window = SDL_CreateWindow("SoldatReloaded", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, app->width->integer,
                                    app->height->integer, SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
@@ -1267,13 +1279,13 @@ static void tick(App *app)
     bool first_life = me->active && !spectator && app->seen_life < 0;
     if (me->active && !spectator) app->seen_life = me->life;
     if ((first_life || (dead && !app->was_dead)) && !app->limbo_lock && !limbo && !esc) {
-        menus_show(&app->menus, MENU_LIMBO, true, app->hud_data.mode, 1);
+        menus_show(&app->menus, MENU_LIMBO, true, hud_mode(app), 1);
     }
     const Buttons moving = BUTTON_LEFT | BUTTON_RIGHT | BUTTON_JUMP | BUTTON_CROUCH | BUTTON_PRONE | BUTTON_JET | BUTTON_FIRE | BUTTON_THROW;
-    if (limbo && !dead && (cmds[app->me].buttons & moving)) menus_show(&app->menus, MENU_LIMBO, false, app->hud_data.mode, 1);
+    if (limbo && !dead && (cmds[app->me].buttons & moving)) menus_show(&app->menus, MENU_LIMBO, false, hud_mode(app), 1);
     app->was_dead = dead;
     if (spectator && team_game(app) && !app->team_asked && !esc) {
-        menus_show(&app->menus, MENU_TEAM, true, app->hud_data.mode, 1);
+        menus_show(&app->menus, MENU_TEAM, true, hud_mode(app), 1);
         app->team_asked = true;
     }
 
@@ -1356,7 +1368,7 @@ static void apply_menu_action(App *app, MenuAction action)
         mainmenu_show(&app->mainmenu, true);
         break;
     case MENU_ACTION_OPEN_TEAM_MENU:
-        menus_show(&app->menus, MENU_TEAM, true, app->hud_data.mode, 1);
+        menus_show(&app->menus, MENU_TEAM, true, hud_mode(app), 1);
         break;
     case MENU_ACTION_PICK_PRIMARY: {
         // the choice is the cvar's, which the soldier follows (apply_cvars) and the config keeps
@@ -1454,6 +1466,9 @@ static void poll_events(App *app)
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
         case SDL_QUIT: app->quit = true; break;
+        case SDL_CONTROLLERDEVICEADDED: // opened, so its buttons come as events (SDL closes it as it goes)
+            if (SDL_IsGameController(e.cdevice.which)) SDL_GameControllerOpen(e.cdevice.which);
+            break;
         case SDL_MOUSEMOTION:
             if (SDL_GetWindowFlags(app->window) & SDL_WINDOW_INPUT_FOCUS) {
                 input_mouse_motion(&app->input, &e.motion);
@@ -1489,7 +1504,7 @@ static void hud_data_build(App *app)
     const Game *g = app->game;
     const Soldier *me = &g->world.soldiers[app->me];
 
-    d->mode = team_game(app) ? HUD_MODE_CTF : HUD_MODE_DEATHMATCH;
+    d->mode = hud_mode(app);
     d->team_game = d->mode == HUD_MODE_CTF;
     // the flags, for the team box: known once both are placed, at home unless away or held
     d->flags_known = false;
@@ -1749,6 +1764,7 @@ static void interface_open(App *app)
     if (!fonts_load(app->assets->value, r.height)) fprintf(stderr, "no fonts: the HUD draws without text\n");
     map_view_build_minimap(&app->render.map_view, r.height);
     menus_init(&app->menus, GAME_HEIGHT * r.width / r.height, &app->game->ctx.weapons);
+    menus_mouse_move(&app->menus, app->input.cursor); // the cursor stays where it was
     app->menus.rope = app->game->world.rules.rope; // the boots offer what this game allows (sv_rope)
 }
 
@@ -1810,6 +1826,7 @@ int main(int argc, char *argv[])
 
     scale_data_load(&app.scales, app.assets->value); // the scales the interface loads with
     render_init(&app.render, app.assets->value, &app.game->ctx);
+    mainmenu_load(&app.mainmenu, app.assets->value);
     audio_init(&app.audio, app.assets->value);
     interface_load(&app.hud, app.assets->value, &app.scales);
     interface_open(&app);
@@ -1827,6 +1844,7 @@ int main(int argc, char *argv[])
     app.camera = (GameCamera){.pos = app.game->world.soldiers[app.me].pos, .viewport = window_rect(&app)};
     input_start(&app.input, view_size(&app));
     mainmenu_show(&app.mainmenu, app.net.state == CLIENT_NET_OFF); // unless the command line is already connecting
+    if (app.mainmenu.shown && app.menu_page->integer > 0) mainmenu_open_page(&app.mainmenu, (MainPage)clampi(app.menu_page->integer, 0, MAIN_PAGE_COUNT - 1));
     app.net_state_seen = app.net.state;
 
     Uint64 last = SDL_GetPerformanceCounter();
@@ -1861,7 +1879,7 @@ int main(int argc, char *argv[])
         if (client_net_take_map_change(&app.net)) {
             app.hud_data.frags_menu = true;
             app.hud_data.stats_menu = false;
-            menus_show(&app.menus, MENU_LIMBO, false, app.hud_data.mode, 1);
+            menus_show(&app.menus, MENU_LIMBO, false, hud_mode(&app), 1);
             if (!team_game(&app)) {
                 int best = -1;
                 for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -1936,10 +1954,10 @@ int main(int argc, char *argv[])
                                &app.camera, app.input.cursor, app.camera.viewport, cvar_color(app.cursor_color),
                                cvar_color(app.crosshair_color), clampi(app.cursor_size->integer, 50, 200) / 100.0f,
                                clampi(app.crosshair_size->integer, 50, 200) / 100.0f);
-            } else { // the menu on its own background: the game is not watched from here
+            } else { // the menu on a background of its own
                 gfx_clear((Rgba){0, 0, 0, 255});
                 Rect r = app.camera.viewport;
-                mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, app.game->ctx.anims, &app.game->ctx.weapons,
+                mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, &app.game->ctx,
                               app.input.cursor, GAME_HEIGHT * r.width / r.height, GAME_HEIGHT / r.height, app.time,
                               console_log_line(app.console, 0), client_net_joined(&app.net), app.host != NULL, app.maps, app.map_count, &app.browser);
                 char command[256];
@@ -1968,6 +1986,7 @@ int main(int argc, char *argv[])
     client_net_shutdown(&app.net);
     audio_shutdown(&app.audio);
     fonts_unload();
+    mainmenu_unload(&app.mainmenu);
     interface_unload(&app.hud);
     render_destroy(&app.render);
     window_close(&app);

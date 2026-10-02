@@ -32,6 +32,7 @@ typedef enum MenuId { MENU_ESC, MENU_TEAM, MENU_LIMBO, MENU_KICK, MENU_MAP, MENU
 typedef struct GameMenus {
     GameMenu menus[MENU_COUNT];
     int hovered_menu, hovered_button; // -1 for none
+    Vec2 cursor;                      // where the cursor is, so a menu shown under it is hovered at once
     bool limbo_was_active;            // the weapons menu comes back when the escape menu closes
     bool noob_show;                   // the keys help in the escape menu (cl_runs < 3)
     int kick_index;                   // the player the kick window shows
@@ -75,7 +76,8 @@ void menus_show(GameMenus *m, MenuId id, bool show, HudGameMode mode, int player
 void menus_hide_all(GameMenus *m);
 bool menus_any_active(const GameMenus *m);
 
-// The cursor, in the interface's units, over the buttons.
+// The cursor, in the interface's units, over the buttons. The menus keep it: a menu
+// shown, or a click, goes by where it is now, not by where it was when it last moved.
 void menus_mouse_move(GameMenus *m, Vec2 cursor);
 
 // A click where the cursor is. A click beside the weapons menu closes it, as the

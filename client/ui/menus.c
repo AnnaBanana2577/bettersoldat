@@ -146,11 +146,12 @@ void menus_show(GameMenus *m, MenuId id, bool show, HudGameMode mode, int player
     default: break;
     }
     if (!skip) menu->active = show;
-    m->hovered_menu = m->hovered_button = -1;
+    menus_mouse_move(m, m->cursor); // what is under the cursor now, without waiting for it to move
 }
 
 void menus_mouse_move(GameMenus *m, Vec2 cursor)
 {
+    m->cursor = cursor;
     m->hovered_menu = m->hovered_button = -1;
     for (int i = 0; i < MENU_COUNT; i++) {
         const GameMenu *menu = &m->menus[i];
@@ -235,6 +236,7 @@ static MenuAction menu_action(GameMenus *m, MenuId id, int button)
 
 MenuAction menus_click(GameMenus *m, bool weapon_chosen)
 {
+    menus_mouse_move(m, m->cursor); // never a button of a menu hidden since the cursor last moved
     if (m->hovered_button >= 0) return menu_action(m, (MenuId)m->hovered_menu, m->hovered_button);
     if (weapon_chosen && m->menus[MENU_LIMBO].active) {
         menus_show(m, MENU_LIMBO, false, 0, 0);

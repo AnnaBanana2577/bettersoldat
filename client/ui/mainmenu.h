@@ -4,13 +4,15 @@
 // the bots, the maps in rotation), the player's name and look with the gostek shown as
 // it will be, the keys, the options, and what is drawn of the world (Graphics). OpenSoldat
 // has none of this in the game (its launcher does it); this one is drawn in the HUD's
-// units over whatever is behind it.
+// units over the world, which goes on behind it.
 //
 // Everything it changes is a cvar or a bind of the console, so the config keeps it, and
 // everything it asks of the game is a console command (connect, disconnect, host, quit)
 // the app takes and runs (mainmenu_take_command): nothing here touches the game or the
 // line. The widgets are immediate: each draw lays the page out again and acts on the
-// click and the wheel the events recorded since, so there is no widget tree to keep.
+// click, the wheel and the keys the events recorded since, so there is no widget tree
+// to keep. The mouse, the keys (arrows, Enter, Escape, Tab) and a game controller's pad
+// all work it: the sidebar picks the page, and the page's widgets take the focus in turn.
 
 #include <SDL.h>
 
@@ -20,32 +22,80 @@
 #include "render/gostek.h"
 #include "render/interface.h"
 
-typedef enum MainPage { MAIN_HOME, MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_PLAYER, MAIN_CONTROLS, MAIN_OPTIONS, MAIN_GRAPHICS } MainPage;
+typedef enum MainPage { MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_PLAYER, MAIN_CONTROLS, MAIN_OPTIONS, MAIN_GRAPHICS, MAIN_PAGE_COUNT } MainPage;
 
 #define MAINMENU_EDIT 128
+#define MAINMENU_POPUP_ITEMS 16
+#define MAINMENU_SEARCH 32
+
+typedef enum MainZone { MAIN_ZONE_TABS, MAIN_ZONE_CONTENT } MainZone; // the top bar's tabs, or the page
+
+typedef enum MainPopupKind { MAIN_POPUP_NONE, MAIN_POPUP_LIST, MAIN_POPUP_COLOR } MainPopupKind;
+
+// A list or a colour picker open over the page, under the widget that opened it. It keeps its
+// own copy of what it offers, as the widget is laid out anew each draw.
+typedef struct MainPopup {
+    MainPopupKind kind;
+    int owner;    // the widget that opened it (its place in the keys' order)
+    float x, y, w, h;
+    int count;    // a list's items
+    int hover;    // the item (or the palette's colour) under the cursor or the keys
+    char names[MAINMENU_POPUP_ITEMS][40];
+    bool locked[MAINMENU_POPUP_ITEMS];
+    char cvar[CONSOLE_NAME_SIZE]; // a picker's colour
+    bool clearable;               // a picker's colour may be none (the art's own)
+    float hue, sat, val;          // a picker's colour as it is being set: kept, so a grey keeps its hue
+    int drag;                     // what of the picker the mouse holds: 0 nothing, 1 the square, 2 the hue
+} MainPopup;
+
+typedef enum ServerSort { SERVER_SORT_PLAYERS, SERVER_SORT_NAME, SERVER_SORT_MODE, SERVER_SORT_MAP, SERVER_SORT_PING } ServerSort; // the fullest first, at first
 
 typedef struct MainMenu {
     bool shown;
     MainPage page;
+    MainZone zone;                      // where the keys are: the tabs, or the page
+    int side;                           // the top bar's item with the keys
+    int nav;                            // the page's widget with the keys, in their order
+    bool keys_used;                     // the keys moved the focus since the mouse last moved: it shows
+    Vec2 last_cursor;
+    int key_move, key_side;             // the arrows since the last draw: up/down, left/right
+    int key_page;                       // Q and E, a controller's shoulders: the pages turned
+    bool key_enter, key_back;
+    int axis[2];                        // the controller's stick, as a direction, so a push is one step
+    float scroll, scroll_max;           // the page's, in units
+    bool scroll_follow;                 // the keys moved the focus: the page scrolls to it
+    bool mouse_down;                    // the left button, for a slider's drag
+    int drag;                           // the slider being dragged, -1 for none
+    MainPopup popup;
+    int picked_owner, picked;           // a list's choice, for its widget to take on its next draw
     char focus_cvar[CONSOLE_NAME_SIZE]; // the text field with the keyboard: the cvar it edits, empty for none
-    char color_picker[CONSOLE_NAME_SIZE]; // the player color whose palette is open, empty for none
     char edit[MAINMENU_EDIT];           // its text while typed
     int edit_max;                       // how much of it the field takes
     int capturing;                      // the controls row waiting for a key, -1 for none
     bool clicked;                       // a left click since the last draw, at the cursor
     int wheel;                          // the wheel's notches since the last draw, up positive
     int map_scroll;                     // the map list's first row shown
+    int map_cursor;                     // the map list's row with the keys
     int server_scroll;                  // the server list's first row shown
     QueryAddress server_selected;       // the server picked in the list; port 0 for none
     double server_clicked_at;           // when it was picked, so a second click soon after joins it
+    ServerSort server_sort;
+    bool server_sort_up;                // ascending, against the column's natural order
+    bool hide_empty, hide_full, only_compatible;
+    char search[MAINMENU_SEARCH];       // the server list's filter, by name or map
     char command[256];                  // for the app to run; empty for none
     double time;                        // seconds, for the caret's blink
+    float switch_pos;                   // the Play/Settings switch's thumb, 0 on Play to 1 on Settings, as it slides
+    double switch_time;                 // when it last moved
     bool joined;                        // a server has us: Resume, and Escape, go back to it
+    GfxTexture wordmark;                // the name, drawn; none: it is written instead
+    bool connect_asked;                 // Connect was pressed: the console's word on it shows under it
 } MainMenu;
 
 void mainmenu_show(MainMenu *m, bool shown);
 
-// A key, a mouse button or text: the menu's while shown. True if it took the event.
+// A key, a mouse button, a controller's button or text: the menu's while shown. True if
+// it took the event.
 bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e);
 
 // The menu over the frame, in the HUD's units (the view is 480 tall, `game_width` wide;
@@ -54,9 +104,16 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e);
 // a server has us, `hosting` whether it is our own, `maps` the maps under assets for the
 // rotation, `weapons` names the loadout, the gostek and anims draw the preview, and
 // `browser` is the server list (the `browse` command asks for it anew).
-void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Anims *anims,
-                   const Weapons *weapons, Vec2 cursor, float game_width, float pixel, double time, const char *status,
+void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Context *ctx,
+                   Vec2 cursor, float game_width, float pixel, double time, const char *status,
                    bool joined, bool hosting, const char (*maps)[64], int map_count, const Browser *browser);
 
 // A command the menu asked for since last taken: true, with it, once.
 bool mainmenu_take_command(MainMenu *m, char *out, size_t size);
+
+// The menu on `page`, the sidebar with the keys.
+void mainmenu_open_page(MainMenu *m, MainPage page);
+
+// The menu's art (interface-gfx/wordmark.png under `assets`), and its going.
+void mainmenu_load(MainMenu *m, const char *assets);
+void mainmenu_unload(MainMenu *m);
