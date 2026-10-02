@@ -4,8 +4,8 @@
 // writes and the launcher checks an install against. Text, a line to a fact:
 //
 //   version 0.5.0
-//   package update <sha256> <bytes> soldatreloaded-0.5.0-windows-x64-update.zip
-//   package full <sha256> <bytes> soldatreloaded-0.5.0-windows-x64-client.zip
+//   package update <sha256> <bytes> soldatreloaded-0.5.0-windows-x64-patch.zip
+//   package full <sha256> <bytes> soldatreloaded-0.5.0-windows-x64.zip
 //   file <sha256> <bytes> assets/maps/ctf_Ash.pms
 //
 // The path or name is the rest of the line, so it may hold spaces ("Soldat

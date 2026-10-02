@@ -2,7 +2,7 @@
 
 // The packages' archives, unpacked: a zip (Windows) or a tar.gz (Linux), told apart by
 // their first bytes. Each package's entries sit under one directory named after it
-// (soldatreloaded-0.5.0-windows-x64-client/...); that directory is dropped, so what
+// (soldatreloaded-0.5.0-windows-x64/...); that directory is dropped, so what
 // lands in `into` is laid out as an install is. An entry whose path would reach outside
 // `into` stops the unpacking.
 

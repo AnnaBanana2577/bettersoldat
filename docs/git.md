@@ -74,11 +74,13 @@ executable: the packages `xmake dist` makes (see xmake.lua). The tag alone is no
 release until those exist.
 
 Players start the launcher (`Soldat Reloaded.exe`, `soldatreloaded-launcher` on
-Linux), which keeps their copy at the newest release (launcher/update.h). Each release
-carries, for each platform, a manifest naming every file of an install by its hash; the
-launcher compares the install with it and downloads the small update package (the
-executables) when only those differ, and the full package when anything in `assets/`
-or `scripts/` does. config.cfg is the player's and is never replaced. So:
+Linux), which keeps their copy at the newest release (launcher/update.h) and starts
+`client.exe`; `server.exe` is the dedicated server. Each release carries, for each
+platform, the game (`soldatreloaded-<version>-<platform>`, what a player downloads)
+and a manifest naming every file of an install by its hash; the launcher compares the
+install with it and downloads the small update package (`-patch`, the executables) when
+only those differ, and the full package when anything in `assets/` or `scripts/` does.
+config.cfg is the player's and is never replaced. So:
 
 - A release that adds a cvar registers it in code with its default (`cvar_register`).
   A player's config.cfg is from whatever version they first installed, and a cvar

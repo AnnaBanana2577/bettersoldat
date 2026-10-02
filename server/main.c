@@ -9,7 +9,7 @@
 //
 // It runs from the directory that holds config.cfg and assets/, as the client does.
 //
-//   soldatreloaded-server [+map <name>] [+sv_port <port>] [+<cvar> <value>] [+<command> <args>...]
+//   server [+map <name>] [+sv_port <port>] [+<cvar> <value>] [+<command> <args>...]
 
 #include <signal.h>
 #include <stdio.h>

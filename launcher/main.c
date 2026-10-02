@@ -41,10 +41,10 @@
 #define NOGDI
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#define CLIENT_FILE "soldatreloaded.exe" // xmake.lua's client target
+#define CLIENT_FILE "client.exe" // xmake.lua's client target
 #else
 #include <unistd.h>
-#define CLIENT_FILE "soldatreloaded"
+#define CLIENT_FILE "client"
 #endif
 
 #ifndef SOLDATRELOADED_VERSION

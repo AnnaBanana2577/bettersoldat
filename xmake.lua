@@ -60,7 +60,6 @@ target("shared")
 --   xmake run client [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 target("client")
     set_kind("binary")
-    set_basename("soldatreloaded")
     add_deps("shared")
     add_files("client/**.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c")
     add_includedirs("client", "server")
@@ -87,7 +86,6 @@ target("client")
 --   xmake run server [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 target("server")
     set_kind("binary")
-    set_basename("soldatreloaded-server")
     add_deps("shared")
     add_files("server/**.c")
     add_includedirs("server")
@@ -148,9 +146,9 @@ target("tests")
 -- Releases). Windows gets zips; Linux tar.gzs, which keep the executable bit that a zip
 -- would lose.
 --
---   <stem>-client        a player's: everything, the launcher and the server among it,
+--   <stem>               the game, a player's: everything, the launcher and the server among it,
 --                        so anyone can host; and manifest.txt, what it all is
---   <stem>-update        the client's top-level files but config.cfg: the executables,
+--   <stem>-patch         the client's top-level files but config.cfg: the executables,
 --                        version.txt, manifest.txt and the licence. What the launcher
 --                        downloads when nothing in assets/ or scripts/ changed
 --   <stem>-server        a headless server's: only what it reads of the assets, no art
@@ -235,19 +233,19 @@ task("dist")
             return lines
         end
 
-        local full = lay_out(stem .. "-client", {client, server, launcher}, function () return true end)
+        local full = lay_out(stem, {client, server, launcher}, function () return true end)
         local files = manifest(full)
         io.writefile(path.join(full, "manifest.txt"),
                      "// What this install holds, which the launcher checks it against.\n" .. table.concat(files, "\n") .. "\n")
-        local full_archive = pack(stem .. "-client")
+        local full_archive = pack(stem)
 
-        local update = path.join(distdir, stem .. "-update")
+        local update = path.join(distdir, stem .. "-patch")
         os.tryrm(update)
         os.mkdir(update)
         for _, file in ipairs(os.files(path.join(full, "*"))) do
             if path.filename(file) ~= "config.cfg" then os.cp(file, update) end
         end
-        local update_archive = pack(stem .. "-update")
+        local update_archive = pack(stem .. "-patch")
 
         lay_out(stem .. "-server", {server}, server_needs)
         pack(stem .. "-server")
