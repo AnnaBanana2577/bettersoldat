@@ -27,7 +27,6 @@
 #define SECTION_H 28.0f
 #define CTRL_H 20.0f     // a field, a list's box, a chip
 #define POPUP_ROW 20.0f
-#define SWATCH 10.0f     // a palette's cell, its gap in it
 #define SCROLL_STEP 30.0f
 
 // The look: steel and night for the ground, and one accent, the wordmark's ember (its
@@ -413,64 +412,76 @@ static void popup_open_list(Ui *ui, int owner, const char *const *names, const b
     popup_place(p, ui->game_width, x, y, CTRL_H);
 }
 
-typedef struct PaletteColor {
-    Rgba color;
-    float hue, saturation, value;
-} PaletteColor;
+// --- the colour picker --------------------------------------------------------------
 
-// Sort colors by hue, then from darker to lighter within each hue.
-static int compare_palette_colors(const void *a, const void *b)
+// Hue in degrees [0, 360), saturation and value 0 to 1.
+static void rgb_to_hsv(Rgba c, float *h, float *s, float *v)
 {
-    const PaletteColor *left = a, *right = b;
-    if (left->hue != right->hue) return left->hue < right->hue ? -1 : 1;
-    if (left->value != right->value) return left->value < right->value ? -1 : 1;
-    if (left->saturation != right->saturation) return left->saturation < right->saturation ? -1 : 1;
-    if (left->color.r != right->color.r) return left->color.r < right->color.r ? -1 : 1;
-    if (left->color.g != right->color.g) return left->color.g < right->color.g ? -1 : 1;
-    if (left->color.b != right->color.b) return left->color.b < right->color.b ? -1 : 1;
-    return 0;
+    float r = c.r / 255.0f, g = c.g / 255.0f, b = c.b / 255.0f;
+    float mx = fmaxf(r, fmaxf(g, b)), mn = fminf(r, fminf(g, b)), d = mx - mn;
+    *v = mx;
+    *s = mx > 0 ? d / mx : 0;
+    if (d <= 0) return; // a grey: no hue of its own, the one held stays
+    float hue = mx == r ? fmodf((g - b) / d, 6.0f) : mx == g ? (b - r) / d + 2.0f : (r - g) / d + 4.0f;
+    hue *= 60.0f;
+    *h = hue < 0 ? hue + 360.0f : hue;
 }
 
-// The 216 web colours, in hue and brightness order: 18 rows of 12.
-#define PALETTE_COLS 12
-#define PALETTE_ROWS 18
-#define PALETTE_COUNT (PALETTE_COLS * PALETTE_ROWS)
-
-static const PaletteColor *palette(void)
+static Rgba hsv_to_rgb(float h, float s, float v)
 {
-    static PaletteColor colors[PALETTE_COUNT];
-    static bool made;
-    if (made) return colors;
-    static const uint8_t levels[] = {0, 51, 102, 153, 204, 255};
-    int at = 0;
-    for (int b = 0; b < 6; b++) {
-        for (int g = 0; g < 6; g++) {
-            for (int r = 0; r < 6; r++) {
-                float red = (float)levels[r] / 255.0f, green = (float)levels[g] / 255.0f, blue = (float)levels[b] / 255.0f;
-                float maximum = fmaxf(red, fmaxf(green, blue)), minimum = fminf(red, fminf(green, blue));
-                float delta = maximum - minimum, hue = -1.0f;
-                if (delta > 0) {
-                    if (maximum == red) hue = 60.0f * fmodf((green - blue) / delta, 6.0f);
-                    else if (maximum == green) hue = 60.0f * ((blue - red) / delta + 2.0f);
-                    else hue = 60.0f * ((red - green) / delta + 4.0f);
-                    if (hue < 0) hue += 360.0f;
-                }
-                colors[at++] = (PaletteColor){
-                    .color = {levels[r], levels[g], levels[b], 255},
-                    .hue = hue,
-                    .saturation = maximum > 0 ? delta / maximum : 0,
-                    .value = maximum,
-                };
-            }
-        }
+    h = fmodf(h, 360.0f);
+    if (h < 0) h += 360.0f;
+    float c = v * s, x = c * (1 - fabsf(fmodf(h / 60.0f, 2.0f) - 1)), m = v - c;
+    float r = 0, g = 0, b = 0;
+    switch ((int)(h / 60.0f)) {
+    case 0: r = c, g = x; break;
+    case 1: r = x, g = c; break;
+    case 2: g = c, b = x; break;
+    case 3: g = x, b = c; break;
+    case 4: r = x, b = c; break;
+    default: r = c, b = x; break;
     }
-    qsort(colors, PALETTE_COUNT, sizeof colors[0], compare_palette_colors);
-    made = true;
-    return colors;
+    return (Rgba){(uint8_t)lroundf((r + m) * 255), (uint8_t)lroundf((g + m) * 255), (uint8_t)lroundf((b + m) * 255), 255};
 }
 
-#define PALETTE_HEAD 22.0f
-#define PALETTE_CLEAR 22.0f
+static bool same_rgb(Rgba a, Rgba b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
+
+// A few to start from: the greys, the wheel round, and a skin and a brown.
+static const Rgba SWATCHES[] = {
+    {255, 255, 255, 255}, {191, 191, 191, 255}, {127, 127, 127, 255}, {0, 0, 0, 255},
+    {217, 59, 43, 255},   {240, 122, 30, 255},  {242, 193, 46, 255},  {91, 191, 74, 255},
+    {47, 181, 165, 255},  {58, 160, 232, 255},  {47, 79, 191, 255},   {28, 42, 107, 255},
+    {122, 63, 191, 255},  {217, 79, 168, 255},  {138, 90, 53, 255},   {230, 180, 120, 255},
+};
+#define SWATCH_COUNT ((int)(sizeof SWATCHES / sizeof SWATCHES[0]))
+#define SWATCH_COLS 8
+
+// The picker's parts, from its top left: the heading, the square of shades of the hue
+// (saturation across, value down), the hue strip beside it, the swatches, and None.
+#define PICK_PAD 8.0f
+#define PICK_HEAD 22.0f
+#define PICK_SQUARE_W 150.0f
+#define PICK_SQUARE_H 112.0f
+#define PICK_HUE_W 14.0f
+#define PICK_SWATCH_H 16.0f
+#define PICK_SWATCH_GAP 3.0f
+#define PICK_CLEAR 24.0f
+
+typedef struct PickerParts {
+    float sq_x, sq_y, hue_x, sw_y, sw_w, clear_y;
+} PickerParts;
+
+static PickerParts picker_parts(const MainPopup *p)
+{
+    PickerParts k;
+    k.sq_x = p->x + PICK_PAD;
+    k.sq_y = p->y + PICK_HEAD;
+    k.hue_x = k.sq_x + PICK_SQUARE_W + PICK_PAD;
+    k.sw_y = k.sq_y + PICK_SQUARE_H + PICK_PAD;
+    k.sw_w = (p->w - 2 * PICK_PAD - (SWATCH_COLS - 1) * PICK_SWATCH_GAP) / SWATCH_COLS;
+    k.clear_y = k.sw_y + 2 * PICK_SWATCH_H + PICK_SWATCH_GAP + PICK_PAD;
+    return k;
+}
 
 static void popup_open_color(Ui *ui, int owner, const char *cvar, float x, float y)
 {
@@ -479,51 +490,164 @@ static void popup_open_color(Ui *ui, int owner, const char *cvar, float x, float
     snprintf(p->cvar, sizeof p->cvar, "%s", cvar);
     const Cvar *cv = cvar_find(ui->con, cvar);
     p->clearable = cv && !cv->default_value[0];
-    p->w = PALETTE_COLS * SWATCH + 16;
-    p->h = PALETTE_HEAD + PALETTE_ROWS * SWATCH + (p->clearable ? PALETTE_CLEAR : 0) + 8;
-    // the current colour has the keys at first
-    Rgba now = cvar_color(ui->con, cvar);
-    const PaletteColor *colors = palette();
-    for (int i = 0; i < PALETTE_COUNT; i++)
-        if (colors[i].color.r == now.r && colors[i].color.g == now.g && colors[i].color.b == now.b) p->hover = i;
-    if (p->hover < 0) p->hover = p->clearable && color_unset(ui->con, cvar) ? PALETTE_COUNT : 0;
+    p->w = PICK_PAD + PICK_SQUARE_W + PICK_PAD + PICK_HUE_W + PICK_PAD;
+    p->h = PICK_HEAD + PICK_SQUARE_H + PICK_PAD + 2 * PICK_SWATCH_H + PICK_SWATCH_GAP + PICK_PAD + (p->clearable ? PICK_CLEAR : 0) + 4;
+    p->val = 1;
+    if (!color_unset(ui->con, cvar)) rgb_to_hsv(cvar_color(ui->con, cvar), &p->hue, &p->sat, &p->val);
     popup_place(p, ui->game_width, x + 20 - p->w, y, CTRL_H);
 }
 
-// The item of the open popup under the cursor, -1 for none.
+static void picker_set(Ui *ui, Rgba c)
+{
+    char hex[8];
+    snprintf(hex, sizeof hex, "%02X%02X%02X", c.r, c.g, c.b);
+    cvar_set(ui->con, ui->m->popup.cvar, hex);
+}
+
+// The swatch under `c`, SWATCH_COUNT for None, -1 for neither.
+static int picker_item_at(const MainPopup *p, Vec2 c)
+{
+    PickerParts k = picker_parts(p);
+    for (int i = 0; i < SWATCH_COUNT; i++) {
+        float sx = k.sq_x + (float)(i % SWATCH_COLS) * (k.sw_w + PICK_SWATCH_GAP);
+        float sy = k.sw_y + (float)(i / SWATCH_COLS) * (PICK_SWATCH_H + PICK_SWATCH_GAP);
+        if (inside(c, sx, sy, k.sw_w, PICK_SWATCH_H)) return i;
+    }
+    if (p->clearable && inside(c, k.sq_x, k.clear_y, p->w - 2 * PICK_PAD, PICK_CLEAR - 4)) return SWATCH_COUNT;
+    return -1;
+}
+
+// The picker's keys and mouse: the side keys take the saturation, up and down the
+// value, Q and E (the shoulders) the hue; a press on the square or the strip drags
+// there; a swatch is taken at once, None closes it as it clears. The colour is set as
+// it goes, so whatever shows it (the soldier) follows.
+static void picker_input(Ui *ui)
+{
+    MainMenu *m = ui->m;
+    MainPopup *p = &m->popup;
+    // the colour changed under it (typed into the row's box): it follows
+    if (p->drag == 0 && !color_unset(ui->con, p->cvar) && !same_rgb(cvar_color(ui->con, p->cvar), hsv_to_rgb(p->hue, p->sat, p->val)))
+        rgb_to_hsv(cvar_color(ui->con, p->cvar), &p->hue, &p->sat, &p->val);
+
+    bool changed = false;
+    if (ui->side || ui->move || ui->page) {
+        p->sat = clampf(p->sat + 0.05f * (float)ui->side, 0, 1);
+        p->val = clampf(p->val - 0.05f * (float)ui->move, 0, 1);
+        p->hue = fmodf(p->hue + 10.0f * (float)ui->page + 360.0f, 360.0f);
+        changed = true;
+    }
+    ui->move = ui->side = ui->page = 0;
+    if (ui->enter || ui->back) popup_close(m);
+    ui->enter = ui->back = false;
+    if (p->kind == MAIN_POPUP_NONE) return;
+
+    PickerParts k = picker_parts(p);
+    p->hover = picker_item_at(p, ui->cursor);
+    if (ui->click) {
+        ui->click = false;
+        if (!inside(ui->cursor, p->x, p->y, p->w, p->h)) {
+            popup_close(m);
+            return;
+        }
+        if (inside(ui->cursor, k.sq_x - 4, k.sq_y - 4, PICK_SQUARE_W + 8, PICK_SQUARE_H + 8)) p->drag = 1;
+        else if (inside(ui->cursor, k.hue_x - 3, k.sq_y - 4, PICK_HUE_W + 6, PICK_SQUARE_H + 8)) p->drag = 2;
+        else if (p->hover >= 0 && p->hover < SWATCH_COUNT) {
+            rgb_to_hsv(SWATCHES[p->hover], &p->hue, &p->sat, &p->val);
+            picker_set(ui, SWATCHES[p->hover]);
+        } else if (p->hover == SWATCH_COUNT) {
+            cvar_set(ui->con, p->cvar, "");
+            popup_close(m);
+            return;
+        }
+    }
+    if (!ui->held) p->drag = 0;
+    if (p->drag == 1) {
+        p->sat = clampf((ui->cursor.x - k.sq_x) / PICK_SQUARE_W, 0, 1);
+        p->val = 1 - clampf((ui->cursor.y - k.sq_y) / PICK_SQUARE_H, 0, 1);
+        changed = true;
+    } else if (p->drag == 2) {
+        p->hue = clampf((ui->cursor.y - k.sq_y) / PICK_SQUARE_H, 0, 0.9999f) * 360.0f;
+        changed = true;
+    }
+    if (changed) picker_set(ui, hsv_to_rgb(p->hue, p->sat, p->val));
+}
+
+static void picker_draw(const Ui *ui)
+{
+    const MainPopup *p = &ui->m->popup;
+    PickerParts k = picker_parts(p);
+    bool unset = p->clearable && color_unset(ui->con, p->cvar);
+    Rgba now = hsv_to_rgb(p->hue, p->sat, p->val);
+    text_mid(F_BOLD, "COLOUR", k.sq_x, p->y + PICK_HEAD / 2 + 1, ACCENT);
+    char hex[16];
+    snprintf(hex, sizeof hex, unset ? "none" : "#%02X%02X%02X", now.r, now.g, now.b);
+    float hw = width_of(F_BODY, hex);
+    text_mid(F_BODY, hex, p->x + p->w - PICK_PAD - hw, p->y + PICK_HEAD / 2 + 1, MUTED);
+    if (!unset) rrect(p->x + p->w - PICK_PAD - hw - 18, p->y + PICK_HEAD / 2 - 5, 12, 12, 3, now);
+
+    // the square: a grid of quads with the colour worked out at each corner, so the
+    // shading is the HSV square's and not a two-triangle blend's
+    enum { GRID = 12 };
+    GfxVertex v[GRID * GRID * 6];
+    int n = 0;
+    for (int j = 0; j < GRID; j++) {
+        for (int i = 0; i < GRID; i++) {
+            float s0 = (float)i / GRID, s1 = (float)(i + 1) / GRID, v0 = 1 - (float)j / GRID, v1 = 1 - (float)(j + 1) / GRID;
+            float x0 = k.sq_x + s0 * PICK_SQUARE_W, x1 = k.sq_x + s1 * PICK_SQUARE_W;
+            float y0 = k.sq_y + (1 - v0) * PICK_SQUARE_H, y1 = k.sq_y + (1 - v1) * PICK_SQUARE_H;
+            GfxVertex a = gfx_vertex(x0, y0, 0, 0, hsv_to_rgb(p->hue, s0, v0)), b = gfx_vertex(x1, y0, 0, 0, hsv_to_rgb(p->hue, s1, v0));
+            GfxVertex c = gfx_vertex(x1, y1, 0, 0, hsv_to_rgb(p->hue, s1, v1)), d = gfx_vertex(x0, y1, 0, 0, hsv_to_rgb(p->hue, s0, v1));
+            v[n++] = a, v[n++] = b, v[n++] = c, v[n++] = a, v[n++] = c, v[n++] = d;
+        }
+    }
+    gfx_draw_triangles(gfx_white(), v, n);
+    float mx = k.sq_x + p->sat * PICK_SQUARE_W, my = k.sq_y + (1 - p->val) * PICK_SQUARE_H;
+    circle(mx, my, 6.5f, (Rgba){0, 0, 0, 120});
+    circle(mx, my, 5.5f, TEXT);
+    circle(mx, my, 4, now);
+
+    // the hue strip, top to bottom round the wheel, exact at each sixth
+    for (int i = 0; i < 6; i++) {
+        float y0 = k.sq_y + PICK_SQUARE_H * (float)i / 6, y1 = k.sq_y + PICK_SQUARE_H * (float)(i + 1) / 6;
+        Rgba c0 = hsv_to_rgb(60.0f * (float)i, 1, 1), c1 = hsv_to_rgb(60.0f * (float)(i + 1), 1, 1);
+        GfxVertex q[4] = {gfx_vertex(k.hue_x, y0, 0, 0, c0), gfx_vertex(k.hue_x + PICK_HUE_W, y0, 0, 0, c0),
+                          gfx_vertex(k.hue_x + PICK_HUE_W, y1, 0, 0, c1), gfx_vertex(k.hue_x, y1, 0, 0, c1)};
+        gfx_draw_quad(gfx_white(), q);
+    }
+    float hy = k.sq_y + p->hue / 360.0f * PICK_SQUARE_H;
+    rrect(k.hue_x - 3, hy - 3, PICK_HUE_W + 6, 6, 2, (Rgba){0, 0, 0, 140});
+    rrect(k.hue_x - 2, hy - 2, PICK_HUE_W + 4, 4, 1.5f, TEXT);
+
+    // the swatches
+    for (int i = 0; i < SWATCH_COUNT; i++) {
+        float sx = k.sq_x + (float)(i % SWATCH_COLS) * (k.sw_w + PICK_SWATCH_GAP);
+        float sy = k.sw_y + (float)(i / SWATCH_COLS) * (PICK_SWATCH_H + PICK_SWATCH_GAP);
+        bool current = !unset && same_rgb(SWATCHES[i], now);
+        if (current || i == p->hover) rrect(sx - 1.5f, sy - 1.5f, k.sw_w + 3, PICK_SWATCH_H + 3, 4, current ? TEXT : (Rgba){255, 255, 255, 90});
+        rrect(sx, sy, k.sw_w, PICK_SWATCH_H, 3, SWATCHES[i]);
+    }
+    if (p->clearable) {
+        bool hot = p->hover == SWATCH_COUNT;
+        rrect(k.sq_x, k.clear_y, p->w - 2 * PICK_PAD, PICK_CLEAR - 4, 4, hot ? CONTROL_HOT : CONTROL);
+        text_mid(F_BODY, unset ? "None (the art's own)  *" : "None (the art's own)", k.sq_x + 8, k.clear_y + (PICK_CLEAR - 4) / 2,
+                 hot ? TEXT : MUTED);
+    }
+}
+
+// The item of an open list under the cursor, -1 for none.
 static int popup_item_at(const MainPopup *p, Vec2 c)
 {
-    if (p->kind == MAIN_POPUP_LIST) {
-        if (!inside(c, p->x, p->y + 4, p->w, (float)p->count * POPUP_ROW)) return -1;
-        return (int)((c.y - p->y - 4) / POPUP_ROW);
-    }
-    float gx = p->x + 8, gy = p->y + PALETTE_HEAD;
-    if (inside(c, gx, gy, PALETTE_COLS * SWATCH, PALETTE_ROWS * SWATCH))
-        return (int)((c.y - gy) / SWATCH) * PALETTE_COLS + (int)((c.x - gx) / SWATCH);
-    if (p->clearable && inside(c, p->x + 8, gy + PALETTE_ROWS * SWATCH + 4, p->w - 16, PALETTE_CLEAR - 4)) return PALETTE_COUNT;
-    return -1;
+    if (!inside(c, p->x, p->y + 4, p->w, (float)p->count * POPUP_ROW)) return -1;
+    return (int)((c.y - p->y - 4) / POPUP_ROW);
 }
 
 static void popup_choose(Ui *ui, int item)
 {
     MainMenu *m = ui->m;
     MainPopup *p = &m->popup;
-    if (p->kind == MAIN_POPUP_LIST) {
-        if (item < 0 || item >= p->count || p->locked[item]) return;
-        m->picked_owner = p->owner;
-        m->picked = item;
-    } else {
-        if (item == PALETTE_COUNT && p->clearable) {
-            cvar_set(ui->con, p->cvar, "");
-        } else if (item >= 0 && item < PALETTE_COUNT) {
-            Rgba c = palette()[item].color;
-            char hex[8];
-            snprintf(hex, sizeof hex, "%02X%02X%02X", c.r, c.g, c.b);
-            cvar_set(ui->con, p->cvar, hex);
-        } else {
-            return;
-        }
-    }
+    if (item < 0 || item >= p->count || p->locked[item]) return;
+    m->picked_owner = p->owner;
+    m->picked = item;
     popup_close(m);
 }
 
@@ -536,16 +660,14 @@ static void popup_input(Ui *ui)
     if (p->kind == MAIN_POPUP_NONE) return;
     ui->blocked = true;
     ui->block_x = p->x, ui->block_y = p->y, ui->block_w = p->w, ui->block_h = p->h;
+    if (p->kind == MAIN_POPUP_COLOR) {
+        picker_input(ui);
+        return;
+    }
 
-    int last = p->kind == MAIN_POPUP_LIST ? p->count - 1 : PALETTE_COUNT - (p->clearable ? 0 : 1);
-    if (p->kind == MAIN_POPUP_LIST) {
-        for (int step = ui->move + ui->side, n = 0; step && n < p->count; n++) { // past the locked
-            p->hover = clampi(p->hover + (step > 0 ? 1 : -1), 0, last);
-            if (!p->locked[p->hover]) break;
-        }
-    } else if (ui->move || ui->side) {
-        if (p->hover >= PALETTE_COUNT) p->hover = ui->move < 0 ? PALETTE_COUNT - PALETTE_COLS : PALETTE_COUNT;
-        else p->hover = clampi(p->hover + ui->move * PALETTE_COLS + ui->side, 0, last);
+    for (int step = ui->move + ui->side, n = 0; step && n < p->count; n++) { // past the locked
+        p->hover = clampi(p->hover + (step > 0 ? 1 : -1), 0, p->count - 1);
+        if (!p->locked[p->hover]) break;
     }
     ui->move = ui->side = 0;
     if (ui->enter) popup_choose(ui, p->hover);
@@ -569,34 +691,16 @@ static void popup_draw(const Ui *ui)
     if (p->kind == MAIN_POPUP_NONE) return;
     rrect(p->x + 2, p->y + 4, p->w, p->h, 7, (Rgba){0, 0, 0, 110}); // its shadow
     rrect(p->x, p->y, p->w, p->h, 6, (Rgba){26, 30, 42, 252});
-    if (p->kind == MAIN_POPUP_LIST) {
-        for (int i = 0; i < p->count; i++) {
-            float y = p->y + 4 + (float)i * POPUP_ROW;
-            if (i == p->hover && !p->locked[i]) rrect(p->x + 4, y, p->w - 8, POPUP_ROW, 4, ACCENT_SOFT);
-            char text[64];
-            snprintf(text, sizeof text, "%s%s", p->names[i], p->locked[i] ? " (locked)" : "");
-            text_fit(F_BODY, text, p->x + 12, y + POPUP_ROW / 2, p->w - 24, p->locked[i] ? FAINT : i == p->hover ? TEXT : MUTED);
-        }
+    if (p->kind == MAIN_POPUP_COLOR) {
+        picker_draw(ui);
         return;
     }
-    text_mid(F_BOLD, "COLOUR", p->x + 8, p->y + PALETTE_HEAD / 2 + 1, ACCENT);
-    Rgba now = cvar_color(ui->con, p->cvar);
-    bool unset = p->clearable && color_unset(ui->con, p->cvar);
-    const PaletteColor *colors = palette();
-    float gx = p->x + 8, gy = p->y + PALETTE_HEAD;
-    for (int i = 0; i < PALETTE_COUNT; i++) {
-        float sx = gx + (float)(i % PALETTE_COLS) * SWATCH, sy = gy + (float)(i / PALETTE_COLS) * SWATCH;
-        Rgba c = colors[i].color;
-        bool current = !unset && c.r == now.r && c.g == now.g && c.b == now.b;
-        if (current || i == p->hover) rect(sx - 1, sy - 1, sx + SWATCH, sy + SWATCH, current ? TEXT : ACCENT);
-        rect(sx, sy, sx + SWATCH - 1, sy + SWATCH - 1, c);
-    }
-    if (p->clearable) {
-        float y = gy + PALETTE_ROWS * SWATCH + 4;
-        bool hot = p->hover == PALETTE_COUNT;
-        rrect(p->x + 8, y, p->w - 16, PALETTE_CLEAR - 4, 4, hot ? CONTROL_HOT : CONTROL);
-        text_mid(F_BODY, unset ? "None (the art's own)  *" : "None (the art's own)", p->x + 14, y + (PALETTE_CLEAR - 4) / 2,
-                 hot ? TEXT : MUTED);
+    for (int i = 0; i < p->count; i++) {
+        float y = p->y + 4 + (float)i * POPUP_ROW;
+        if (i == p->hover && !p->locked[i]) rrect(p->x + 4, y, p->w - 8, POPUP_ROW, 4, ACCENT_SOFT);
+        char text[64];
+        snprintf(text, sizeof text, "%s%s", p->names[i], p->locked[i] ? " (locked)" : "");
+        text_fit(F_BODY, text, p->x + 12, y + POPUP_ROW / 2, p->w - 24, p->locked[i] ? FAINT : i == p->hover ? TEXT : MUTED);
     }
 }
 
@@ -796,16 +900,16 @@ static void field_row(Ui *ui, const char *label, const char *cvar, int max, cons
     field_box(ui, r.id, r.focused, ctrl_x(&r), ctrl_y(&r), ctrl_w(&r), cvar, max, placeholder, secret);
 }
 
-// A colour: its hex in a box, typed, and its swatch, which opens the palette (as Enter does).
+// A colour: its hex in a box, typed, and its swatch, which opens the picker (as Enter does).
 static void color_row(Ui *ui, const char *label, const char *cvar)
 {
     MainMenu *m = ui->m;
     Row r = row(ui, ROW_H, true);
     float cw = ctrl_w(&r), cx = ctrl_x(&r), cy = ctrl_y(&r), sx = cx + cw - CTRL_H;
     bool open = m->popup.kind == MAIN_POPUP_COLOR && m->popup.owner == r.id;
-    bool toggle_palette = take_enter(ui, r.focused);
-    if (r.shown && take(ui, r.id, sx, cy, CTRL_H, CTRL_H)) toggle_palette = true;
-    if (toggle_palette) {
+    bool toggle_picker = take_enter(ui, r.focused);
+    if (r.shown && take(ui, r.id, sx, cy, CTRL_H, CTRL_H)) toggle_picker = true;
+    if (toggle_picker) {
         if (open) popup_close(m);
         else popup_open_color(ui, r.id, cvar, sx, cy);
     }

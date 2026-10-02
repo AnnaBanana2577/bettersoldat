@@ -32,7 +32,7 @@ typedef enum MainZone { MAIN_ZONE_TABS, MAIN_ZONE_CONTENT } MainZone; // the top
 
 typedef enum MainPopupKind { MAIN_POPUP_NONE, MAIN_POPUP_LIST, MAIN_POPUP_COLOR } MainPopupKind;
 
-// A list or a palette open over the page, under the widget that opened it. It keeps its
+// A list or a colour picker open over the page, under the widget that opened it. It keeps its
 // own copy of what it offers, as the widget is laid out anew each draw.
 typedef struct MainPopup {
     MainPopupKind kind;
@@ -42,8 +42,10 @@ typedef struct MainPopup {
     int hover;    // the item (or the palette's colour) under the cursor or the keys
     char names[MAINMENU_POPUP_ITEMS][40];
     bool locked[MAINMENU_POPUP_ITEMS];
-    char cvar[CONSOLE_NAME_SIZE]; // a palette's colour
-    bool clearable;               // a palette's colour may be none (the art's own)
+    char cvar[CONSOLE_NAME_SIZE]; // a picker's colour
+    bool clearable;               // a picker's colour may be none (the art's own)
+    float hue, sat, val;          // a picker's colour as it is being set: kept, so a grey keeps its hue
+    int drag;                     // what of the picker the mouse holds: 0 nothing, 1 the square, 2 the hue
 } MainPopup;
 
 typedef enum ServerSort { SERVER_SORT_PLAYERS, SERVER_SORT_NAME, SERVER_SORT_MODE, SERVER_SORT_MAP, SERVER_SORT_PING } ServerSort; // the fullest first, at first
