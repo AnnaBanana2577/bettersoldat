@@ -1,6 +1,6 @@
-# A release as a Discord webhook's message: one embed, in the wordmark's ember, titled
-# with the version and linked to the release, its notes as the description, the game's
-# downloads for each platform, and the wordmark under it. Run over `gh release view
+# A release as a Discord webhook's message: one embed, in the menu's ember, titled with
+# the version and linked to the release, its notes as the description, and the game's
+# downloads for each platform; the game's icon is the sender's avatar. Run over `gh release view
 # --json name,tagName,url,body,publishedAt,isPrerelease,assets` (discord-release.yml).
 #
 # The notes are the tag's message (docs/git.md, Releases), written as plain text for
@@ -41,7 +41,6 @@ def downloads:
         value: ((($r | downloads) | if . == "" then "" else . + "\n" end)
                 + "Already playing? The launcher updates itself to this version.")
       }],
-      image: {url: "\($raw)/assets/interface-gfx/wordmark.png"},
       footer: {text: "soldatreloaded/soldatreloaded"},
       timestamp: $r.publishedAt
     }]
