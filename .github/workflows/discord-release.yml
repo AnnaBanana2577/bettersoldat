@@ -60,7 +60,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
           WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
-          REPO_RAW: https://raw.githubusercontent.com/${{ github.repository }}/main
+          REPO_RAW: https://raw.githubusercontent.com/${{ github.repository }}/${{ steps.release.outputs.tag }}
         run: |
           if [ -z "$WEBHOOK" ]; then
             echo "::warning::no DISCORD_RELEASE_WEBHOOK secret: $TAG is not announced"

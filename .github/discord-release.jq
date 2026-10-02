@@ -27,7 +27,9 @@ def downloads:
   | join("  ·  ");
 
 . as $r
-| ($ENV.REPO_RAW // "https://raw.githubusercontent.com/soldatreloaded/soldatreloaded/main") as $raw
+# the files as the release's tag has them, not main's: the URL is new with each release,
+# so neither GitHub's raw cache nor Discord's can hand back an older icon
+| ($ENV.REPO_RAW // "https://raw.githubusercontent.com/soldatreloaded/soldatreloaded/\($r.tagName)") as $raw
 | {
     username: "SoldatReloaded",
     avatar_url: "\($raw)/assets/icon.png",
