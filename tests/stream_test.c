@@ -209,6 +209,27 @@ void stream_tests(void)
     CHECK(conns.streams[0].dropped == 0 && c.stream.dropped == 0, "nothing was dropped either way (%u, %u)",
           conns.streams[0].dropped, c.stream.dropped);
 
+    // paused, still pressing right: the server holds my soldier where the pause found it,
+    // its held keys with it, whatever I say, even a state of mine well ahead (a client
+    // that ran on before it heard, or one that cheats); I am given the server's, so we
+    // agree exactly; and unpaused, the game goes on from there
+    match_pause(&gs->match, true);
+    Vec2 held = theirs->pos;
+    Buttons held_keys = theirs->controls;
+    play(&conns, gs, &c, 5, BUTTON_RIGHT, BUTTON_LEFT);
+    mine->pos.x += 50.0f;
+    mine->old_pos.x += 50.0f;
+    play(&conns, gs, &c, 40, BUTTON_RIGHT, BUTTON_LEFT);
+    CHECK(theirs->pos.x == held.x && theirs->pos.y == held.y && theirs->controls == held_keys,
+          "paused, the server's soldier stands where the pause found it, keys held, whatever its owner says (%.2f to %.2f)",
+          held.x, theirs->pos.x);
+    CHECK(c.game->match.state == MATCH_PAUSED && mine->pos.x == theirs->pos.x && mine->pos.y == theirs->pos.y,
+          "and my soldier is given the server's, so both are the same (%.2f here, %.2f there)", mine->pos.x, theirs->pos.x);
+    match_pause(&gs->match, false);
+    play(&conns, gs, &c, 30, BUTTON_RIGHT, BUTTON_LEFT);
+    CHECK(c.game->match.state == MATCH_PLAYING && mine->pos.x > held.x + 5.0f && fabsf(theirs->pos.x - mine->pos.x) < 30.0f,
+          "unpaused, it runs on from there (%.1f to %.1f), the server a packet behind", held.x, mine->pos.x);
+
     // the bot, heard of and stepped on its keys
     const Soldier *bot_here = &c.game->world.soldiers[BOT], *bot_there = &gs->world.soldiers[BOT];
     CHECK(bot_there->vel.x < 0.0f || bot_there->controls & BUTTON_LEFT, "the server's bot walks left");

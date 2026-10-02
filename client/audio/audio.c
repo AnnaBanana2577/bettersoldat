@@ -693,6 +693,13 @@ void audio_tick(Audio *a, const Game *g, int me, int followed, Vec2 camera, cons
     a->camera = camera;
     a->listener = followed >= 0 ? w->soldiers[followed].pos : camera;
     if (a->ringing > -1) a->ringing--;
+    // paused, the soldiers' loops stop (ClientHandleServerSyncMsg): a jet or a reload
+    // would sound on for as long as the pause lasts; nothing new sounds till it ends
+    if (g->match.state == MATCH_PAUSED) {
+        for (int slot = 0; slot < MAX_PLAYERS; slot++)
+            for (int v = 0; v < VOICE_COUNT; v++) voice_stop(a, slot, (ReservedVoice)v);
+        return;
+    }
     audio_clock(a, &g->match);
     for (int i = 0; i < g->events.count; i++) audio_event(a, &g->events.items[i], w, me);
     for (int i = 0; i < MAX_PLAYERS; i++) audio_soldier(a, &g->ctx, i, &w->soldiers[i], w->tick);

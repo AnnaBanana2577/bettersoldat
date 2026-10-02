@@ -114,10 +114,14 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     if (m.event_ack > s->event_ack) s->event_ack = m.event_ack;
 
     // the owner's word, unless the soldier is dead here, or placed anew since the state was
-    // sent, and the client hasn't heard: an older life's word would drag it back;
-    // its loadout always, a weapon that isn't a primary or a secondary put right
+    // sent, and the client hasn't heard: an older life's word would drag it back; or the
+    // game is paused: it stands as it stood when the pause began, held keys and all,
+    // whatever its owner says, and every client is given it so (the original drops a
+    // paused player's bullets the same); its loadout always, a weapon that isn't a
+    // primary or a secondary put right
     Soldier *soldier = &g->world.soldiers[slot];
-    if (soldier->active && !soldier->dead && m.life == soldier->life) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
+    bool paused = g->match.state == MATCH_PAUSED;
+    if (soldier->active && !soldier->dead && m.life == soldier->life && !paused) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
     soldier->typing = m.typing;
     soldier->primary_choice = weapon_is_primary(m.owned.primary_choice) ? m.owned.primary_choice : WEAPON_EAGLE;
     soldier->secondary_choice = weapon_is_secondary(m.owned.secondary_choice) ? m.owned.secondary_choice : WEAPON_KNIFE;
@@ -383,7 +387,10 @@ static void frame_apply(ClientStream *c, Game *g, int me, int k)
             s->typing = typing;
             s->primary_choice = primary;
             s->secondary_choice = secondary;
-            if (placed) soldier_copy_owned(g->ctx.anims, s, heard);
+            // my own half too when placed, or while paused: the server's soldier is the
+            // one the pause holds, a little behind where mine had got to, and the game
+            // goes on from it for everyone alike
+            if (placed || g->match.state == MATCH_PAUSED) soldier_copy_owned(g->ctx.anims, s, heard);
         }
     }
     for (int i = 0; i < MAX_THINGS; i++) {
@@ -410,6 +417,7 @@ static void soldier_apply(ClientStream *c, Game *g, int i, int k, int steps, Eve
     soldier_copy_owned(g->ctx.anims, s, heard);
     s->remote = true;
     if (steps > STREAM_STEPS_MAX) steps = STREAM_STEPS_MAX;
+    if (g->match.state != MATCH_PLAYING) steps = 0; // the world stands, paused or between rounds: so does the word
     for (int n = 0; n < steps; n++) {
         events_clear(scratch); // what the steps would say is said by nobody
         soldier_step(&g->ctx, w, (uint8_t)i, soldier_last_command(s, false), scratch, false);

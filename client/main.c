@@ -1088,7 +1088,7 @@ static void tick(App *app)
     }
     cmds[app->me] = input_command(&app->input, ++app->seq);
     game_tick(app->game, cmds);
-    render_tick(&app->render, &app->game->ctx, &app->game->world, &app->game->events);
+    if (app->game->match.state != MATCH_PAUSED) render_tick(&app->render, &app->game->ctx, &app->game->world, &app->game->events); // paused, the sparks hang too
     // the listener is whom the camera follows: me, the player I watch while dead, or the free camera
     int followed = app->free_camera ? -1 : app->camera_follow >= 0 ? app->camera_follow : app->me;
     audio_tick(&app->audio, app->game, app->me, followed, app->camera.pos, &app->render.sparks);
