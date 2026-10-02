@@ -64,6 +64,7 @@ typedef struct Audio {
     Voice voices[AUDIO_VOICES];
     Reserved reserved[MAX_PLAYERS][VOICE_COUNT];
     Reserved weather; // the wind, while the map has weather
+    bool weather_off; // r_weathereffects 0: no wind, as the original plays it with the weather's sparks
     Soldier prev[MAX_PLAYERS];  // everyone as of the tick before
     bool whizzed[MAX_BULLETS];  // bullets that have already whizzed past the listener
     Vec2 listener, camera;

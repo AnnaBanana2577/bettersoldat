@@ -102,11 +102,14 @@ typedef struct App {
     Cvar *sensitivity;
     Cvar *wireframe, *debug;
     Cvar *scenery;        // r_scenery: the map's props drawn
+    Cvar *trails;         // r_trails: the streaks behind the rounds
+    Cvar *weather;        // r_weathereffects: the map's rain, sand or snow, and its wind
     Cvar *track_shot;     // cl_trackshot: the camera follows a scoped Barrett shot
     Cvar *forcebg, *forcebg_color1, *forcebg_color2; // the sky in colours of my own instead of the map's (r_forcebg)
     Cvar *minimap, *info, *player_names, *console_length;
     Cvar *player_name;
     Cvar *grenade_color;
+    Cvar *cursor_color, *crosshair_color, *cursor_size, *crosshair_size;
     Cvar *shirt, *pants, *skin, *hair, *jet;      // the look's colours, "RRGGBB"
     Cvar *hair_style, *head_style, *chain_style;  // and its styles, by number
     Cvar *style;                                  // the gostek: 0 male, 1 female, 2 waifu, 3 rat
@@ -808,6 +811,8 @@ static bool console_open(App *app, int argc, char *argv[])
     app->forcebg_color1 = cvar_register(con, "r_forcebg_color1", "000000", CVAR_ARCHIVE, "the forced sky's colour at the top, RRGGBB");
     app->forcebg_color2 = cvar_register(con, "r_forcebg_color2", "000000", CVAR_ARCHIVE, "the forced sky's colour at the bottom, RRGGBB");
     app->scenery = cvar_register(con, "r_scenery", "1", CVAR_ARCHIVE, "the map's scenery, its props; 0 leaves them out");
+    app->trails = cvar_register(con, "r_trails", "1", CVAR_ARCHIVE, "the streaks behind the bullets, grenades and rockets; 0 leaves them out");
+    app->weather = cvar_register(con, "r_weathereffects", "1", CVAR_ARCHIVE, "the map's weather: its rain, sandstorm or snow, and the wind; 0 leaves them out");
     app->wireframe = cvar_register(con, "r_wireframe", "0", 0, "draw the map's polygons as lines");
     app->debug = cvar_register(con, "r_debug", "0", 0, "spawn points, colliders, special polys, bones");
     app->minimap = cvar_register(con, "ui_minimap", "0", CVAR_ARCHIVE, "the minimap");
@@ -818,6 +823,10 @@ static bool console_open(App *app, int argc, char *argv[])
         cvar_register(con, "ui_console_length", "6", CVAR_ARCHIVE, "how many console lines the HUD shows");
     app->player_name = cvar_register(con, "cl_player_name", "Player", CVAR_ARCHIVE, "my name");
     app->grenade_color = cvar_register(con, "cl_grenade_color", "", CVAR_ARCHIVE, "the grenades in this colour, RRGGBB, flat and solid; empty for their own art");
+    app->cursor_color = cvar_register(con, "cl_cursor_color", "FFFFFF", CVAR_ARCHIVE, "the menu cursor's colour, RRGGBB");
+    app->crosshair_color = cvar_register(con, "cl_crosshair_color", "FFFFFF", CVAR_ARCHIVE, "the aiming crosshair's colour, RRGGBB");
+    app->cursor_size = cvar_register(con, "cl_cursor_size", "100", CVAR_ARCHIVE, "the menu cursor's size, percent");
+    app->crosshair_size = cvar_register(con, "cl_crosshair_size", "100", CVAR_ARCHIVE, "the aiming crosshair's size, percent");
     app->shirt = cvar_register(con, "cl_player_shirt", "304289", CVAR_ARCHIVE, "the shirt's colour, RRGGBB");
     app->pants = cvar_register(con, "cl_player_pants", "FF0000", CVAR_ARCHIVE, "the pants' colour, RRGGBB");
     app->skin = cvar_register(con, "cl_player_skin", "E6B478", CVAR_ARCHIVE, "the skin's colour, RRGGBB");
@@ -987,6 +996,8 @@ static void apply_cvars(App *app)
     app->render_options.wireframe = app->wireframe->integer != 0;
     app->render_options.debug = app->debug->integer != 0;
     app->render_options.scenery = app->scenery->integer != 0;
+    app->render_options.trails = app->trails->integer != 0;
+    app->audio.weather_off = !app->weather->integer;
     // the sky's colours: the map's, or mine; the minimap carries them too, so it is built again on a change
     if (map_view_force_background(&app->render.map_view, app->forcebg->integer != 0, cvar_color(app->forcebg_color1), cvar_color(app->forcebg_color2)))
         map_view_build_minimap(&app->render.map_view, window_rect(app).height);
@@ -1224,7 +1235,14 @@ static void tick(App *app)
     bool scoped = shooter->active && !shooter->dead && shooter->aim_dist < DEFAULT_AIM_DIST;
     game_tick(app->game, cmds);
     track_shot(app, scoped);
-    if (app->game->match.state != MATCH_PAUSED) render_tick(&app->render, &app->game->ctx, &app->game->world, &app->game->events); // paused, the sparks hang too
+    if (app->game->match.state != MATCH_PAUSED) { // paused, the sparks hang too
+        render_tick(&app->render, &app->game->ctx, &app->game->world, &app->game->events);
+        // the map's weather over the view (WeatherEffects.pas), while r_weathereffects is
+        // on; none is made as a round ends, as the original's UpdateFrame makes none then
+        if (app->weather->integer && app->game->match.state == MATCH_PLAYING)
+            sparks_weather(&app->render.sparks, app->game->ctx.map->weather, app->camera.pos, camera_view_size(&app->camera),
+                           app->game->world.tick);
+    }
     // the listener is whom the camera follows: me, the player I watch while dead, or the free camera
     int followed = app->free_camera ? -1 : app->camera_follow >= 0 ? app->camera_follow : app->me;
     audio_tick(&app->audio, app->game, app->me, followed, app->camera.pos, &app->render.sparks);
@@ -1915,7 +1933,9 @@ int main(int argc, char *argv[])
                 render_draw(&app.render, &app.frame, &app.camera, app.render_options, grenade_color(app.grenade_color), app.time);
                 hud_data_build(&app);
                 interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
-                               &app.camera, app.input.cursor, app.camera.viewport);
+                               &app.camera, app.input.cursor, app.camera.viewport, cvar_color(app.cursor_color),
+                               cvar_color(app.crosshair_color), clampi(app.cursor_size->integer, 50, 200) / 100.0f,
+                               clampi(app.crosshair_size->integer, 50, 200) / 100.0f);
             } else { // the menu on its own background: the game is not watched from here
                 gfx_clear((Rgba){0, 0, 0, 255});
                 Rect r = app.camera.viewport;

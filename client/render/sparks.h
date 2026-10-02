@@ -45,6 +45,9 @@ typedef enum SparkStyle {
     SPARK_MATCH,       // the cigar's stub (34), a drop of piss (57)
     SPARK_CIGAR,
     SPARK_PISS,
+    SPARK_RAIN,        // the weather (WeatherEffects.pas): rain (38), sand in a storm (39),
+    SPARK_SAND,        // snow (53), falling from above the view
+    SPARK_SNOW,
     SPARK_STYLE_COUNT
 } SparkStyle;
 
@@ -76,6 +79,9 @@ typedef enum SparkArt {
     SPARK_ART_BLACK_SMOKE,
     SPARK_ART_STUFF,
     SPARK_ART_CIGAR,
+    SPARK_ART_RAIN,
+    SPARK_ART_SAND,
+    SPARK_ART_SNOW,
     SPARK_ART_COUNT
 } SparkArt;
 
@@ -117,6 +123,13 @@ void sparks_clear(Sparks *s); // a new map: the old one's sparks go with it
 // the clips out of the reloads, the corpses' bleeding and burning from the world, then
 // every spark on by one step. Leaves this tick's `sounds`.
 void sparks_tick(Sparks *s, const Context *ctx, const World *w, const Events *events);
+
+// The map's weather this tick (WeatherEffects.pas MakeRain, MakeSandStorm, MakeSnow), if
+// it has any: every seventeenth tick eight drops, grains or flakes from above the view
+// centred on `camera`, `view` units wide and tall. Rain is made wherever it falls; sand
+// and snow only within a view of the camera, as the original makes sparks only within a
+// view of whom it follows. The app calls it while r_weathereffects is on.
+void sparks_weather(Sparks *s, uint8_t weather, Vec2 camera, Vec2 view, uint32_t tick);
 
 // Under the camera's transform, after everything they land on, `between` of the way from
 // each spark's last tick to its latest: its place and its life, and with the life what

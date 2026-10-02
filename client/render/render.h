@@ -19,6 +19,7 @@ typedef struct RenderOptions {
     bool wireframe;
     bool debug; // spawn points, colliders, special polys, the soldiers' bones
     bool scenery; // the map's props (r_scenery): off for a plainer view
+    bool trails;  // the streaks behind the rounds (r_trails)
 } RenderOptions;
 
 typedef struct Render {

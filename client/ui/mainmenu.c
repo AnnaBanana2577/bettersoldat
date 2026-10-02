@@ -786,13 +786,13 @@ static void page_controls(Ui *ui)
     float x = PAGE_X, y = 90;
     int half = (CONTROL_COUNT + 1) / 2;
     for (int i = 0; i < CONTROL_COUNT; i++) {
-        float cx = x + (float)(i / half) * 190, cy = y + (float)(i % half) * 19;
+        float cx = x + (float)(i / half) * 260, cy = y + (float)(i % half) * 19;
         bool capturing = ui->m->capturing == i;
-        bool hot = over(ui, cx, cy, 180, 18);
-        if (hot || capturing) rect(cx, cy, cx + 180, cy + 18, capturing ? (Rgba){255, 230, 170, 60} : (Rgba){255, 255, 255, 40});
+        bool hot = over(ui, cx, cy, 250, 18);
+        if (hot || capturing) rect(cx, cy, cx + 250, cy + 18, capturing ? (Rgba){255, 230, 170, 60} : (Rgba){255, 255, 255, 40});
         label(cx + 4, cy + 2, CONTROLS[i].label, DIM);
-        label(cx + 100, cy + 2, capturing ? "press a key" : key_of(ui->con, CONTROLS[i].command), TEXT);
-        if (take_click(ui, cx, cy, 180, 18)) ui->m->capturing = i;
+        label(cx + 150, cy + 2, capturing ? "press a key" : key_of(ui->con, CONTROLS[i].command), TEXT);
+        if (take_click(ui, cx, cy, 250, 18)) ui->m->capturing = i;
     }
     label(x, y + (float)half * 19 + 10, "Click a key to change it, then press the new one. Escape keeps the old.", DIM);
 }
@@ -803,13 +803,33 @@ typedef struct Resolution {
 static const Resolution RESOLUTIONS[] = {{640, 480}, {800, 600}, {1024, 768}, {1280, 720}, {1280, 960}, {1600, 900}, {1920, 1080}, {2560, 1440}};
 #define RESOLUTION_COUNT ((int)(sizeof RESOLUTIONS / sizeof RESOLUTIONS[0]))
 
+static void compact_stepper(Ui *ui, float x, float y, const char *cvar)
+{
+    const Cvar *cv = cvar_find(ui->con, cvar);
+    int value = cv ? clampi(cv->integer, 50, 200) : 100;
+    bool left = take_click(ui, x, y, 20, ROW - 4);
+    bool right = take_click(ui, x + 50, y, 20, ROW - 4);
+    if (left || right) {
+        char number[16];
+        snprintf(number, sizeof number, "%d", clampi(value + (right ? 10 : -10), 50, 200));
+        cvar_set(ui->con, cvar, number);
+    }
+    label(x + 4, y + 3, "<", over(ui, x, y, 20, ROW - 4) ? TEXT : DIM);
+    label(x + 54, y + 3, ">", over(ui, x + 50, y, 20, ROW - 4) ? TEXT : DIM);
+    char shown[16];
+    snprintf(shown, sizeof shown, "%d%%", value);
+    text_style(FONT_SMALL);
+    text_color(TEXT);
+    text_draw(shown, x + 35 - text_width(shown) / 2, y + 3);
+}
+
 static void page_options(Ui *ui)
 {
     float x = PAGE_X, y = 100;
     Console *con = ui->con;
     static const char *const MODES[] = {"Windowed", "Fullscreen", "Borderless"};
     label(x, y, "Window", DIM);
-    cycler(ui, x + 110, y - 3, "r_fullscreen", 0, 2, MODES[cvar_int(con, "r_fullscreen", 0, 2)]);
+    cycler(ui, x + 145, y - 3, "r_fullscreen", 0, 2, MODES[cvar_int(con, "r_fullscreen", 0, 2)]);
     y += ROW;
 
     // the resolution: the presets, stepped through; the current one shown even between them
@@ -820,7 +840,7 @@ static void page_options(Ui *ui)
     char shown[32];
     snprintf(shown, sizeof shown, "%dx%d", w, h);
     label(x, y, "Resolution", DIM);
-    bool left = take_click(ui, x + 110, y - 3, 20, ROW - 4), right = take_click(ui, x + 260, y - 3, 20, ROW - 4);
+    bool left = take_click(ui, x + 145, y - 3, 20, ROW - 4), right = take_click(ui, x + 295, y - 3, 20, ROW - 4);
     if (left || right) {
         int next = at < 0 ? (right ? 0 : RESOLUTION_COUNT - 1) : (at + (right ? 1 : RESOLUTION_COUNT - 1)) % RESOLUTION_COUNT;
         char number[16];
@@ -829,31 +849,59 @@ static void page_options(Ui *ui)
         snprintf(number, sizeof number, "%d", RESOLUTIONS[next].h);
         cvar_set(con, "r_screenheight", number);
     }
-    label(x + 114, y, "<", over(ui, x + 110, y - 3, 20, ROW - 4) ? TEXT : DIM);
-    label(x + 264, y, ">", over(ui, x + 260, y - 3, 20, ROW - 4) ? TEXT : DIM);
+    label(x + 149, y, "<", over(ui, x + 145, y - 3, 20, ROW - 4) ? TEXT : DIM);
+    label(x + 299, y, ">", over(ui, x + 295, y - 3, 20, ROW - 4) ? TEXT : DIM);
     text_style(FONT_SMALL);
     text_color(TEXT);
-    text_draw(shown, x + 195 - text_width(shown) / 2, y);
+    text_draw(shown, x + 230 - text_width(shown) / 2, y);
     y += ROW;
 
     label(x, y, "VSync", DIM);
-    cycler(ui, x + 110, y - 3, "r_swapeffect", 0, 1, cvar_int(con, "r_swapeffect", 0, 1) ? "On" : "Off");
+    cycler(ui, x + 145, y - 3, "r_swapeffect", 0, 1, cvar_int(con, "r_swapeffect", 0, 1) ? "On" : "Off");
     y += ROW;
+    static const char *const CURSOR_COLOURS[][2] = {
+        {"Menu cursor", "cl_cursor_color"},
+        {"Aiming crosshair", "cl_crosshair_color"},
+    };
+    float cursor_colors_y = y;
+    for (size_t i = 0; i < sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]; i++) {
+        if (strcmp(ui->m->color_picker, CURSOR_COLOURS[i][1]) == 0) {
+            color_picker(ui, CURSOR_COLOURS[i][1], x, cursor_colors_y + (float)i * ROW - 3, false);
+            break;
+        }
+    }
+    for (size_t i = 0; i < sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]; i++) {
+        const char *cvar = CURSOR_COLOURS[i][1];
+        float row_y = y + (float)i * ROW;
+        label(x, row_y, CURSOR_COLOURS[i][0], DIM);
+        field(ui, x + 145, row_y - 3, 90, cvar, 6);
+        Rgba color = cvar_color(con, cvar);
+        color.a = 255;
+        rect(x + 245, row_y - 3, x + 245 + ROW - 4, row_y - 3 + ROW - 4, color);
+        if (take_click(ui, x + 245, row_y - 3, ROW - 4, ROW - 4)) {
+            if (strcmp(ui->m->color_picker, cvar) == 0)
+                ui->m->color_picker[0] = '\0';
+            else
+                snprintf(ui->m->color_picker, sizeof ui->m->color_picker, "%s", cvar);
+        }
+        compact_stepper(ui, x + 280, row_y - 3, i == 0 ? "cl_cursor_size" : "cl_crosshair_size");
+    }
+    y += ROW * (float)(sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]);
     label(x, y, "Volume", DIM);
     {
         int v = cvar_int(con, "snd_volume", 0, 100);
         snprintf(shown, sizeof shown, "%d", v);
-        bool l = take_click(ui, x + 110, y - 3, 20, ROW - 4), r = take_click(ui, x + 260, y - 3, 20, ROW - 4);
+        bool l = take_click(ui, x + 145, y - 3, 20, ROW - 4), r = take_click(ui, x + 295, y - 3, 20, ROW - 4);
         if (l || r) {
             char number[16];
             snprintf(number, sizeof number, "%d", clampi(v + (r ? 10 : -10), 0, 100));
             cvar_set(con, "snd_volume", number);
         }
-        label(x + 114, y, "<", DIM);
-        label(x + 264, y, ">", DIM);
+        label(x + 149, y, "<", DIM);
+        label(x + 299, y, ">", DIM);
         text_style(FONT_SMALL);
         text_color(TEXT);
-        text_draw(shown, x + 195 - text_width(shown) / 2, y);
+        text_draw(shown, x + 230 - text_width(shown) / 2, y);
     }
     y += ROW;
     label(x, y, "Sensitivity", DIM);
@@ -861,59 +909,81 @@ static void page_options(Ui *ui)
         const Cvar *cv = cvar_find(con, "cl_sensitivity");
         float v = cv ? cv->number : 1.0f;
         snprintf(shown, sizeof shown, "%.1f", v);
-        bool l = take_click(ui, x + 110, y - 3, 20, ROW - 4), r = take_click(ui, x + 260, y - 3, 20, ROW - 4);
+        bool l = take_click(ui, x + 145, y - 3, 20, ROW - 4), r = take_click(ui, x + 295, y - 3, 20, ROW - 4);
         if (l || r) {
             char number[16];
             snprintf(number, sizeof number, "%.1f", clampf(v + (r ? 0.1f : -0.1f), 0.1f, 5.0f));
             cvar_set(con, "cl_sensitivity", number);
         }
-        label(x + 114, y, "<", DIM);
-        label(x + 264, y, ">", DIM);
+        label(x + 149, y, "<", DIM);
+        label(x + 299, y, ">", DIM);
         text_style(FONT_SMALL);
         text_color(TEXT);
-        text_draw(shown, x + 195 - text_width(shown) / 2, y);
+        text_draw(shown, x + 230 - text_width(shown) / 2, y);
     }
     y += ROW;
     label(x, y, "Player names", DIM);
-    cycler(ui, x + 110, y - 3, "ui_playernames", 0, 1, cvar_int(con, "ui_playernames", 0, 1) ? "On" : "Off");
+    cycler(ui, x + 145, y - 3, "ui_playernames", 0, 1, cvar_int(con, "ui_playernames", 0, 1) ? "On" : "Off");
     y += ROW;
     label(x, y, "Minimap", DIM);
-    cycler(ui, x + 110, y - 3, "ui_minimap", 0, 1, cvar_int(con, "ui_minimap", 0, 1) ? "On" : "Off");
+    cycler(ui, x + 145, y - 3, "ui_minimap", 0, 1, cvar_int(con, "ui_minimap", 0, 1) ? "On" : "Off");
     y += ROW;
     label(x, y, "Smoothing (ms)", DIM);
     {
         int v = cvar_int(con, "cl_smooth", 0, 500);
         snprintf(shown, sizeof shown, "%d", v);
-        bool l = take_click(ui, x + 110, y - 3, 20, ROW - 4), r = take_click(ui, x + 260, y - 3, 20, ROW - 4);
+        bool l = take_click(ui, x + 145, y - 3, 20, ROW - 4), r = take_click(ui, x + 295, y - 3, 20, ROW - 4);
         if (l || r) {
             char number[16];
             snprintf(number, sizeof number, "%d", clampi(v + (r ? 25 : -25), 0, 500));
             cvar_set(con, "cl_smooth", number);
         }
-        label(x + 114, y, "<", DIM);
-        label(x + 264, y, ">", DIM);
+        label(x + 149, y, "<", DIM);
+        label(x + 299, y, ">", DIM);
         text_style(FONT_SMALL);
         text_color(TEXT);
-        text_draw(shown, x + 195 - text_width(shown) / 2, y);
+        text_draw(shown, x + 230 - text_width(shown) / 2, y);
     }
     y += ROW;
-    label(x, y, "Scenery", DIM);
-    cycler(ui, x + 110, y - 3, "r_scenery", 0, 1, cvar_int(con, "r_scenery", 0, 1) ? "On" : "Off");
-    y += ROW;
     label(x, y, "Follow scoped shot", DIM);
-    cycler(ui, x + 110, y - 3, "cl_trackshot", 0, 1, cvar_int(con, "cl_trackshot", 0, 1) ? "On" : "Off");
+    cycler(ui, x + 145, y - 3, "cl_trackshot", 0, 1, cvar_int(con, "cl_trackshot", 0, 1) ? "On" : "Off");
+    y += ROW;
+    y += 6;
+    label(x, y, "Everything here is saved to config.cfg when the game closes.", DIM);
+    for (size_t i = 0; i < sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]; i++) {
+        if (strcmp(ui->m->color_picker, CURSOR_COLOURS[i][1]) == 0) {
+            color_picker(ui, CURSOR_COLOURS[i][1], x, cursor_colors_y + (float)i * ROW - 3, true);
+            break;
+        }
+    }
+}
+
+// What is drawn of the world: the map's scenery, its weather, the bullets' trails, and
+// the sky, the map's colours or two of the player's own.
+static void page_graphics(Ui *ui)
+{
+    float x = PAGE_X, y = 100;
+    Console *con = ui->con;
+    label(x, y, "Scenery", DIM);
+    cycler(ui, x + 145, y - 3, "r_scenery", 0, 1, cvar_int(con, "r_scenery", 0, 1) ? "On" : "Off");
+    y += ROW;
+    label(x, y, "Weather", DIM);
+    cycler(ui, x + 145, y - 3, "r_weathereffects", 0, 1, cvar_int(con, "r_weathereffects", 0, 1) ? "On" : "Off");
+    y += ROW;
+    label(x, y, "Bullet trails", DIM);
+    cycler(ui, x + 145, y - 3, "r_trails", 0, 1, cvar_int(con, "r_trails", 0, 1) ? "On" : "Off");
     y += ROW;
     label(x, y, "Map sky", DIM);
-    cycler(ui, x + 110, y - 3, "r_forcebg", 0, 1, cvar_int(con, "r_forcebg", 0, 1) ? "My colours" : "The map's");
+    cycler(ui, x + 145, y - 3, "r_forcebg", 0, 1, cvar_int(con, "r_forcebg", 0, 1) ? "My colours" : "The map's");
     y += ROW;
     if (cvar_int(con, "r_forcebg", 0, 1)) { // the two colours, top and bottom, as the look's are edited
         static const char *const SKY[][2] = {{"Sky top", "r_forcebg_color1"}, {"Sky bottom", "r_forcebg_color2"}};
         for (size_t i = 0; i < sizeof SKY / sizeof SKY[0]; i++) {
             label(x, y, SKY[i][0], DIM);
-            field(ui, x + 110, y - 3, 90, SKY[i][1], 6);
+            field(ui, x + 145, y - 3, 90, SKY[i][1], 6);
             Rgba c = cvar_color(con, SKY[i][1]);
             c.a = 255;
-            rect(x + 210, y - 3, x + 210 + ROW - 4, y - 3 + ROW - 4, c);
+            rect(x + 245, y - 3, x + 245 + ROW - 4, y - 3 + ROW - 4, c);
             y += ROW;
         }
     }
@@ -1053,8 +1123,8 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
 
     // the home column
     float y = 120;
-    static const char *const PAGES[] = {"Servers", "Join by Address", "Local Play", "Player", "Controls", "Options"};
-    for (int i = 0; i < 6; i++) {
+    static const char *const PAGES[] = {"Servers", "Join by Address", "Local Play", "Player", "Controls", "Options", "Graphics"};
+    for (int i = 0; i < 7; i++) {
         bool selected = m->page == (MainPage)(MAIN_SERVERS + i);
         if (button(&ui, LEFT, y, 200, PAGES[i], selected)) {
             m->page = (MainPage)(MAIN_SERVERS + i);
@@ -1079,6 +1149,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     case MAIN_PLAYER: page_player(&ui, gostek, anims, weapons); break;
     case MAIN_CONTROLS: page_controls(&ui); break;
     case MAIN_OPTIONS: page_options(&ui); break;
+    case MAIN_GRAPHICS: page_graphics(&ui); break;
     default:
         label(PAGE_X, 120, "Find a server to join (Servers), or play here against bots (Local Play). Escape returns here from the game.", DIM);
         break;
@@ -1087,7 +1158,8 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     m->wheel = 0;
 
     text_shadow(0, 0, (Rgba){0});
-    interface_draw_pointer(hud, cursor);
+    interface_draw_pointer(hud, cursor, cvar_color(con, "cl_cursor_color"),
+                           clampi(cvar_int(con, "cl_cursor_size", 50, 200), 50, 200) / 100.0f);
 }
 
 bool mainmenu_take_command(MainMenu *m, char *out, size_t size)
