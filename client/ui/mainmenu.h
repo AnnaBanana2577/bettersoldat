@@ -47,8 +47,9 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e);
 // `pixel` is one window pixel in units). `cursor` is the input's, in those units.
 // `status` is a line for the join and local pages (the console's last), `joined` whether
 // a server has us, `hosting` whether it is our own, `maps` the maps under assets for the
-// rotation, `weapons` names the loadout, and the gostek and anims draw the preview.
-void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Anims *anims,
+// rotation, `weapons` names the loadout, and the gosteks (one per style) and anims draw
+// the preview.
+void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gosteks, const Anims *anims,
                    const Weapons *weapons, Vec2 cursor, float game_width, float pixel, double time, const char *status,
                    bool joined, bool hosting, const char (*maps)[64], int map_count);
 

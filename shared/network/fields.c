@@ -87,9 +87,10 @@ const NetField SOLDIER_SERVED_FIELDS[] = {
     NETFIELD(Soldier, typing, NET_BOOL, 0),
     NETFIELD(Soldier, ping, NET_U, 16),
     NETFIELD(Soldier, bot, NET_BOOL, 0),
-    NETFIELD_ENUM(Soldier, look.hair_style, 4),
-    NETFIELD_ENUM(Soldier, look.head_style, 2),
+    NETFIELD_ENUM(Soldier, look.hair_style, 6),
+    NETFIELD_ENUM(Soldier, look.head_style, 3),
     NETFIELD_ENUM(Soldier, look.chain_style, 2),
+    NETFIELD_ENUM(Soldier, look.style, GOSTEK_STYLE_COUNT - 1),
 };
 const int SOLDIER_SERVED_COUNT = sizeof SOLDIER_SERVED_FIELDS / sizeof SOLDIER_SERVED_FIELDS[0];
 
@@ -99,9 +100,10 @@ const NetField PLAYER_LOOK_FIELDS[] = {
     NETFIELD(PlayerLook, skin, NET_RGBA, 0),
     NETFIELD(PlayerLook, hair, NET_RGBA, 0),
     NETFIELD(PlayerLook, jet, NET_RGBA, 0),
-    NETFIELD_ENUM(PlayerLook, hair_style, 4),
-    NETFIELD_ENUM(PlayerLook, head_style, 2),
+    NETFIELD_ENUM(PlayerLook, hair_style, 6),
+    NETFIELD_ENUM(PlayerLook, head_style, 3),
     NETFIELD_ENUM(PlayerLook, chain_style, 2),
+    NETFIELD_ENUM(PlayerLook, style, GOSTEK_STYLE_COUNT - 1),
 };
 const int PLAYER_LOOK_COUNT = sizeof PLAYER_LOOK_FIELDS / sizeof PLAYER_LOOK_FIELDS[0];
 

@@ -21,7 +21,7 @@ typedef struct RenderOptions {
 } RenderOptions;
 
 typedef struct Render {
-    Gostek gostek;
+    Gostek gosteks[GOSTEK_STYLE_COUNT]; // one per GostekStyle, loaded from its folder under gostek-gfx
     BulletArt bullet_art;
     ThingsArt things_art;
     Sparks sparks;

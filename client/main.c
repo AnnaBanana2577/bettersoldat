@@ -100,6 +100,7 @@ typedef struct App {
     Cvar *player_name;
     Cvar *shirt, *pants, *skin, *hair, *jet;      // the look's colours, "RRGGBB"
     Cvar *hair_style, *head_style, *chain_style;  // and its styles, by number
+    Cvar *style;                                  // the gostek: 0 male, 1 female, 2 waifu, 3 rat
     Cvar *primary, *secondary;                    // the loadout at the next spawn
     Cvar *smooth;                                 // milliseconds a correction of another player is smoothed over
     Cvar *interp;                                 // ticks the view keeps behind the newest snapshot, at least (cl_interp)
@@ -760,9 +761,11 @@ static bool console_open(App *app, int argc, char *argv[])
     app->hair = cvar_register(con, "cl_player_hair", "000000", CVAR_ARCHIVE, "the hair's colour, RRGGBB");
     app->jet = cvar_register(con, "cl_player_jet", "00008B", CVAR_ARCHIVE, "the jet flame's colour, RRGGBB");
     app->hair_style = cvar_register(con, "cl_player_hairstyle", "0", CVAR_ARCHIVE,
-                                    "0 army, 1 dreadlocks, 2 punk, 3 Mr. T, 4 normal");
-    app->head_style = cvar_register(con, "cl_player_headstyle", "0", CVAR_ARCHIVE, "0 none, 1 helmet, 2 hat");
+                                    "0 army, 1-4 the male's (dreadlocks, punk, Mr. T, normal), 5-6 the waifu's (fringe, bob); the rat and the furry wear only army, punk and Mr. T");
+    app->head_style = cvar_register(con, "cl_player_headstyle", "0", CVAR_ARCHIVE,
+                                    "0 none, 1-2 the male's (helmet, hat), 3 the waifu's; the rat and the furry wear none");
     app->chain_style = cvar_register(con, "cl_player_chainstyle", "0", CVAR_ARCHIVE, "0 none, 1 dog tags, 2 gold chain");
+    app->style = cvar_register(con, "cl_player_style", "0", CVAR_ARCHIVE, "the gostek: 0 male, 1 female, 2 waifu, 3 rat, 4 furry");
     app->primary = cvar_register(con, "cl_player_wep", "1", CVAR_ARCHIVE, "the primary at the next spawn, 1 to 10");
     app->secondary = cvar_register(con, "cl_player_secwep", "1", CVAR_ARCHIVE, "0 USSOCOM, 1 knife, 2 chainsaw, 3 LAW");
     app->smooth = cvar_register(con, "cl_smooth", "100", CVAR_ARCHIVE,
@@ -860,9 +863,10 @@ static PlayerLook look_from_cvars(const App *app)
         .skin = cvar_color(app->skin),
         .hair = cvar_color(app->hair),
         .jet = cvar_color(app->jet),
-        .hair_style = (uint8_t)clampi(app->hair_style->integer, 0, 4),
-        .head_style = (uint8_t)clampi(app->head_style->integer, 0, 2),
+        .hair_style = (uint8_t)clampi(app->hair_style->integer, 0, 6),
+        .head_style = (uint8_t)clampi(app->head_style->integer, 0, 3),
         .chain_style = (uint8_t)clampi(app->chain_style->integer, 0, 2),
+        .style = (uint8_t)clampi(app->style->integer, 0, GOSTEK_STYLE_COUNT - 1),
     };
     return look;
 }
@@ -1601,9 +1605,9 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    scale_data_load(&app.scales, app.assets->value); // the scales the interface loads with
     render_init(&app.render, app.assets->value, &app.game->ctx);
     audio_init(&app.audio, app.assets->value);
-    scale_data_load(&app.scales, app.assets->value);
     interface_load(&app.hud, app.assets->value, &app.scales);
     interface_open(&app);
     if (app.hud_demo->integer == 2) menus_show(&app.menus, MENU_LIMBO, true, HUD_MODE_CTF, 1);
@@ -1722,7 +1726,7 @@ int main(int argc, char *argv[])
             } else { // the menu on its own background: the game is not watched from here
                 gfx_clear((Rgba){0, 0, 0, 255});
                 Rect r = app.camera.viewport;
-                mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, app.game->ctx.anims, &app.game->ctx.weapons,
+                mainmenu_draw(&app.mainmenu, app.console, &app.hud, app.render.gosteks, app.game->ctx.anims, &app.game->ctx.weapons,
                               app.input.cursor, GAME_HEIGHT * r.width / r.height, GAME_HEIGHT / r.height, app.time,
                               console_log_line(app.console, 0), client_net_joined(&app.net), app.host != NULL, app.maps, app.map_count);
                 char command[256];
