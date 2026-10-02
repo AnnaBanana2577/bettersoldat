@@ -59,11 +59,11 @@ static void label(float x, float y, const char *text, Rgba color)
     text_draw(text, x, y);
 }
 
-// A button the width of its box; true when clicked.
-static bool button(Ui *ui, float x, float y, float w, const char *caption)
+// A button the width of its box; true when clicked. Active buttons stay highlighted.
+static bool button(Ui *ui, float x, float y, float w, const char *caption, bool selected)
 {
     bool hot = over(ui, x, y, w, BUTTON_H);
-    rect(x, y, x + w, y + BUTTON_H, hot ? (Rgba){255, 255, 255, 60} : (Rgba){0, 0, 0, 70});
+    rect(x, y, x + w, y + BUTTON_H, selected ? (Rgba){90, 140, 255, 90} : hot ? (Rgba){255, 255, 255, 60} : (Rgba){0, 0, 0, 70});
     text_style(FONT_MENU);
     text_color(TEXT);
     text_draw(caption, x + 10 + (hot ? 1 : 0), y + BUTTON_H / 2 - text_height(caption) / 2 - (hot ? 1 : 0));
@@ -195,11 +195,11 @@ static void page_join(Ui *ui, const char *status, bool joined)
     field(ui, x, y + 68, 260, "cl_password", 31); // NET_PASSWORD_SIZE - 1
     y += 110;
     if (!joined) {
-        if (button(ui, x, y, 120, "Connect")) {
+        if (button(ui, x, y, 120, "Connect", false)) {
             const Cvar *cv = cvar_find(ui->con, "cl_server");
             snprintf(ui->m->command, sizeof ui->m->command, "connect %s", cv && cv->value[0] ? cv->value : "127.0.0.1");
         }
-    } else if (button(ui, x, y, 120, "Disconnect")) {
+    } else if (button(ui, x, y, 120, "Disconnect", false)) {
         snprintf(ui->m->command, sizeof ui->m->command, "disconnect");
     }
     if (status && status[0]) label(x, y + 40, status, DIM);
@@ -321,10 +321,10 @@ static void page_servers(Ui *ui, const Browser *b)
     }
     y += h + 8;
 
-    if (button(ui, x, y, 100, "Join")) {
+    if (button(ui, x, y, 100, "Join", false)) {
         if (selected && selected->info.protocol == NET_VERSION) join_server(ui, selected);
     }
-    if (button(ui, x + 110, y, 100, "Refresh")) snprintf(m->command, sizeof m->command, "browse");
+    if (button(ui, x + 110, y, 100, "Refresh", false)) snprintf(m->command, sizeof m->command, "browse");
     y += BUTTON_H + 8;
 
     char status[192];
@@ -472,8 +472,8 @@ static void page_local(Ui *ui, const char *status, bool hosting, const char (*ma
     y += ROW + 10;
 
     if (!hosting) {
-        if (button(ui, x, y, 120, "Play")) snprintf(ui->m->command, sizeof ui->m->command, "host");
-    } else if (button(ui, x, y, 120, "Stop")) {
+        if (button(ui, x, y, 120, "Play", false)) snprintf(ui->m->command, sizeof ui->m->command, "host");
+    } else if (button(ui, x, y, 120, "Stop", false)) {
         snprintf(ui->m->command, sizeof ui->m->command, "disconnect");
     }
     if (status && status[0]) label(x, y + 36, status, DIM);
@@ -1055,7 +1055,8 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     float y = 120;
     static const char *const PAGES[] = {"Servers", "Join by Address", "Local Play", "Player", "Controls", "Options"};
     for (int i = 0; i < 6; i++) {
-        if (button(&ui, LEFT, y, 200, PAGES[i])) {
+        bool selected = m->page == (MainPage)(MAIN_SERVERS + i);
+        if (button(&ui, LEFT, y, 200, PAGES[i], selected)) {
             m->page = (MainPage)(MAIN_SERVERS + i);
             if (m->page == MAIN_SERVERS) snprintf(m->command, sizeof m->command, "browse"); // the list as it is now
             m->color_picker[0] = '\0';
@@ -1066,10 +1067,10 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     }
     y += 10;
     if (joined) {
-        if (button(&ui, LEFT, y, 200, "Resume")) mainmenu_show(m, false);
+        if (button(&ui, LEFT, y, 200, "Resume", false)) mainmenu_show(m, false);
         y += BUTTON_H + 6;
     }
-    if (button(&ui, LEFT, y, 200, "Quit")) snprintf(m->command, sizeof m->command, "quit");
+    if (button(&ui, LEFT, y, 200, "Quit", false)) snprintf(m->command, sizeof m->command, "quit");
 
     switch (m->page) {
     case MAIN_SERVERS: page_servers(&ui, browser); break;
