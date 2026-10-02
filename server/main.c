@@ -6,6 +6,7 @@
 //   console  the cvars and the commands (shared/console): config.cfg, then the
 //            command line over it
 //   host     the world, the line, the players, the bots and the rounds (host.c)
+//   lobby    the heartbeat that lists it with the lobby, while sv_public is on (lobby.c)
 //
 // It runs from the directory that holds config.cfg and assets/, as the client does.
 //
@@ -20,6 +21,8 @@
 #include "console/console.h"
 #include "game/game.h"
 #include "host.h"
+#include "http.h"
+#include "lobby.h"
 #include "script.h"
 #include "stdin_reader.h"
 
@@ -30,6 +33,9 @@
 #include <windows.h>
 #endif
 
+#ifndef SOLDATRELOADED_VERSION
+#define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
+#endif
 #define CONFIG "config.cfg"
 #define SLEEP_MS 1 // between passes of the loop, so it never spins flat out
 
@@ -49,8 +55,10 @@ typedef struct Server {
     Cvar *script_path; // sv_script
     Cvar *rope; // sv_rope: the rope allowed; off, everyone's boots are jets
     Cvar *rope_debug; // sv_rope_debug: each soldier's rope each half second, and changes at once
+    Cvar *public, *lobby_url, *lobby_ip; // sv_public, sv_lobby, sv_lobby_ip
     Host host;
     Script script;
+    Lobby lobby;
     bool quit;
 } Server;
 
@@ -225,6 +233,9 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->rope = cvar_register(con, "sv_rope", "1", 0, "whether the rope is allowed; 0 gives everyone jets");
     sv->rope_debug = cvar_register(con, "sv_rope_debug", "0", 0,
                                    "log each soldier's rope each half second and changes at once, with the states dropped");
+    sv->public = cvar_register(con, "sv_public", "0", 0, "1: listed with the lobby, for the game's server browser. Read live");
+    sv->lobby_url = cvar_register(con, "sv_lobby", QUERY_LOBBY_URL, 0, "the lobby the server lists itself with");
+    sv->lobby_ip = cvar_register(con, "sv_lobby_ip", "", 0, "the IPv4 address the lobby lists; empty for the one the server reaches it from");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
     console_add_command(con, "say", cmd_say, sv, "say something to everyone, as the server");
@@ -285,6 +296,9 @@ int main(int argc, char *argv[])
     }
     script_start(&sv);
     sv.host.rope_debug = sv.rope_debug; // the host logs it, sv_rope_debug
+    http_init();
+    http_set_agent("soldatreloaded-server/" SOLDATRELOADED_VERSION);
+    lobby_init(&sv.lobby, sv.console);
     if (!stdin_reader_start()) fprintf(stderr, "the console won't read its input\n");
     signal(SIGINT, on_interrupt);
     signal(SIGTERM, on_interrupt);
@@ -302,10 +316,15 @@ int main(int argc, char *argv[])
         if (!host_pump(&sv.host, dt)) sv.quit = true;
         script_pump(&sv.script); // the answers to its requests
         cvar_set(sv.console, "map", host_map(&sv.host));
+        LobbySettings lobby = {.public = sv.public->integer != 0, .url = sv.lobby_url->value, .address = sv.lobby_ip->value,
+                               .port = sv.host.settings.port};
+        lobby_pump(&sv.lobby, &lobby, t);
         sleep_ms(SLEEP_MS);
     }
 
     console_print(sv.console, "stopping\n");
+    lobby_close(&sv.lobby);
+    http_cleanup();
     script_close(&sv.script); // before the host it listens to
     host_close(&sv.host);
     net_shutdown();

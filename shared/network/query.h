@@ -25,6 +25,10 @@
 
 #include "network/network.h"
 
+// The lobby that lists the servers (the soldatreloaded-lobby repository): where a server
+// says it is up (sv_lobby) and where the browser asks for the list (cl_lobby).
+#define QUERY_LOBBY_URL "https://soldatreloaded-lobby.fly.dev"
+
 #define QUERY_REQUEST_SIZE 128
 #define QUERY_REPLY_MAX (12 + 2 + 5 + 1 + (NET_NAME_SIZE - 1) + 1 + (NET_MAP_SIZE - 1))
 #define QUERY_FLAG_PASSWORD 1
@@ -55,3 +59,13 @@ bool query_read_request(const uint8_t *data, size_t size, uint32_t *nonce);
 size_t query_write_reply(uint8_t *out, size_t size, uint32_t nonce, const ServerInfo *info);
 // A reply to the request with `nonce`, whole and nothing after: true, with what it says.
 bool query_read_reply(const uint8_t *data, size_t size, uint32_t nonce, ServerInfo *info);
+
+// A server on the lobby's list.
+typedef struct QueryAddress {
+    char ip[16]; // dotted IPv4
+    uint16_t port;
+} QueryAddress;
+
+// The lobby's list as its servers.txt gives it, "1.2.3.4:23073" a line, into `out`: how
+// many, at most `max`. A line that isn't an IPv4 address and a port is passed over.
+int query_parse_list(const char *text, QueryAddress *out, int max);

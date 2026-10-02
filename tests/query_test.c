@@ -114,9 +114,26 @@ static void a_host_answers(void)
     host_close(&host);
 }
 
+// The lobby's servers.txt, as the browser reads it.
+static void the_list(void)
+{
+    QueryAddress list[4];
+    int n = query_parse_list("203.0.113.5:23073\n198.51.100.7:1\r\n", list, 4);
+    CHECK(n == 2 && strcmp(list[0].ip, "203.0.113.5") == 0 && list[0].port == 23073 && strcmp(list[1].ip, "198.51.100.7") == 0 &&
+              list[1].port == 1,
+          "a list of two, either line ending (%d)", n);
+    n = query_parse_list("\n# a comment\n1.2.3.4\n1.2.3.4:\n1.2.3.4:0\n1.2.3.4:65536\n256.1.1.1:5\n[::1]:5\nx:5\n9.9.9.9:7 \n"
+                         "8.8.8.8:8",
+                         list, 4);
+    CHECK(n == 1 && strcmp(list[0].ip, "8.8.8.8") == 0 && list[0].port == 8, "only the good line, unterminated (%d)", n);
+    CHECK(query_parse_list("1.1.1.1:1\n2.2.2.2:2\n3.3.3.3:3\n", list, 2) == 2, "no more than there is room for");
+    CHECK(query_parse_list(NULL, list, 4) == 0 && query_parse_list("", list, 4) == 0, "nothing is no servers");
+}
+
 void query_tests(void)
 {
     bytes_both_ways();
+    the_list();
     CHECK(net_init(), "ENet starts");
     a_host_answers();
     net_shutdown();
