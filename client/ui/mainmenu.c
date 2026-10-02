@@ -945,11 +945,33 @@ static void page_options(Ui *ui)
         text_draw(shown, x + 230 - text_width(shown) / 2, y);
     }
     y += ROW;
+    label(x, y, "Follow scoped shot", DIM);
+    cycler(ui, x + 145, y - 3, "cl_trackshot", 0, 1, cvar_int(con, "cl_trackshot", 0, 1) ? "On" : "Off");
+    y += ROW;
+    y += 6;
+    label(x, y, "Everything here is saved to config.cfg when the game closes.", DIM);
+    for (size_t i = 0; i < sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]; i++) {
+        if (strcmp(ui->m->color_picker, CURSOR_COLOURS[i][1]) == 0) {
+            color_picker(ui, CURSOR_COLOURS[i][1], x, cursor_colors_y + (float)i * ROW - 3, true);
+            break;
+        }
+    }
+}
+
+// What is drawn of the world: the map's scenery, its weather, the bullets' trails, and
+// the sky, the map's colours or two of the player's own.
+static void page_graphics(Ui *ui)
+{
+    float x = PAGE_X, y = 100;
+    Console *con = ui->con;
     label(x, y, "Scenery", DIM);
     cycler(ui, x + 145, y - 3, "r_scenery", 0, 1, cvar_int(con, "r_scenery", 0, 1) ? "On" : "Off");
     y += ROW;
-    label(x, y, "Follow scoped shot", DIM);
-    cycler(ui, x + 145, y - 3, "cl_trackshot", 0, 1, cvar_int(con, "cl_trackshot", 0, 1) ? "On" : "Off");
+    label(x, y, "Weather", DIM);
+    cycler(ui, x + 145, y - 3, "r_weathereffects", 0, 1, cvar_int(con, "r_weathereffects", 0, 1) ? "On" : "Off");
+    y += ROW;
+    label(x, y, "Bullet trails", DIM);
+    cycler(ui, x + 145, y - 3, "r_trails", 0, 1, cvar_int(con, "r_trails", 0, 1) ? "On" : "Off");
     y += ROW;
     label(x, y, "Map sky", DIM);
     cycler(ui, x + 145, y - 3, "r_forcebg", 0, 1, cvar_int(con, "r_forcebg", 0, 1) ? "My colours" : "The map's");
@@ -967,12 +989,6 @@ static void page_options(Ui *ui)
     }
     y += 6;
     label(x, y, "Everything here is saved to config.cfg when the game closes.", DIM);
-    for (size_t i = 0; i < sizeof CURSOR_COLOURS / sizeof CURSOR_COLOURS[0]; i++) {
-        if (strcmp(ui->m->color_picker, CURSOR_COLOURS[i][1]) == 0) {
-            color_picker(ui, CURSOR_COLOURS[i][1], x, cursor_colors_y + (float)i * ROW - 3, true);
-            break;
-        }
-    }
 }
 
 // --- the menu -----------------------------------------------------------------------
@@ -1107,8 +1123,8 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
 
     // the home column
     float y = 120;
-    static const char *const PAGES[] = {"Servers", "Join by Address", "Local Play", "Player", "Controls", "Options"};
-    for (int i = 0; i < 6; i++) {
+    static const char *const PAGES[] = {"Servers", "Join by Address", "Local Play", "Player", "Controls", "Options", "Graphics"};
+    for (int i = 0; i < 7; i++) {
         if (button(&ui, LEFT, y, 200, PAGES[i])) {
             m->page = (MainPage)(MAIN_SERVERS + i);
             if (m->page == MAIN_SERVERS) snprintf(m->command, sizeof m->command, "browse"); // the list as it is now
@@ -1132,6 +1148,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     case MAIN_PLAYER: page_player(&ui, gostek, anims, weapons); break;
     case MAIN_CONTROLS: page_controls(&ui); break;
     case MAIN_OPTIONS: page_options(&ui); break;
+    case MAIN_GRAPHICS: page_graphics(&ui); break;
     default:
         label(PAGE_X, 120, "Find a server to join (Servers), or play here against bots (Local Play). Escape returns here from the game.", DIM);
         break;

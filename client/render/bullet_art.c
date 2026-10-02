@@ -92,7 +92,7 @@ static void draw_grenade(Sprite sprite, Vec2 at, Vec2 scale, float angle, Rgba c
     else draw_sprite(sprite, at, vec2(0, 0), scale, angle, RGBA_WHITE);
 }
 
-static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, Rgba grenade_color, double seconds)
+static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, Rgba grenade_color, bool trails, double seconds)
 {
     Vec2 pos = vec2_add(bullet->old_pos, vec2_scale(vec2_sub(bullet->pos, bullet->old_pos), alpha));
     float timeout = (float)bullet->timeout + 1.0f - alpha; // TimeOutReal
@@ -111,7 +111,7 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, R
 
     switch (bullet->style) {
     case BULLET_FRAG_GRENADE:
-        if (timeout < GRENADE_TIMEOUT - 3) {
+        if (trails && timeout < GRENADE_TIMEOUT - 3) {
             draw_streak(streak, vec2_sub(vec2_add(pos, off), vec2(0, 3)), vec2(speed / 3, 1), heading, (Rgba){100, 255, 100, 82});
         }
         draw_grenade(b->shared[BULLET_ART_FRAG_GRENADE], vec2_sub(pos, vec2(1, 4)), vec2(1, 1), 0, grenade_color);
@@ -127,32 +127,32 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, R
     case BULLET_M79:
         if (timeout >= BULLET_TIMEOUT - 2) break;
         draw_one(own, vec2_add(pos, vec2(0, 1)), vec2(1, 1), spin, (Rgba){255, 255, 255, 252}); // only the M79 round tumbles
-        if (timeout < BULLET_TIMEOUT - 4) {
+        if (trails && timeout < BULLET_TIMEOUT - 4) {
             draw_streak(streak, vec2_add(pos, off), vec2(speed / 4, 1.3f), heading, (Rgba){255, 255, 85, BULLET_ALPHA});
         }
         break;
     case BULLET_LAW:
         if (timeout >= BULLET_TIMEOUT - 2) break;
         draw_streak(b->shared[BULLET_ART_MISSILE], vec2_add(pos, vel), vec2(1, 1), heading, RGBA_WHITE);
-        if (timeout < BULLET_TIMEOUT - 7) draw_streak(streak, pos, vec2(speed / 3, 1), heading, (Rgba){255, 255, 255, BULLET_ALPHA / 5});
+        if (trails && timeout < BULLET_TIMEOUT - 7) draw_streak(streak, pos, vec2(speed / 3, 1), heading, (Rgba){255, 255, 255, BULLET_ALPHA / 5});
         break;
     case BULLET_ARROW:
     case BULLET_FLAME_ARROW:
         if (timeout >= BULLET_TIMEOUT - 2) break;
         draw_streak(b->shared[BULLET_ART_ARROW], vec2_add(pos, vel), vec2(1, 1), heading, RGBA_WHITE);
-        if (bullet->style == BULLET_ARROW && timeout > ARROW_RESIST) {
+        if (trails && bullet->style == BULLET_ARROW && timeout > ARROW_RESIST) {
             draw_streak(streak, pos, vec2(speed / 3, 1), heading, (Rgba){255, 255, 255, BULLET_ALPHA / 7});
         }
         break;
     case BULLET_SHOTGUN:
         if (timeout >= BULLET_TIMEOUT - 2) break;
         draw_streak(own, vec2_add(pos, vel), vec2(1, 1), heading, (Rgba){255, 255, 255, 150});
-        if (timeout < BULLET_TIMEOUT - 3) draw_streak(streak, pos, vec2(speed / 9, 1), heading, (Rgba){255, 255, 255, BULLET_ALPHA / 5});
+        if (trails && timeout < BULLET_TIMEOUT - 3) draw_streak(streak, pos, vec2(speed / 9, 1), heading, (Rgba){255, 255, 255, BULLET_ALPHA / 5});
         break;
     case BULLET_M2:
         if (timeout >= M2BULLET_TIMEOUT - 2) break;
         draw_streak(streak, vec2_add(pos, vel), vec2(speed / BULLET_TRAIL, 1.2f), heading, (Rgba){255, 191, 120, BULLET_ALPHA * 2});
-        if (timeout < M2BULLET_TIMEOUT - 13) {
+        if (trails && timeout < M2BULLET_TIMEOUT - 13) {
             draw_streak(streak, pos, vec2(speed / 3, 1), heading, (Rgba){255, 255, 255, BULLET_ALPHA / 5});
             draw_streak(b->shared[BULLET_ART_SMUDGE], pos, vec2(speed / (sinus + 2.5f), sinus), heading,
                         (Rgba){255, 255, 255, BULLET_ALPHA / 6});
@@ -188,7 +188,7 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, R
             draw_streak(own, vec2_add(pos, vel), vec2(length, 1), heading, (Rgba){255, 255, 255, (uint8_t)roundf(faint)});
         }
         // the trail is the weapon's own art at half alpha; a round that hit someone trails pink
-        if (timeout < BULLET_TIMEOUT - 7) {
+        if (trails && timeout < BULLET_TIMEOUT - 7) {
             if (bullet->hit_body >= 0) draw_streak(own, pos, vec2(speed / 4, 1), heading, (Rgba){255, 222, 222, half});
             else draw_streak(own, pos, vec2(speed / 3.5f, 1), heading, (Rgba){255, 255, 255, half});
         }
@@ -197,10 +197,10 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, R
     }
 }
 
-void bullets_draw(const BulletArt *b, const Bullet *bullets, float alpha, Rgba grenade_color, double seconds)
+void bullets_draw(const BulletArt *b, const Bullet *bullets, float alpha, Rgba grenade_color, bool trails, double seconds)
 {
     if (!b->loaded) return;
     // a shot run forward is drawn on while its trail lasts, gone or not (GameRendering.pas)
     for (int i = 0; i < MAX_BULLETS; i++)
-        if (bullets[i].active || bullets[i].ping_add > 0) bullet_draw(b, &bullets[i], alpha, grenade_color, seconds);
+        if (bullets[i].active || bullets[i].ping_add > 0) bullet_draw(b, &bullets[i], alpha, grenade_color, trails, seconds);
 }

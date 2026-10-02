@@ -36,7 +36,8 @@ static const char *const ART_FILES[SPARK_ART_COUNT] = {
     [SPARK_ART_BIG_SMOKE] = "bigsmoke.png",  [SPARK_ART_CHIP] = "odprysk.png",       [SPARK_ART_LIL_BLOOD] = "lilblood.png",
     [SPARK_ART_BLOOD] = "blood.png",         [SPARK_ART_SPAWN_SPARK] = "spawnspark.png", [SPARK_ART_JET_FIRE] = "jetfire.png",
     [SPARK_ART_FLAME] = "plomyk.png",        [SPARK_ART_BLACK_SMOKE] = "blacksmoke.png", [SPARK_ART_STUFF] = "stuff.png",
-    [SPARK_ART_CIGAR] = "cygaro.png",
+    [SPARK_ART_CIGAR] = "cygaro.png",        [SPARK_ART_RAIN] = "rain.png",      [SPARK_ART_SAND] = "sand.png",
+    [SPARK_ART_SNOW] = "snow.png",
 };
 
 // The casings, by the weapon that ejects one; the rest eject none. The shotgun's and
@@ -71,7 +72,10 @@ static bool moves(SparkStyle style)
     case SPARK_SPIT:
     case SPARK_MATCH:
     case SPARK_CIGAR:
-    case SPARK_PISS: return true;
+    case SPARK_PISS:
+    case SPARK_RAIN: // the weather falls by its own weight and the air, through everything
+    case SPARK_SAND:
+    case SPARK_SNOW: return true;
     default: return false; // the flames and their smoke hang where they were lit
     }
 }
@@ -495,6 +499,36 @@ void sparks_tick(Sparks *s, const Context *ctx, const World *w, const Events *ev
     }
 }
 
+// The weather, as WeatherEffects.pas makes it. The original's r_maxsparks at its default
+// (557) is past MAX_SPARKS - 10, so every seventeenth tick it makes eight, each its
+// spacing on from the last along the view's top, a little up or down.
+void sparks_weather(Sparks *s, uint8_t weather, Vec2 camera, Vec2 view, uint32_t tick)
+{
+    if (!s->loaded || weather < 1 || weather > 3 || tick % 17 != 0) return;
+    Vec2 half = vec2_scale(view, 0.5f);
+    SparkStyle style;
+    Vec2 vel;
+    float x, top, life;
+    switch (weather) {
+    case 1: // MakeRain
+        style = SPARK_RAIN, vel = vec2(0, 12), x = camera.x - half.x - 128, top = camera.y - half.y - 128 - 60, life = 60;
+        break;
+    case 2: // MakeSandStorm: blown in from the left
+        style = SPARK_SAND, vel = vec2(10, 7), x = camera.x - half.x - 1.5f * 512, top = camera.y - half.y - 256 - 60, life = 80;
+        break;
+    default: // MakeSnow
+        style = SPARK_SNOW, vel = vec2(1, 2), x = camera.x - half.x - 256, top = camera.y - half.y - 60, life = 80;
+        break;
+    }
+    for (int i = 0; i < 8; i++) {
+        x += 128 - 50 + (float)rand_n(s, 90);
+        float y = top + (float)rand_n(s, 150);
+        // CreateSpark makes none outside a view of whom the camera follows, but rain
+        bool seen = fabsf(x - camera.x) < view.x && fabsf(y - camera.y) < view.y;
+        if (style == SPARK_RAIN || seen) add(s, vec2(x, y), vel, style, life);
+    }
+}
+
 // ---- drawing ----
 
 static void draw_spark(Sprite sprite, Vec2 at, float scale, float angle, float alpha, Rgba tint)
@@ -521,6 +555,10 @@ void sparks_draw(const Sparks *s, float between)
         Vec2 p = vec2_add(spark->old_pos, vec2_scale(vec2_sub(spark->pos, spark->old_pos), between));
         switch (spark->style) {
         case SPARK_NONE: break;
+        // the weather: as it is, at a steady 105 (Sparks.pas, styles 38, 39 and 53)
+        case SPARK_RAIN: draw_spark(s->art[SPARK_ART_RAIN], p, 1, 0, 105, white); break;
+        case SPARK_SAND: draw_spark(s->art[SPARK_ART_SAND], p, 1, 0, 105, white); break;
+        case SPARK_SNOW: draw_spark(s->art[SPARK_ART_SNOW], p, 1, 0, 105, white); break;
         case SPARK_SMOKE: draw_spark(s->art[SPARK_ART_SMOKE], p, 1, 0, l + 10, white); break;
         case SPARK_LIL_SMOKE: draw_spark(s->art[SPARK_ART_LIL_SMOKE], p, 1, 0, l * 3, white); break;
         case SPARK_CHIP: draw_spark(s->art[SPARK_ART_CHIP], p, 1, 0, l * 3 + 10, white); break;

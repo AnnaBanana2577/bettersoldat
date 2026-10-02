@@ -2,8 +2,9 @@
 
 // The main menu: joining a server, a game hosted here (Local Play: the mode, the limits,
 // the bots, the maps in rotation), the player's name and look with the gostek shown as
-// it will be, the keys, and the options. The original had none of this in the game (its
-// launcher did it); this one is drawn in the HUD's units over whatever is behind it.
+// it will be, the keys, the options, and what is drawn of the world (Graphics). OpenSoldat
+// has none of this in the game (its launcher does it); this one is drawn in the HUD's
+// units over whatever is behind it.
 //
 // Everything it changes is a cvar or a bind of the console, so the config keeps it, and
 // everything it asks of the game is a console command (connect, disconnect, host, quit)
@@ -19,7 +20,7 @@
 #include "render/gostek.h"
 #include "render/interface.h"
 
-typedef enum MainPage { MAIN_HOME, MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_PLAYER, MAIN_CONTROLS, MAIN_OPTIONS } MainPage;
+typedef enum MainPage { MAIN_HOME, MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_PLAYER, MAIN_CONTROLS, MAIN_OPTIONS, MAIN_GRAPHICS } MainPage;
 
 #define MAINMENU_EDIT 128
 

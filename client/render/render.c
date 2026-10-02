@@ -174,7 +174,7 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
     map_draw_background(v, camera);
     map_draw_background_polys(v);
     if (options.scenery) map_draw_scenery(v, 0);
-    bullets_draw(&r->bullet_art, state->bullets, state->alpha, grenade_color, seconds);
+    bullets_draw(&r->bullet_art, state->bullets, state->alpha, grenade_color, options.trails, seconds);
     draw_ropes(r, state);
     draw_soldiers(r, state, grenade_color);
     things_draw(&r->things_art, THINGS_SPRITES, state->things, state->soldiers, state->alpha, seconds);

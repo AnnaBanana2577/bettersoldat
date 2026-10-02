@@ -709,6 +709,6 @@ void audio_tick(Audio *a, const Game *g, int me, int followed, Vec2 camera, cons
     // the weather (WeatherEffects.pas): the wind, the one loop the original gives rain,
     // sandstorm and snow alike, from the camera, kept up by being played every tick
     uint8_t weather = g->ctx.map->weather;
-    if (weather >= 1 && weather <= 3) reserved_play(a, &a->weather, "sfx_wind.wav", a->camera);
+    if (weather >= 1 && weather <= 3 && !a->weather_off) reserved_play(a, &a->weather, "sfx_wind.wav", a->camera);
     else reserved_stop(a, &a->weather);
 }
