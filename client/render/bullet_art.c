@@ -11,6 +11,7 @@
 #include "render/textures.h"
 
 #define BULLET_TRAIL 13.0f
+#define BULLET_LENGTH 21.0f // BULLETLENGTH: a shot run forward trails at most its run over this, in its art's scale
 #define BULLET_ALPHA 110
 
 // Plain rounds of weapons not listed use the USSOCOM's image, as the original does.
@@ -161,7 +162,16 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, d
         if (timeout >= BULLET_TIMEOUT - 2) break;
         float stretch = speed / BULLET_TRAIL;
         float a = clampf(bullet->hit_multiply * stretch * stretch / 4.63f * 255.0f, 50.0f, 230.0f);
-        draw_streak(own, vec2_add(pos, vel), vec2(stretch, 1), heading, (Rgba){255, 255, 255, (uint8_t)a});
+        if (bullet->ping_add < 1) draw_streak(own, vec2_add(pos, vel), vec2(stretch, 1), heading, (Rgba){255, 255, 255, (uint8_t)a});
+        // A shot heard and run forward (TBullet.Render, PingAdd): instead of the round, its
+        // own art stretched back from it toward where it was fired, over the distance it
+        // skipped, shrinking as the run's ticks count down; fainter still once it is gone.
+        if (bullet->ping_add > 0) {
+            float run = vec2_length(vec2_sub(pos, bullet->initial));
+            float length = run * minf(1.0f / BULLET_LENGTH, ((float)(bullet->ping_add + 2) / (float)bullet->ping_add_start) / BULLET_TRAIL);
+            float faint = bullet->active ? a / 6.0f : a / 4.0f;
+            draw_streak(own, vec2_add(pos, vel), vec2(length, 1), heading, (Rgba){255, 255, 255, (uint8_t)roundf(faint)});
+        }
         // the trail is the weapon's own art at half alpha; a round that hit someone trails pink
         if (timeout < BULLET_TIMEOUT - 7) {
             if (bullet->hit_body >= 0) draw_streak(own, pos, vec2(speed / 4, 1), heading, (Rgba){255, 222, 222, half});
@@ -175,6 +185,7 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, d
 void bullets_draw(const BulletArt *b, const Bullet *bullets, float alpha, double seconds)
 {
     if (!b->loaded) return;
+    // a shot run forward is drawn on while its trail lasts, gone or not (GameRendering.pas)
     for (int i = 0; i < MAX_BULLETS; i++)
-        if (bullets[i].active) bullet_draw(b, &bullets[i], alpha, seconds);
+        if (bullets[i].active || bullets[i].ping_add > 0) bullet_draw(b, &bullets[i], alpha, seconds);
 }

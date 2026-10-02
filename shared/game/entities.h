@@ -323,6 +323,11 @@ typedef struct Bullet {
     int32_t ricochet_count;
     int32_t degrade_count;
     ThingCooldown thing_cooldowns[4];
+    // A shot heard from elsewhere and run forward on a client (the original's PingAdd,
+    // PingAddStart): the ticks it was run, counted down four a tick, and what they began
+    // at. While above 0 the bullet is drawn as a trail back over the distance it skipped,
+    // even once it is gone; nothing else reads them.
+    int16_t ping_add, ping_add_start;
 } Bullet;
 
 // ---------------------------------------------------------------------------------

@@ -155,6 +155,11 @@ void bullets_update(const Context *ctx, World *w, const Events *last, Events *ev
     // up, it meets the present like any other. A bullet it makes on the way (a
     // cluster's) keeps the lag it was made with, and so stays as far behind as it is
     // judged, which comes to the same thing.
+    // the trails of the shots run forward fade, four ticks of theirs a tick, the gone ones
+    // too, before anything new is heard (UpdateFrame.pas, after the bullets' updates)
+    for (int i = 0; i < MAX_BULLETS; i++)
+        if (w->bullets[i].ping_add > 0) w->bullets[i].ping_add -= 4;
+
     uint32_t flashed = 0; // the shooters given a flash this pass, by slot
     EventCursor pending = events_pending(last, events, PASS_BULLETS);
     for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
@@ -168,6 +173,9 @@ void bullets_update(const Context *ctx, World *w, const Events *last, Events *ev
         int k = bullet_make(ctx, w, shot, events);
         if (k < 0) continue;
         Bullet *b = &w->bullets[k];
+        // a client's: the trail over the distance it is run (ClientHandleBulletSnapshot's
+        // PingAdd), kept whether or not it lives through the run
+        if (heard && !w->authority) b->ping_add = b->ping_add_start = shot->advance;
         for (int a = 0; a < shot->advance && b->active; a++) {
             b->lag = (uint8_t)(shot->advance - a);
             bullet_update(ctx, w, b, (uint16_t)k, events);

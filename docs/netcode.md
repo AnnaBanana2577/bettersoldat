@@ -107,6 +107,11 @@ client keeps them until their tick is on show. A shot heard is run forward from 
 stamp to the tick on show, so it is where its shooter has it by then, half the
 shooter's ping ahead of the shooter's soldier as drawn; and it gets the flash, the
 smoke and the sound at that soldier's muzzle, which its unarmed step would never give.
+Over the distance it skipped it is drawn as the original draws it (TBullet.Render,
+PingAdd): a round's own art stretched back from it toward where it was fired, faint,
+in place of the round, shrinking as the ticks it was run count down four a tick, and
+drawn on after the bullet is gone until they have; so a shot at a high ping is seen
+leaving the muzzle rather than starting out ahead of it.
 
 A shot is an event from the owner, stamped with its tick, which names the frame the
 shooter had. The server runs the bullet forward from that tick to its own present and,
@@ -252,7 +257,10 @@ that changes the netcode says what it measured, on what line.
    on past their last word by half each ping to show them at now, with the server
    stepping its frames on by the same lead to judge; the stepping ahead was a
    prediction, wrong whenever a key changed inside it, and the game shows everyone
-   where it last heard they were, as the original does.
+   where it last heard they were, as the original does. The flight nobody saw is now
+   drawn as the original draws it, the round's own art stretched back over the
+   distance run (the Time section), not a tracer of our own; tests/rewind_test.c holds
+   that a client's shot heard and run forward carries it and the server's never does.
 7. Things, flags, kits, the match, rounds, chat. Built in part: the things ride the
    snapshot as the soldiers do, a word per slot and a delta against what the client
    received, out of the history ring which keeps them too; a client takes what a thing

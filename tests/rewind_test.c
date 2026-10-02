@@ -94,6 +94,17 @@ void rewind_tests(void)
     }
     CHECK(hits == 0, "the same shot judged at the present misses (%d hits)", hits);
 
+    // the server runs a shot forward too, and draws nothing: the trail is a client's
+    EventShot served = shot_at(g, &w->soldiers[1]);
+    served.shot = w->soldiers[0].shot_count + 1;
+    served.advance = 3;
+    game_hear(g, (Event){.type = EVENT_SHOT, .tick = w->tick - 3, .shot = served});
+    tick_running(g);
+    const Bullet *on_server = NULL;
+    for (int i = 0; i < MAX_BULLETS; i++)
+        if (w->bullets[i].owner == 0 && w->bullets[i].shot_id == served.shot) on_server = &w->bullets[i];
+    CHECK(on_server && on_server->ping_add == 0 && on_server->ping_add_start == 0, "a shot the server runs forward has no trail");
+
     // a client hearing a shot gives it the flash and the sound its unarmed shooter never made
     w->authority = false;
     EventShot heard = shot_at(g, &w->soldiers[1]);
@@ -104,6 +115,16 @@ void rewind_tests(void)
     tick_running(g);
     int fires = count(&g->events, EVENT_FIRE, -1);
     CHECK(fires == 1 && w->soldiers[0].fired && !fired_before, "a shot heard flashes and sounds at its shooter once (%d fire events)", fires);
+    // and trails back over the distance it was run, the trail fading four ticks a tick,
+    // drawn on while it lasts whether the bullet lives or not (the original's PingAdd)
+    const Bullet *run = NULL;
+    for (int i = 0; i < MAX_BULLETS; i++)
+        if (w->bullets[i].owner == 0 && w->bullets[i].shot_id == heard.shot) run = &w->bullets[i];
+    CHECK(run && run->ping_add == 3 && run->ping_add_start == 3 && run->initial.x == heard.pos.x,
+          "a shot heard and run forward trails back to where it was fired (%d of %d)", run ? run->ping_add : -1,
+          run ? run->ping_add_start : -1);
+    tick_running(g);
+    CHECK(run && run->ping_add == -1, "and a tick on, four ticks of it are gone, and so is the trail (%d)", run ? run->ping_add : 0);
 
     free(w->history);
     scene_free(g);
