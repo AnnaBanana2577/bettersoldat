@@ -100,6 +100,7 @@ typedef struct App {
     Cvar *lobby;          // the lobby the server browser asks (cl_lobby)
     Cvar *sensitivity;
     Cvar *wireframe, *debug;
+    Cvar *scenery;        // r_scenery: the map's props drawn
     Cvar *forcebg, *forcebg_color1, *forcebg_color2; // the sky in colours of my own instead of the map's (r_forcebg)
     Cvar *minimap, *info, *player_names, *console_length;
     Cvar *player_name;
@@ -762,11 +763,12 @@ static bool console_open(App *app, int argc, char *argv[])
     app->forcebg = cvar_register(con, "r_forcebg", "0", CVAR_ARCHIVE, "1: the sky in r_forcebg_color1 and 2 on every map instead of the map's own colours");
     app->forcebg_color1 = cvar_register(con, "r_forcebg_color1", "000000", CVAR_ARCHIVE, "the forced sky's colour at the top, RRGGBB");
     app->forcebg_color2 = cvar_register(con, "r_forcebg_color2", "000000", CVAR_ARCHIVE, "the forced sky's colour at the bottom, RRGGBB");
+    app->scenery = cvar_register(con, "r_scenery", "1", CVAR_ARCHIVE, "the map's scenery, its props; 0 leaves them out");
     app->wireframe = cvar_register(con, "r_wireframe", "0", 0, "draw the map's polygons as lines");
     app->debug = cvar_register(con, "r_debug", "0", 0, "spawn points, colliders, special polys, bones");
     app->minimap = cvar_register(con, "ui_minimap", "0", CVAR_ARCHIVE, "the minimap");
     app->info = cvar_register(con, "ui_info", "0", CVAR_ARCHIVE, "the FPS and ping line");
-    app->player_names = cvar_register(con, "ui_playernames", "1", CVAR_ARCHIVE, "the names over the players");
+    app->player_names = cvar_register(con, "ui_playernames", "1", CVAR_ARCHIVE, "teammates' names at the screen's edge when out of view (everyone's, spectating), and the ping dot");
     app->console_length =
         cvar_register(con, "ui_console_length", "6", CVAR_ARCHIVE, "how many console lines the HUD shows");
     app->player_name = cvar_register(con, "cl_player_name", "Player", CVAR_ARCHIVE, "my name");
@@ -924,6 +926,7 @@ static void apply_cvars(App *app)
     audio_volume(&app->audio, v * v * 0.48f);
     app->render_options.wireframe = app->wireframe->integer != 0;
     app->render_options.debug = app->debug->integer != 0;
+    app->render_options.scenery = app->scenery->integer != 0;
     // the sky's colours: the map's, or mine; the minimap carries them too, so it is built again on a change
     if (map_view_force_background(&app->render.map_view, app->forcebg->integer != 0, cvar_color(app->forcebg_color1), cvar_color(app->forcebg_color2)))
         map_view_build_minimap(&app->render.map_view, window_rect(app).height);

@@ -130,15 +130,15 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
     // scenery over everything
     map_draw_background(v, camera);
     map_draw_background_polys(v);
-    map_draw_scenery(v, 0);
+    if (options.scenery) map_draw_scenery(v, 0);
     bullets_draw(&r->bullet_art, state->bullets, state->alpha, seconds);
     draw_soldiers(r, state);
     things_draw(&r->things_art, THINGS_SPRITES, state->things, state->soldiers, state->alpha, seconds);
     sparks_draw(&r->sparks, state->alpha);
-    map_draw_scenery(v, 1);
+    if (options.scenery) map_draw_scenery(v, 1);
     things_draw(&r->things_art, THINGS_QUADS, state->things, state->soldiers, state->alpha, seconds);
     map_draw_terrain(v);
-    map_draw_scenery(v, 2);
+    if (options.scenery) map_draw_scenery(v, 2);
 
     if (options.wireframe) map_draw_wireframe(v->map, camera);
     if (options.debug) {
