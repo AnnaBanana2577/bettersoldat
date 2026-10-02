@@ -442,17 +442,18 @@ static void draw_bars(const Interface *hud, const Frame *f, const RenderSoldier 
 
 // The crosshair, bigger with the bink, coloured by whoever is under it: the original's,
 // less the sniper line.
-static void draw_cursor(const Interface *hud, const Frame *f, const HudData *d, const RenderSoldier *me, Vec2 cursor)
+static void draw_cursor(const Interface *hud, const Frame *f, const HudData *d, const RenderSoldier *me, Vec2 cursor,
+                        Rgba cursor_color, float cursor_scale)
 {
     const HudSprite *s = &hud->cursor;
     if (s->tex.handle == 0) return;
 
-    float scale = 1.0f;
+    float scale = cursor_scale;
     float inaccuracy = (float)me->hit_spray + me->move_acc * 100.0f;
     if (inaccuracy > 0) scale += powf(inaccuracy, 0.6f) / 20.0f * scale;
 
     int alpha = STATUS_TRANSPARENCY;
-    Rgba color = {255, 255, 255, 255};
+    Rgba color = cursor_color;
     if (d->cursor_text[0]) {
         alpha = STATUS_TRANSPARENCY - 50;
         color = d->cursor_friendly ? (Rgba){0x33, 0xFF, 0x33, 255} : (Rgba){0xFF, 0x33, 0x33, 255};
@@ -849,9 +850,9 @@ void interface_draw_box(const Interface *hud, float x, float y, float w, float h
     draw_sprite_scaled(&hud->back, x, y, w / BACKGROUND_WIDTH, h / BACKGROUND_WIDTH, color);
 }
 
-void interface_draw_pointer(const Interface *hud, Vec2 at)
+void interface_draw_pointer(const Interface *hud, Vec2 at, Rgba color, float scale)
 {
-    draw_sprite(&hud->menucursor, at.x, at.y, 0, (Rgba){255, 255, 255, STATUS_TRANSPARENCY});
+    draw_sprite_scaled(&hud->menucursor, at.x, at.y, scale, scale, with_alpha(color, STATUS_TRANSPARENCY));
 }
 
 // The console in the corner, smaller when a line runs past the window.
@@ -1473,7 +1474,8 @@ static void draw_keys_help(void)
 }
 
 void interface_draw(const Interface *hud, const HudData *d, const GameMenus *menus, const RenderState *state,
-                    const Context *ctx, const MapView *map_view, const GameCamera *camera, Vec2 cursor, Rect viewport)
+                    const Context *ctx, const MapView *map_view, const GameCamera *camera, Vec2 cursor, Rect viewport,
+                    Rgba cursor_color, Rgba crosshair_color, float cursor_scale, float crosshair_scale)
 {
     Frame f = {
         .game_width = GAME_HEIGHT * viewport.width / viewport.height,
@@ -1500,7 +1502,7 @@ void interface_draw(const Interface *hud, const HudData *d, const GameMenus *men
         if (!mine->spectator) draw_bars(hud, &f, me, ctx);
         if (!limbo && !team && !esc && !me->dead && !mine->spectator) {
             if (d->sniper_line) draw_sniper_line(hud, &f, me, cursor);
-            draw_cursor(hud, &f, d, me, cursor);
+            draw_cursor(hud, &f, d, me, cursor, crosshair_color, crosshair_scale);
         }
         if (!mine->spectator) draw_player_indicator(hud, &f, d, me);
         draw_ping_dot(hud, &f, d);
@@ -1601,7 +1603,7 @@ void interface_draw(const Interface *hud, const HudData *d, const GameMenus *men
     text_shadow(0, 0, (Rgba){0});
 
     if (esc || limbo || team || me->dead) {
-        draw_sprite(&hud->menucursor, pixel_align(&f, cursor.x), pixel_align(&f, cursor.y), 0,
-                    (Rgba){255, 255, 255, STATUS_TRANSPARENCY});
+        draw_sprite_scaled(&hud->menucursor, pixel_align(&f, cursor.x), pixel_align(&f, cursor.y), cursor_scale, cursor_scale,
+                           with_alpha(cursor_color, STATUS_TRANSPARENCY));
     }
 }

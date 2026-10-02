@@ -107,6 +107,7 @@ typedef struct App {
     Cvar *minimap, *info, *player_names, *console_length;
     Cvar *player_name;
     Cvar *grenade_color;
+    Cvar *cursor_color, *crosshair_color, *cursor_size, *crosshair_size;
     Cvar *shirt, *pants, *skin, *hair, *jet;      // the look's colours, "RRGGBB"
     Cvar *hair_style, *head_style, *chain_style;  // and its styles, by number
     Cvar *style;                                  // the gostek: 0 male, 1 female, 2 waifu, 3 rat
@@ -818,6 +819,10 @@ static bool console_open(App *app, int argc, char *argv[])
         cvar_register(con, "ui_console_length", "6", CVAR_ARCHIVE, "how many console lines the HUD shows");
     app->player_name = cvar_register(con, "cl_player_name", "Player", CVAR_ARCHIVE, "my name");
     app->grenade_color = cvar_register(con, "cl_grenade_color", "", CVAR_ARCHIVE, "the grenades in this colour, RRGGBB, flat and solid; empty for their own art");
+    app->cursor_color = cvar_register(con, "cl_cursor_color", "FFFFFF", CVAR_ARCHIVE, "the menu cursor's colour, RRGGBB");
+    app->crosshair_color = cvar_register(con, "cl_crosshair_color", "FFFFFF", CVAR_ARCHIVE, "the aiming crosshair's colour, RRGGBB");
+    app->cursor_size = cvar_register(con, "cl_cursor_size", "100", CVAR_ARCHIVE, "the menu cursor's size, percent");
+    app->crosshair_size = cvar_register(con, "cl_crosshair_size", "100", CVAR_ARCHIVE, "the aiming crosshair's size, percent");
     app->shirt = cvar_register(con, "cl_player_shirt", "304289", CVAR_ARCHIVE, "the shirt's colour, RRGGBB");
     app->pants = cvar_register(con, "cl_player_pants", "FF0000", CVAR_ARCHIVE, "the pants' colour, RRGGBB");
     app->skin = cvar_register(con, "cl_player_skin", "E6B478", CVAR_ARCHIVE, "the skin's colour, RRGGBB");
@@ -1915,7 +1920,9 @@ int main(int argc, char *argv[])
                 render_draw(&app.render, &app.frame, &app.camera, app.render_options, grenade_color(app.grenade_color), app.time);
                 hud_data_build(&app);
                 interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
-                               &app.camera, app.input.cursor, app.camera.viewport);
+                               &app.camera, app.input.cursor, app.camera.viewport, cvar_color(app.cursor_color),
+                               cvar_color(app.crosshair_color), clampi(app.cursor_size->integer, 50, 200) / 100.0f,
+                               clampi(app.crosshair_size->integer, 50, 200) / 100.0f);
             } else { // the menu on its own background: the game is not watched from here
                 gfx_clear((Rgba){0, 0, 0, 255});
                 Rect r = app.camera.viewport;

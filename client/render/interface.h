@@ -53,9 +53,10 @@ void interface_unload(Interface *hud);
 // For the main menu, drawn in the HUD's units under its own transform: the translucent
 // box the menus use, and the pointer.
 void interface_draw_box(const Interface *hud, float x, float y, float w, float h, Rgba color);
-void interface_draw_pointer(const Interface *hud, Vec2 at);
+void interface_draw_pointer(const Interface *hud, Vec2 at, Rgba color, float scale);
 
 // The HUD over the world: sets its own transform. `cursor` is the game's cursor in the
 // 480-tall view's units, `viewport` the window's pixels.
 void interface_draw(const Interface *hud, const HudData *data, const GameMenus *menus, const RenderState *state,
-                    const Context *ctx, const MapView *map_view, const GameCamera *camera, Vec2 cursor, Rect viewport);
+                    const Context *ctx, const MapView *map_view, const GameCamera *camera, Vec2 cursor, Rect viewport,
+                    Rgba cursor_color, Rgba crosshair_color, float cursor_scale, float crosshair_scale);
