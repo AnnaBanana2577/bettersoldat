@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "desktop.h"
 #include "files.h"
 #include "http.h"
 #include "update.h"
@@ -45,6 +46,10 @@
 #else
 #include <unistd.h>
 #define CLIENT_FILE "client"
+// the window's icon, which on Windows is the executable's own (assets/icon.ico)
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include <stb_image.h>
 #endif
 
 #ifndef SOLDATRELOADED_VERSION
@@ -248,6 +253,22 @@ static bool start_game(int argc, char **argv)
 #endif
 }
 
+#ifndef _WIN32
+// assets/icon.png, the badge, as the window's icon.
+static void set_icon(SDL_Window *window)
+{
+    int width, height, channels;
+    unsigned char *rgba = stbi_load("assets/icon.png", &width, &height, &channels, 4);
+    if (!rgba) return;
+    SDL_Surface *icon = SDL_CreateRGBSurfaceWithFormatFrom(rgba, width, height, 32, width * 4, SDL_PIXELFORMAT_RGBA32);
+    if (icon) {
+        SDL_SetWindowIcon(window, icon);
+        SDL_FreeSurface(icon);
+    }
+    stbi_image_free(rgba);
+}
+#endif
+
 int main(int argc, char **argv)
 {
     Shared s = {.options = {.releases = SOLDATRELOADED_RELEASES, .platform = SOLDATRELOADED_PLATFORM}};
@@ -271,6 +292,11 @@ int main(int argc, char **argv)
         return 1;
     }
 
+#ifndef _WIN32
+    // the window's class, the menu entry's, unless the player has given one
+    setenv("SDL_VIDEO_X11_WMCLASS", DESKTOP_APP_ID, 0);
+    setenv("SDL_VIDEO_WAYLAND_WMCLASS", DESKTOP_APP_ID, 0);
+#endif
     if (SDL_Init(SDL_INIT_VIDEO) != 0) fprintf(stderr, "launcher: no window: %s\n", SDL_GetError());
     if (!http_init()) fprintf(stderr, "launcher: curl couldn't start\n");
     s.lock = SDL_CreateMutex();
@@ -311,12 +337,7 @@ int main(int argc, char **argv)
                                       WINDOW_HEIGHT, 0);
             if (window) {
 #ifndef _WIN32
-                // on Windows SDL gives the window the executable's own icon (assets/icon.ico)
-                SDL_Surface *icon = SDL_LoadBMP("assets/icon.bmp");
-                if (icon) {
-                    SDL_SetWindowIcon(window, icon);
-                    SDL_FreeSurface(icon);
-                }
+                set_icon(window); // on Windows SDL gives it the executable's own
 #endif
                 renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
                 if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);

@@ -949,6 +949,12 @@ static void game_close(App *app)
 // The window and the GL context on it, as the original's InitGameGraphics.
 static bool window_open(App *app)
 {
+#ifndef _WIN32
+    // the window's class, the launcher's menu entry's (launcher/desktop.h), unless the
+    // player has given one
+    setenv("SDL_VIDEO_X11_WMCLASS", "soldatreloaded", 0);
+    setenv("SDL_VIDEO_WAYLAND_WMCLASS", "soldatreloaded", 0);
+#endif
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
@@ -960,6 +966,19 @@ static bool window_open(App *app)
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         return false;
     }
+#ifndef _WIN32
+    // the badge as the window's icon; on Windows SDL gives it the executable's own
+    GfxImage icon;
+    if (gfx_image_load(&icon, "assets/icon.png")) {
+        SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormatFrom(icon.rgba, icon.width, icon.height, 32, icon.width * 4,
+                                                                  SDL_PIXELFORMAT_RGBA32);
+        if (surface) {
+            SDL_SetWindowIcon(app->window, surface);
+            SDL_FreeSurface(surface);
+        }
+        gfx_image_free(&icon);
+    }
+#endif
     if (!gfx_init(app->window)) return false;
     apply_window_mode(app);
     apply_cvars(app);

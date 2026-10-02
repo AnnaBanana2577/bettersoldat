@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "archive.h"
+#include "desktop.h"
 #include "files.h"
 #include "http.h"
 #include "manifest.h"
@@ -390,12 +391,34 @@ static void update_tests(void)
     enter(here);
 }
 
+// The Linux menu entry's text: the launcher and its icon, the paths escaped as the
+// Desktop Entry Specification has them.
+static void desktop_tests(void)
+{
+    char text[1024];
+    CHECK(desktop_entry_text("/home/p/games/sr/soldatreloaded-launcher", text, sizeof text) &&
+              !strcmp(text, "[Desktop Entry]\nType=Application\nName=Soldat Reloaded\n"
+                            "Exec=\"/home/p/games/sr/soldatreloaded-launcher\"\n"
+                            "Icon=/home/p/games/sr/assets/icon.png\n"
+                            "Terminal=false\nCategories=Game;ActionGame;\nStartupWMClass=soldatreloaded\n"),
+          "a menu entry names the launcher and the icon beside it");
+    // the path /home/p/my "games" $5 50% a\b/l, and the entry's lines for it
+    CHECK(desktop_entry_text("/home/p/my \"games\" $5 50% a\\b/l", text, sizeof text) &&
+              strstr(text, "\nExec=\"/home/p/my \\\\\"games\\\\\" \\\\$5 50%% a\\\\\\\\b/l\"\n") &&
+              strstr(text, "\nIcon=/home/p/my \"games\" $5 50% a\\\\b/assets/icon.png\n"),
+          "and escapes what a path holds: in Exec quotes, dollars, percents and backslashes; in Icon backslashes");
+    CHECK(!desktop_entry_text("/home/p/new\nline/l", text, sizeof text), "a path with a control character has no entry");
+    CHECK(!desktop_entry_text("/home/p/l", text, 40), "nor one too long for the space given");
+    CHECK(!desktop_entry_text("l", text, sizeof text), "nor a path that isn't one");
+}
+
 void launcher_tests(void)
 {
     http_init();
     hash_tests();
     manifest_tests();
     archive_tests();
+    desktop_tests();
     update_tests();
     files_remove_tree(SCRATCH);
 }

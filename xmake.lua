@@ -192,7 +192,7 @@ task("dist")
         -- the art and the sound: the client's alone
         local function server_needs(name)
             return not (name:endswith("-gfx") or name == "textures" or name == "custom-interfaces" or name == "sfx"
-                        or name == "icon.bmp" or name == "icon.ico" or name == "play-regular.ttf" or name == "OFL.txt"
+                        or name == "icon.png" or name == "icon.ico" or name == "play-regular.ttf" or name == "OFL.txt"
                         or name == "mod.ini")
         end
 
@@ -248,8 +248,11 @@ task("dist")
             return lines
         end
 
-        -- everything but icon.ico, which the executables already hold
-        local full = lay_out(stem, {client, server, launcher}, function (name) return name ~= "icon.ico" end)
+        -- everything but the icons that aren't read: icon.ico is in the Windows
+        -- executables, and icon.png is for Linux's windows and menu entry (launcher/desktop.h)
+        local full = lay_out(stem, {client, server, launcher}, function (name)
+            return name ~= "icon.ico" and not (plat == "windows" and name == "icon.png")
+        end)
         local files = manifest(full)
         io.writefile(path.join(full, "manifest.txt"),
                      "// What this install holds, which the launcher checks it against.\n" .. table.concat(files, "\n") .. "\n")
