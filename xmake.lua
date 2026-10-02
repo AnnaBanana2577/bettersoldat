@@ -1,10 +1,12 @@
--- SoldatReloaded: the client, the server, the simulation they share, and the tests.
+-- SoldatReloaded: the client, the server, the simulation they share, the launcher that
+-- keeps a player's copy up to date, and the tests.
 --
---   xmake                the client and the server
+--   xmake                the client, the server and the launcher
 --   xmake run client     from the project directory, where config.cfg and assets/ are
 --   xmake run server
 --   xmake test           the headless checks in tests/
---   xmake dist           the packages, in build/dist/: one for players, one for a server
+--   xmake dist           the packages, in build/dist/: one for players, one for a server,
+--                        the launcher's update, and the manifest it reads (launcher/update.h)
 --
 -- The game finds everything beside itself: config.cfg and assets/ in the directory it
 -- runs from. That is the project directory under xmake run (set_rundir) and the
@@ -37,6 +39,9 @@ add_requires("stb")
 -- elsewhere. The client needs neither.
 add_requires("lua 5.4.x", {configs = {shared = false}})
 add_requires("libcurl", {configs = {shared = false, mbedtls = not is_plat("windows", "macosx")}})
+-- The launcher downloads with the same curl, and unpacks the packages with miniz: a zip
+-- on Windows, and the deflate inside a Linux tar.gz.
+add_requires("miniz")
 
 -- The simulation and the data it reads, shared by the client and the server. No
 -- rendering, audio or networking dependencies.
@@ -92,29 +97,68 @@ target("server")
     end
     set_rundir("$(projectdir)")
 
--- The tests: headless checks of what shared/ holds, and of the server's join, streams
--- and rounds over the loopback (the server's systems are built into them). Not built by
--- default; run them with
+-- The launcher, what a player starts (launcher/main.c): it brings the install up to the
+-- latest release on GitHub, in a small window of its own, and starts the client. Its
+-- name is the one a player looks for on Windows; on Linux one with no spaces. It works on
+-- the directory it sits in, so it is tried in an unpacked package, not under xmake run.
+target("launcher")
+    set_kind("binary")
+    set_basename(is_plat("windows") and "Soldat Reloaded" or "soldatreloaded-launcher")
+    add_files("launcher/*.c")
+    add_includedirs("launcher")
+    add_packages("libsdl2", "stb", "libcurl", "miniz")
+    add_defines('SOLDATRELOADED_RELEASES="https://github.com/AnnaBanana2577/bettersoldat/releases"')
+    -- the version it says, and the platform whose manifest it asks for (latest-windows-x64.txt)
+    on_load(function (target)
+        import("core.project.project")
+        target:add("defines", 'SOLDATRELOADED_VERSION="' .. project.version() .. '"')
+        target:add("defines", 'SOLDATRELOADED_PLATFORM="' .. target:plat() .. "-" .. target:arch() .. '"')
+    end)
+    if is_plat("windows") then
+        if is_mode("debug") then
+            add_ldflags("/SUBSYSTEM:CONSOLE")
+        else
+            add_ldflags("/SUBSYSTEM:WINDOWS")
+        end
+    else
+        add_syslinks("pthread")
+    end
+
+-- The tests: headless checks of what shared/ holds, of the server's join, streams and
+-- rounds over the loopback (the server's systems are built into them), and of the
+-- launcher's manifests, archives and updates. Not built by default; run them with
 --   xmake test
 target("tests")
     set_kind("binary")
     set_default(false)
     add_deps("shared")
     add_files("tests/*.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c", "server/script.c")
-    add_includedirs("tests", "server")
-    add_packages("lua", "libcurl")
+    add_files("launcher/*.c|main.c")
+    add_includedirs("tests", "server", "launcher")
+    add_packages("lua", "libcurl", "miniz")
     if not is_plat("windows") then
         add_syslinks("pthread") -- the script's requests
     end
     set_rundir("$(projectdir)")
     add_tests("default")
 
--- xmake dist: the packages for this platform, in build/dist/. Each unpacks to one
--- directory holding the executables, config.cfg, the licence and assets/, flat, which is
--- how the game expects to find them (docs/git.md, Releases). The client's package holds
--- the server too, so anyone can host. The server's package holds only what a headless
--- server reads of the assets: no art and no sound. Windows gets a zip; Linux a tar.gz,
--- which keeps the executable bit that a zip would lose.
+-- xmake dist: what a release holds for this platform, in build/dist/. Each package
+-- unpacks to one directory holding the executables, version.txt, config.cfg, the
+-- licence and assets/, flat, which is how the game expects to find them (docs/git.md,
+-- Releases). Windows gets zips; Linux tar.gzs, which keep the executable bit that a zip
+-- would lose.
+--
+--   <stem>-client        a player's: everything, the launcher and the server among it,
+--                        so anyone can host; and manifest.txt, what it all is
+--   <stem>-update        the client's top-level files but config.cfg: the executables,
+--                        version.txt, manifest.txt and the licence. What the launcher
+--                        downloads when nothing in assets/ or scripts/ changed
+--   <stem>-server        a headless server's: only what it reads of the assets, no art
+--                        and no sound
+--   latest-<plat>-<arch>.txt  the manifest the launcher reads: the version, the two
+--                        packages and every file of the client's, with their hashes
+--
+-- The formats are launcher/manifest.h's; what the launcher does with them, update.h's.
 task("dist")
     set_category("action")
     set_menu({usage = "xmake dist", description = "package the client and the server for this platform"})
@@ -124,12 +168,14 @@ task("dist")
         import("utils.archive")
 
         config.load()
-        os.execv(os.programfile(), {"build", "-y", "client", "server"})
+        os.execv(os.programfile(), {"build", "-y", "client", "server", "launcher"})
 
         local plat, arch = config.plat(), config.arch()
+        local version = project.version()
         local distdir = path.join(config.buildir(), "dist")
-        local stem = ("soldatreloaded-%s-%s-%s"):format(project.version(), plat, arch)
-        local client, server = project.target("client"), project.target("server")
+        local stem = ("soldatreloaded-%s-%s-%s"):format(version, plat, arch)
+        local extension = plat == "windows" and ".zip" or ".tar.gz"
+        local client, server, launcher = project.target("client"), project.target("server"), project.target("launcher")
 
         -- the art and the sound: the client's alone
         local function server_needs(name)
@@ -137,7 +183,8 @@ task("dist")
                         or name == "icon.bmp" or name == "play-regular.ttf" or name == "OFL.txt" or name == "mod.ini")
         end
 
-        local function package(name, targets, needs)
+        -- the package's directory, laid out as an install
+        local function lay_out(name, targets, needs)
             local dir = path.join(distdir, name)
             os.tryrm(dir)
             os.mkdir(path.join(dir, "assets"))
@@ -146,6 +193,7 @@ task("dist")
             end
             os.cp("config.cfg", dir)
             os.cp("license.md", dir)
+            io.writefile(path.join(dir, "version.txt"), version .. "\n")
             if os.isdir("scripts") then os.cp("scripts", dir) end -- the server's scripts, the example among them
             for _, entry in ipairs(os.filedirs("assets/*")) do
                 local base = path.filename(entry)
@@ -153,14 +201,61 @@ task("dist")
                     os.cp(entry, path.join(dir, "assets", base))
                 end
             end
+            return dir
+        end
 
+        local function pack(name)
             -- absolute: the archiver runs inside distdir so the directory's name is the archive's root
-            local archivefile = path.absolute(path.join(distdir, name .. (plat == "windows" and ".zip" or ".tar.gz")))
+            local archivefile = path.absolute(path.join(distdir, name .. extension))
             os.tryrm(archivefile)
             archive.archive(archivefile, name, {curdir = distdir})
             print("packaged " .. archivefile)
+            return archivefile
         end
 
-        package(stem .. "-client", {client, server}, function () return true end)
-        package(stem .. "-server", {server}, server_needs)
+        local function entry(file, name)
+            return ("%s %d %s"):format(hash.sha256(file), os.filesize(file), name)
+        end
+
+        -- Every file of an install but config.cfg, which is the player's, and the
+        -- manifest itself, by path.
+        local function manifest(dir)
+            local paths = {}
+            for _, file in ipairs(os.files(path.join(dir, "**"))) do
+                local name = path.relative(file, dir):gsub("\\", "/")
+                if name ~= "config.cfg" and name ~= "manifest.txt" then
+                    table.insert(paths, name)
+                end
+            end
+            table.sort(paths)
+            local lines = {"version " .. version}
+            for _, name in ipairs(paths) do
+                table.insert(lines, "file " .. entry(path.join(dir, name), name))
+            end
+            return lines
+        end
+
+        local full = lay_out(stem .. "-client", {client, server, launcher}, function () return true end)
+        local files = manifest(full)
+        io.writefile(path.join(full, "manifest.txt"),
+                     "// What this install holds, which the launcher checks it against.\n" .. table.concat(files, "\n") .. "\n")
+        local full_archive = pack(stem .. "-client")
+
+        local update = path.join(distdir, stem .. "-update")
+        os.tryrm(update)
+        os.mkdir(update)
+        for _, file in ipairs(os.files(path.join(full, "*"))) do
+            if path.filename(file) ~= "config.cfg" then os.cp(file, update) end
+        end
+        local update_archive = pack(stem .. "-update")
+
+        lay_out(stem .. "-server", {server}, server_needs)
+        pack(stem .. "-server")
+
+        local latest = path.join(distdir, ("latest-%s-%s.txt"):format(plat, arch))
+        table.insert(files, 2, "package update " .. entry(update_archive, path.filename(update_archive)))
+        table.insert(files, 3, "package full " .. entry(full_archive, path.filename(full_archive)))
+        io.writefile(latest, "// SoldatReloaded " .. version .. " for " .. plat .. " " .. arch .. ", for the launcher (launcher/update.h).\n"
+                             .. table.concat(files, "\n") .. "\n")
+        print("listed " .. path.absolute(latest))
     end)
