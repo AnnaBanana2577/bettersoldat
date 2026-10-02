@@ -5,9 +5,9 @@
 //
 //   latest-<platform>.txt   its manifest (manifest.h): the version, the two packages
 //                           and every file of an install, with their hashes
-//   <stem>-update.<ext>     the update package: the files at the top of an install
+//   <stem>-patch.<ext>      the update package: the files at the top of an install
 //                           (the executables, version.txt, manifest.txt, the licence)
-//   <stem>-client.<ext>     the full package: everything a player unpacks
+//   <stem>.<ext>            the full package: everything a player unpacks
 //
 // The launcher fetches <releases>/latest/download/latest-<platform>.txt, which GitHub
 // redirects to the newest release's copy, and compares the install with it: a file
@@ -16,8 +16,10 @@
 // is in assets/ or scripts/ it takes the full one. The package is downloaded into
 // .update/, checked against its hash, unpacked, each file checked again, and only then
 // moved into place, version.txt last, so an update cut off part way is finished on the
-// next start. config.cfg is the player's and never replaced: a full package's copy is
-// used only when there is none.
+// next start. A file already the release's is left where it is, so the launcher is
+// replaced only by a release that changes it. What the old manifest.txt listed and the
+// release doesn't is removed. config.cfg is the player's and never replaced: a full
+// package's copy is used only when there is none.
 //
 // Hashing every asset on every start would take a second, so the install's
 // manifest.txt is trusted for what it vouches for: a file it lists with the release's

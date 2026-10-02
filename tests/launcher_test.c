@@ -370,6 +370,21 @@ static void update_tests(void)
     CHECK(outcome == UPDATE_UNCHECKED && !strcmp(version, "3"), "offline, an intact install plays as it is (%d: %s)",
           outcome, error);
 
+    // version 4 renames the game: the old name goes, and so does an old release's
+    options.releases = releases;
+    files_write("soldatreloaded.exe", "older game", 10);
+    const Source v4[] = {{"version.txt", "4\n"}, {"client.exe", "new game"}, {"assets/a.txt", "new art"},
+                         {"assets/b.txt", "more art"}, {"assets/c.txt", "a new map"}, {"config.cfg", "theirs"}};
+    enter(here);
+    release(SCRATCH "/releases", "4", v4, 6);
+    enter(SCRATCH "/install");
+    outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
+    CHECK(outcome == UPDATE_UPDATED && holds("client.exe", "new game"), "a renamed game comes in (%d: %s)", outcome,
+          error);
+    CHECK(!files_exists("game.exe") && !files_exists("soldatreloaded.exe"), "and the names it had are gone");
+    CHECK(holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
+          "but not the player's own files");
+
     enter(here);
 }
 

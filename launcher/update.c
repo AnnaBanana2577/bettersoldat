@@ -12,6 +12,11 @@
 
 #define UPDATE_FILES UPDATE_STAGING "/files"
 
+// What releases before 0.5.1 named the client and the server. A launcher of theirs that
+// brings in a newer release leaves them behind, not knowing they are gone.
+static const char *const RETIRED[] = {"soldatreloaded.exe", "soldatreloaded-server.exe", "soldatreloaded",
+                                      "soldatreloaded-server"};
+
 static void say(const UpdateReport *r, const char *fmt, ...)
 {
     if (!r || !r->phase) return;
@@ -80,6 +85,17 @@ static bool fail(char *error, size_t error_size, const char *fmt, ...)
     return false;
 }
 
+// version.txt's first line, or "" if there is none.
+static void read_version(char *version, size_t size)
+{
+    char *text = files_read(UPDATE_VERSION, NULL);
+    version[0] = '\0';
+    if (!text) return;
+    text[strcspn(text, "\r\n")] = '\0';
+    snprintf(version, size, "%s", text);
+    free(text);
+}
+
 bool update_apply(const Manifest *latest, UpdateNeed need, const char *releases, const UpdateReport *report,
                   char *error, size_t error_size)
 {
@@ -95,7 +111,10 @@ bool update_apply(const Manifest *latest, UpdateNeed need, const char *releases,
     if (!matches(archive, package, true)) {
         char url[1024], why[256];
         snprintf(url, sizeof url, "%s/download/v%s/%s", releases, latest->version, package->path);
-        say(report, "Downloading version %s", latest->version);
+        char installed[MANIFEST_VERSION_SIZE];
+        read_version(installed, sizeof installed);
+        if (!strcmp(installed, latest->version)) say(report, "Downloading the missing files");
+        else say(report, "Downloading version %s", latest->version);
         uint8_t digest[32];
         uint64_t size = 0;
         HttpResult got = http_download(url, archive, digest, &size, advance_bytes, (void *)report, why, sizeof why);
@@ -125,11 +144,13 @@ bool update_apply(const Manifest *latest, UpdateNeed need, const char *releases,
     }
 
     // Into place, version.txt last: until it is, the install still says it is the old one.
+    // A file that is already the release's is left as it is: the launcher, running, among them.
     say(report, "Installing");
     for (int pass = 0; pass < 2; pass++) {
         for (int i = 0; i < latest->count; i++) {
             const ManifestFile *f = &latest->files[i];
             if (!in_package(need, f) || (pass == 1) != !strcmp(f->path, UPDATE_VERSION)) continue;
+            if (matches(f->path, f, true)) continue;
             char staged[MANIFEST_PATH_SIZE + 32];
             snprintf(staged, sizeof staged, "%s/%s", UPDATE_FILES, f->path);
             if (!files_replace(staged, f->path))
@@ -144,15 +165,14 @@ bool update_apply(const Manifest *latest, UpdateNeed need, const char *releases,
     return true;
 }
 
-// version.txt's first line, or "" if there is none.
-static void read_version(char *version, size_t size)
+// What the install held that the release no longer does: what manifest.txt lists and
+// `latest` doesn't, and the old names. A player's own files were never listed.
+static void remove_retired(const Manifest *installed, const Manifest *latest)
 {
-    char *text = files_read(UPDATE_VERSION, NULL);
-    version[0] = '\0';
-    if (!text) return;
-    text[strcspn(text, "\r\n")] = '\0';
-    snprintf(version, size, "%s", text);
-    free(text);
+    for (int i = 0; i < installed->count; i++)
+        if (!manifest_find(latest, installed->files[i].path)) remove(installed->files[i].path);
+    for (size_t i = 0; i < sizeof RETIRED / sizeof RETIRED[0]; i++)
+        if (!manifest_find(latest, RETIRED[i])) remove(RETIRED[i]);
 }
 
 UpdateOutcome update_run(const UpdateOptions *options, const UpdateReport *report, char *version, size_t version_size,
@@ -213,6 +233,7 @@ UpdateOutcome update_run(const UpdateOptions *options, const UpdateReport *repor
             installed.count != latest.count)
             manifest_write(&latest, UPDATE_MANIFEST);
         if (need == UPDATE_NOTHING) files_remove_tree(UPDATE_STAGING);
+        remove_retired(&installed, &latest);
         snprintf(version, version_size, "%s", latest.version);
     }
     manifest_free(&installed);
