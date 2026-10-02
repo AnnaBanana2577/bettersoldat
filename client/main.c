@@ -49,6 +49,7 @@
 #include "gfx/gfx.h"
 #include "input/input.h"
 #include "net/client_net.h"
+#include "http.h" // the launcher's HTTPS, for the browser's list
 #include "render/interface.h"
 #include "render/render.h"
 #include "render/textures.h"
@@ -64,6 +65,9 @@
 #include "ui/mainmenu.h"
 #include "ui/menus.h"
 
+#ifndef SOLDATRELOADED_VERSION
+#define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
+#endif
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
 #define CONFIG "config.cfg"
 #define SCREENSHOT_FRAME 60
@@ -93,6 +97,7 @@ typedef struct App {
     Cvar *fullscreen;     // 0 windowed, 1 fullscreen, 2 borderless
     Cvar *server;         // the address the main menu joins
     Cvar *password;       // and the password it says there (cl_password)
+    Cvar *lobby;          // the lobby the server browser asks (cl_lobby)
     Cvar *sensitivity;
     Cvar *wireframe, *debug;
     Cvar *forcebg, *forcebg_color1, *forcebg_color2; // the sky in colours of my own instead of the map's (r_forcebg)
@@ -121,6 +126,7 @@ typedef struct App {
     SDL_Window *window;
     Input input;
     ClientNet net; // the line to a server, once `connect` opens one
+    Browser browser; // the main menu's server list (the `browse` command)
     uint32_t seq; // my commands, numbered
     bool chat_just_opened; // the key that opened the prompt is not its first letter
     int chat_completing;   // Tab: the player last completed to, index + 1; 0 when not completing
@@ -605,6 +611,14 @@ static void cmd_disconnect(Console *con, int argc, char **argv, void *user)
     host_stop(app);
 }
 
+// browse: the server list asked for anew (net/browser.h), for the main menu's Servers page.
+static void cmd_browse(Console *con, int argc, char **argv, void *user)
+{
+    (void)con, (void)argc, (void)argv;
+    App *app = user;
+    browser_refresh(&app->browser, app->lobby->value, app->time);
+}
+
 // host: a server here on the sv_* and bots_* cvars (Local Play), then join it over the
 // loopback. The first map of sv_maps begins, or `map` with no rotation.
 static void cmd_host(Console *con, int argc, char **argv, void *user)
@@ -743,6 +757,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->fullscreen = cvar_register(con, "r_fullscreen", "0", CVAR_ARCHIVE, "0 windowed, 1 fullscreen, 2 borderless window");
     app->server = cvar_register(con, "cl_server", "127.0.0.1:23073", CVAR_ARCHIVE, "the server the main menu joins, host:port");
     app->password = cvar_register(con, "cl_password", "", CVAR_ARCHIVE, "the password the main menu joins with; empty for none");
+    app->lobby = cvar_register(con, "cl_lobby", QUERY_LOBBY_URL, CVAR_ARCHIVE, "the lobby the server browser asks for its list");
     app->sensitivity = cvar_register(con, "cl_sensitivity", "1", CVAR_ARCHIVE, "the mouse's speed");
     app->forcebg = cvar_register(con, "r_forcebg", "0", CVAR_ARCHIVE, "1: the sky in r_forcebg_color1 and 2 on every map instead of the map's own colours");
     app->forcebg_color1 = cvar_register(con, "r_forcebg_color1", "000000", CVAR_ARCHIVE, "the forced sky's colour at the top, RRGGBB");
@@ -821,6 +836,7 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "connect", cmd_connect, app, "join a server: connect <address[:port]>");
     console_add_command(con, "disconnect", cmd_disconnect, app, "leave the server, and stop hosting one here");
     console_add_command(con, "host", cmd_host, app, "host a game here on the sv_* and bots_* cvars, and join it");
+    console_add_command(con, "browse", cmd_browse, app, "ask the lobby (cl_lobby) for its servers, and each server what it is playing");
     console_add_command(con, "addbot", cmd_addbot, app, "a bot into the game hosted here: addbot [name]");
     console_add_command(con, "addbot1", cmd_addbot, app, "a bot into alpha of the game hosted here: addbot1 [name]");
     console_add_command(con, "addbot2", cmd_addbot, app, "a bot into bravo of the game hosted here: addbot2 [name]");
@@ -1582,6 +1598,9 @@ int main(int argc, char *argv[])
     App app = {0};
 
     if (!client_net_init(&app.net)) fprintf(stderr, "ENet wouldn't start: no connecting\n");
+    browser_init(&app.browser);
+    http_init();
+    http_set_agent("soldatreloaded/" SOLDATRELOADED_VERSION);
     if (!console_open(&app, argc, argv)) return 1;
     consoles_init(&app.consoles, app.console_length->integer);
     app.seen_life = -1;
@@ -1639,6 +1658,7 @@ int main(int argc, char *argv[])
             console_print_color(app.console, HUD_COLOR_WARNING, "the hosted game could not go on\n");
             console_execute(app.console, "disconnect");
         }
+        browser_pump(&app.browser, app.time); // the server list, while the menu asks for it
         client_net_poll(&app.net, app.console, app.game);
         if (client_net_take_map(&app.net)) {
             // a round on the server's map: the world made anew for its snapshots, my slot its
@@ -1728,7 +1748,7 @@ int main(int argc, char *argv[])
                 Rect r = app.camera.viewport;
                 mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, app.game->ctx.anims, &app.game->ctx.weapons,
                               app.input.cursor, GAME_HEIGHT * r.width / r.height, GAME_HEIGHT / r.height, app.time,
-                              console_log_line(app.console, 0), client_net_joined(&app.net), app.host != NULL, app.maps, app.map_count);
+                              console_log_line(app.console, 0), client_net_joined(&app.net), app.host != NULL, app.maps, app.map_count, &app.browser);
                 char command[256];
                 if (mainmenu_take_command(&app.mainmenu, command, sizeof command)) console_execute(app.console, command);
             }
@@ -1750,6 +1770,8 @@ int main(int argc, char *argv[])
         client_net_disconnect(&app.net, app.console);
         host_stop(&app);
     }
+    browser_close(&app.browser);
+    http_cleanup();
     client_net_shutdown(&app.net);
     audio_shutdown(&app.audio);
     fonts_unload();

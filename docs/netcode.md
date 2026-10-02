@@ -163,12 +163,25 @@ ENet's intercept before ENet reads it, so nothing on the line changes for a peer
 request is padded to at least the length of any answer, so a forged source address
 gains its victim nothing, and it carries a nonce the answer echoes.
 
-The lobby (the soldatreloaded-lobby repository) is the list of servers. A server that
-wants listing says so over HTTP with its port. The lobby takes the address from the
-connection, never from what the server says, and asks the server the query before it
-lists it, so a server nobody can reach is never on the list. It drops a server that
-stops saying so. A browser fetches the list and asks each server the query itself:
-that gives the ping, and players counted now, not at the last heartbeat.
+The lobby (the soldatreloaded-lobby repository) is the list of servers. A dedicated
+server with `sv_public 1` says it is up every half minute over HTTPS, with its port
+(server/lobby.c, on a thread of its own so the ticks never wait for it). The lobby lists
+the address the request came from, and asks the server the query there before listing
+it, so a server nobody can reach is never on the list; a 422 on the server's console
+is a port not forwarded. The request goes over IPv4, as ENet is IPv4 only. A server
+behind a proxy that sends from another address than players reach it on (Fly's
+fly-global-services) names the one they reach in `sv_lobby_ip`; the lobby still asks
+the query there, so naming another's address can list nothing but a real server. A
+server leaving says goodbye, and one that stops saying it is up drops off after a
+minute and a half. A game hosted from the menu is never listed.
+
+The browser (client/net/browser.c, the main menu's Servers page) fetches the lobby's
+list as plain lines, `1.2.3.4:23073`, and asks every server on it the query from one
+socket, again after a second, and gives up after three. What it shows is what each
+server answered, so the players are counted now and the ping is the browser's own; the
+lobby only knows where the servers are. A server on another wire version is shown
+greyed and can't be joined from there, and one that asks a password sends the player
+to the Join page with its address filled in.
 
 ## Measured, not believed
 

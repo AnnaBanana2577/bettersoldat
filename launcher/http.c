@@ -13,6 +13,9 @@
 #endif
 
 static const char *ca_bundle;
+static char agent[96] = "soldatreloaded-launcher/" SOLDATRELOADED_VERSION;
+
+void http_set_agent(const char *text) { snprintf(agent, sizeof agent, "%s", text); }
 
 bool http_init(void)
 {
@@ -44,7 +47,7 @@ static CURL *open_request(const char *url, char *curl_error)
     // a stalled transfer is given up after half a minute under 1 KB/s
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1024L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "soldatreloaded-launcher/" SOLDATRELOADED_VERSION);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, agent);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
 #ifdef _WIN32
     // Schannel fails outright where a revocation list can't be reached (behind some
@@ -117,6 +120,60 @@ HttpResult http_get(const char *url, size_t max, char **body, size_t *size, char
     *body = b.data;
     *size = b.size;
     return HTTP_OK;
+}
+
+// Any answer's body, an error page's too, as far as `max` (cut, not failed, past it).
+static size_t answer_write(char *data, size_t one, size_t n, void *user)
+{
+    Body *b = user;
+    size_t take = b->size + n > b->max ? b->max - b->size : n;
+    if (take) {
+        char *grown = realloc(b->data, b->size + take + 1);
+        if (!grown) return 0;
+        b->data = grown;
+        memcpy(b->data + b->size, data, take);
+        b->size += take;
+        b->data[b->size] = '\0';
+    }
+    (void)one;
+    return n;
+}
+
+HttpResult http_request(const char *method, const char *url, const char *body, bool ipv4, long timeout, size_t max,
+                        long *status, char **response, char *error, size_t error_size)
+{
+    char curl_error[CURL_ERROR_SIZE];
+    *status = 0;
+    *response = NULL;
+    CURL *curl = open_request(url, curl_error);
+    if (!curl) {
+        snprintf(error, error_size, "curl couldn't start");
+        return HTTP_FAILED;
+    }
+    Body b = {.max = max, .curl = curl};
+    struct curl_slist *headers = NULL;
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+    if (body) {
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
+    }
+    if (ipv4) curl_easy_setopt(curl, CURLOPT_IPRESOLVE, (long)CURL_IPRESOLVE_V4);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, answer_write);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &b);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
+    CURLcode code = curl_easy_perform(curl);
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, status);
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(headers);
+    if (code != CURLE_OK) {
+        free(b.data);
+        snprintf(error, error_size, "%s", curl_error[0] ? curl_error : curl_easy_strerror(code));
+        return HTTP_FAILED;
+    }
+    *response = b.data ? b.data : calloc(1, 1);
+    return *response ? HTTP_OK : HTTP_FAILED;
 }
 
 // --- into a file -----------------------------------------------------------------------

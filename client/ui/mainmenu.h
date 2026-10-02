@@ -15,10 +15,11 @@
 
 #include "console/console.h"
 #include "game/game.h"
+#include "net/browser.h"
 #include "render/gostek.h"
 #include "render/interface.h"
 
-typedef enum MainPage { MAIN_HOME, MAIN_JOIN, MAIN_LOCAL, MAIN_PLAYER, MAIN_CONTROLS, MAIN_OPTIONS } MainPage;
+typedef enum MainPage { MAIN_HOME, MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_PLAYER, MAIN_CONTROLS, MAIN_OPTIONS } MainPage;
 
 #define MAINMENU_EDIT 128
 
@@ -33,6 +34,9 @@ typedef struct MainMenu {
     bool clicked;                       // a left click since the last draw, at the cursor
     int wheel;                          // the wheel's notches since the last draw, up positive
     int map_scroll;                     // the map list's first row shown
+    int server_scroll;                  // the server list's first row shown
+    QueryAddress server_selected;       // the server picked in the list; port 0 for none
+    double server_clicked_at;           // when it was picked, so a second click soon after joins it
     char command[256];                  // for the app to run; empty for none
     double time;                        // seconds, for the caret's blink
     bool joined;                        // a server has us: Resume, and Escape, go back to it
@@ -47,10 +51,11 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e);
 // `pixel` is one window pixel in units). `cursor` is the input's, in those units.
 // `status` is a line for the join and local pages (the console's last), `joined` whether
 // a server has us, `hosting` whether it is our own, `maps` the maps under assets for the
-// rotation, `weapons` names the loadout, and the gostek and anims draw the preview.
+// rotation, `weapons` names the loadout, the gostek and anims draw the preview, and
+// `browser` is the server list (the `browse` command asks for it anew).
 void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Anims *anims,
                    const Weapons *weapons, Vec2 cursor, float game_width, float pixel, double time, const char *status,
-                   bool joined, bool hosting, const char (*maps)[64], int map_count);
+                   bool joined, bool hosting, const char (*maps)[64], int map_count, const Browser *browser);
 
 // A command the menu asked for since last taken: true, with it, once.
 bool mainmenu_take_command(MainMenu *m, char *out, size_t size);

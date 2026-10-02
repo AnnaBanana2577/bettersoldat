@@ -75,8 +75,13 @@ target("client")
     add_rules("icon")
     add_deps("shared")
     add_files("client/**.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c")
-    add_includedirs("client", "server")
-    add_packages("libsdl2", "stb")
+    -- the launcher's HTTPS, for the server browser's list from the lobby (client/net/browser.c)
+    add_files("launcher/http.c", "launcher/files.c", "launcher/sha256.c")
+    add_includedirs("client", "server", "launcher")
+    add_packages("libsdl2", "stb", "libcurl")
+    if not is_plat("windows") then
+        add_syslinks("pthread") -- curl's resolver
+    end
     -- the escape menu shows the version xmake.lua sets
     on_load(function (target)
         import("core.project.project")
@@ -101,10 +106,18 @@ target("server")
     set_kind("binary")
     add_deps("shared")
     add_files("server/**.c")
-    add_includedirs("server")
+    -- the launcher's HTTPS, for the lobby's heartbeat (server/lobby.c): it finds Linux's
+    -- certificates for curl's mbedTLS
+    add_files("launcher/http.c", "launcher/files.c", "launcher/sha256.c")
+    add_includedirs("server", "launcher")
     add_packages("lua", "libcurl")
+    -- the version its requests say
+    on_load(function (target)
+        import("core.project.project")
+        target:add("defines", 'SOLDATRELOADED_VERSION="' .. project.version() .. '"')
+    end)
     if not is_plat("windows") then
-        add_syslinks("pthread") -- the console's reader, and the script's requests
+        add_syslinks("pthread") -- the console's reader, the script's requests and the lobby's
     end
     set_rundir("$(projectdir)")
 
@@ -144,7 +157,8 @@ target("tests")
     set_kind("binary")
     set_default(false)
     add_deps("shared")
-    add_files("tests/*.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c", "server/script.c")
+    add_files("tests/*.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c", "server/script.c",
+              "server/lobby.c")
     add_files("launcher/*.c|main.c")
     add_includedirs("tests", "server", "launcher")
     add_packages("lua", "libcurl", "miniz")

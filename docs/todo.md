@@ -3,10 +3,10 @@
 - [x] Scripting (docs/scripting.md)
 - [ ] Demos
 - [ ] Char customization
-- [ ] Server browser
+- [x] Server browser (the main menu's Servers page; docs/netcode.md, The query, and the lobby)
 - [ ] Map Editor
 - [ ] Mod Maker
 - [ ] Poa editor
 - [ ] Po editor
-- [ ] Lobby server
+- [x] Lobby server (the soldatreloaded-lobby repository)
 - [ ] Gather bot

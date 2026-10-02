@@ -94,3 +94,38 @@ bool query_read_reply(const uint8_t *data, size_t size, uint32_t nonce, ServerIn
     return get_string(&p, end, info->hostname, sizeof info->hostname) && get_string(&p, end, info->map, sizeof info->map) &&
            p == end;
 }
+
+// Four numbers to 255, dotted, from `s` to `end`.
+static bool is_ipv4(const char *s, const char *end)
+{
+    for (int part = 0; part < 4; part++) {
+        int v = 0, digits = 0;
+        while (s < end && *s >= '0' && *s <= '9' && digits < 4) v = v * 10 + (*s++ - '0'), digits++;
+        if (digits == 0 || digits > 3 || v > 255) return false;
+        if (part < 3 && (s >= end || *s++ != '.')) return false;
+    }
+    return s == end;
+}
+
+int query_parse_list(const char *text, QueryAddress *out, int max)
+{
+    int n = 0;
+    const char *p = text ? text : "";
+    while (*p && n < max) {
+        const char *line = p, *end = p + strcspn(p, "\r\n");
+        p = *end ? end + 1 : end;
+        const char *colon = NULL;
+        for (const char *c = line; c < end; c++)
+            if (*c == ':') colon = c;
+        if (!colon || colon - line >= (ptrdiff_t)sizeof out->ip || !is_ipv4(line, colon)) continue;
+        long port = 0;
+        const char *d = colon + 1;
+        while (d < end && *d >= '0' && *d <= '9' && port <= 65535) port = port * 10 + (*d++ - '0');
+        if (d != end || d == colon + 1 || port < 1 || port > 65535) continue;
+        memcpy(out[n].ip, line, (size_t)(colon - line));
+        out[n].ip[colon - line] = '\0';
+        out[n].port = (uint16_t)port;
+        n++;
+    }
+    return n;
+}

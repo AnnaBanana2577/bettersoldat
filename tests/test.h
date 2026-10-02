@@ -77,4 +77,5 @@ void bot_tests(void);
 void round_tests(void);
 void script_tests(void);
 void query_tests(void);
+void lobby_tests(void);
 void launcher_tests(void);

@@ -205,6 +205,148 @@ static void page_join(Ui *ui, const char *status, bool joined)
     if (status && status[0]) label(x, y + 40, status, DIM);
 }
 
+// --- the servers --------------------------------------------------------------------
+
+#define SERVER_ROW 16.0f
+#define SERVER_ROWS 15        // shown at once
+#define SERVER_DOUBLE_CLICK 0.4 // seconds between the clicks on a row that join it
+
+// `text` cut to fit `width` in the small font, "..." where it was cut.
+static void fit(char *out, size_t size, const char *text, float width)
+{
+    text_style(FONT_SMALL);
+    snprintf(out, size, "%s", text);
+    if (text_width(out) <= width) return;
+    for (size_t n = strlen(out); n > 0; n--) {
+        snprintf(out, size, "%.*s...", (int)n, text);
+        if (text_width(out) <= width) return;
+    }
+}
+
+// Whether the list sorts `a` before `b`: the servers this game can join first, the
+// fuller first, then the nearer.
+static bool server_before(const BrowserServer *a, const BrowserServer *b)
+{
+    bool ja = a->info.protocol == NET_VERSION, jb = b->info.protocol == NET_VERSION;
+    if (ja != jb) return ja;
+    int pa = a->info.players + a->info.bots, pb = b->info.players + b->info.bots;
+    if (pa != pb) return pa > pb;
+    return a->ping < b->ping;
+}
+
+static bool same_address(const QueryAddress *a, const QueryAddress *b)
+{
+    return a->port == b->port && strcmp(a->ip, b->ip) == 0;
+}
+
+// Off to `s`: at once, or by the Join page with its address filled in when it asks a
+// password, which is typed there.
+static void join_server(Ui *ui, const BrowserServer *s)
+{
+    char address[32];
+    snprintf(address, sizeof address, "%s:%u", s->address.ip, s->address.port);
+    cvar_set(ui->con, "cl_server", address);
+    if (!s->info.password) {
+        snprintf(ui->m->command, sizeof ui->m->command, "connect %s", address);
+        return;
+    }
+    MainMenu *m = ui->m;
+    m->page = MAIN_JOIN;
+    const Cvar *cv = cvar_find(ui->con, "cl_password");
+    snprintf(m->focus_cvar, sizeof m->focus_cvar, "cl_password");
+    snprintf(m->edit, sizeof m->edit, "%s", cv ? cv->value : "");
+    m->edit_max = NET_PASSWORD_SIZE - 1;
+    SDL_StartTextInput();
+}
+
+// The lobby's servers that answered, a row each: name, map, players and ping. A click
+// picks one, a second joins it, as Join does; the wheel scrolls. A server that asks a
+// password has a '*' before its name, and one this game can't join is greyed.
+static void page_servers(Ui *ui, const Browser *b)
+{
+    MainMenu *m = ui->m;
+    float x = PAGE_X, y = 90, w = ui->game_width - 40 - PAGE_X - 10;
+    float map_x = x + w * 0.46f, players_x = x + w * 0.73f, ping_x = x + w * 0.88f;
+    label(x + 4, y, "Server", DIM);
+    label(map_x, y, "Map", DIM);
+    label(players_x, y, "Players", DIM);
+    label(ping_x, y, "Ping", DIM);
+    y += 18;
+
+    int order[BROWSER_MAX], n = 0;
+    for (int i = 0; i < b->count; i++) {
+        if (!b->servers[i].answered) continue;
+        int at = n++;
+        while (at > 0 && server_before(&b->servers[i], &b->servers[order[at - 1]])) {
+            order[at] = order[at - 1];
+            at--;
+        }
+        order[at] = i;
+    }
+
+    float h = SERVER_ROWS * SERVER_ROW;
+    if (over(ui, x, y, w, h) && m->wheel) m->server_scroll -= m->wheel * 3;
+    m->server_scroll = clampi(m->server_scroll, 0, maxi(n - SERVER_ROWS, 0));
+    rect(x, y, x + w, y + h, FIELD);
+    const BrowserServer *selected = NULL;
+    for (int row = 0; row < SERVER_ROWS && m->server_scroll + row < n; row++) {
+        const BrowserServer *s = &b->servers[order[m->server_scroll + row]];
+        float ry = y + (float)row * SERVER_ROW;
+        bool picked = same_address(&s->address, &m->server_selected), joinable = s->info.protocol == NET_VERSION;
+        if (picked) selected = s;
+        if (picked || over(ui, x, ry, w, SERVER_ROW))
+            rect(x, ry, x + w, ry + SERVER_ROW, picked ? (Rgba){120, 160, 255, 70} : (Rgba){255, 255, 255, 40});
+        Rgba color = joinable ? TEXT : DIM;
+        char text[96], cut[96];
+        snprintf(text, sizeof text, "%s%s", s->info.password ? "* " : "", s->info.hostname[0] ? s->info.hostname : s->address.ip);
+        fit(cut, sizeof cut, text, map_x - x - 10);
+        label(x + 4, ry + 1, cut, color);
+        fit(cut, sizeof cut, s->info.map, players_x - map_x - 6);
+        label(map_x, ry + 1, cut, color);
+        if (joinable) snprintf(text, sizeof text, "%d/%d", s->info.players + s->info.bots, s->info.max_players);
+        else snprintf(text, sizeof text, "v%u", s->info.protocol); // another version's server: not joinable from here
+        label(players_x, ry + 1, text, color);
+        snprintf(text, sizeof text, "%d", s->ping);
+        label(ping_x, ry + 1, text, color);
+        if (take_click(ui, x, ry, w, SERVER_ROW)) {
+            if (picked && joinable && m->time - m->server_clicked_at < SERVER_DOUBLE_CLICK) join_server(ui, s);
+            m->server_selected = s->address;
+            m->server_clicked_at = m->time;
+        }
+    }
+    if (n > SERVER_ROWS) { // where in the list this is
+        float track = h - 4, knob = maxf(track * (float)SERVER_ROWS / (float)n, 8);
+        float top = y + 2 + (track - knob) * (float)m->server_scroll / (float)(n - SERVER_ROWS);
+        rect(x + w - 5, top, x + w - 2, top + knob, DIM);
+    }
+    y += h + 8;
+
+    if (button(ui, x, y, 100, "Join")) {
+        if (selected && selected->info.protocol == NET_VERSION) join_server(ui, selected);
+    }
+    if (button(ui, x + 110, y, 100, "Refresh")) snprintf(m->command, sizeof m->command, "browse");
+    y += BUTTON_H + 8;
+
+    char status[192];
+    switch (b->state) {
+    case BROWSER_IDLE:
+    case BROWSER_FETCHING: snprintf(status, sizeof status, "Asking the lobby for servers..."); break;
+    case BROWSER_QUERYING: snprintf(status, sizeof status, "%d of %d servers answered...", b->answered, b->count); break;
+    case BROWSER_FAILED: snprintf(status, sizeof status, "The lobby can't be reached: %s", b->error); break;
+    case BROWSER_DONE:
+        if (b->count == 0) snprintf(status, sizeof status, "No servers are listed right now. Host one with Local Play.");
+        else if (n == 0) snprintf(status, sizeof status, "%d listed, and none answered.", b->count);
+        else snprintf(status, sizeof status, "%d server%s. * asks a password.", n, n == 1 ? "" : "s");
+        break;
+    }
+    if (selected && selected->info.protocol != NET_VERSION)
+        snprintf(status, sizeof status, "That server runs another version of the game (v%u; this is v%u).", selected->info.protocol,
+                 NET_VERSION);
+    char cut[192];
+    fit(cut, sizeof cut, status, w);
+    label(x, y, cut, DIM);
+}
+
 // --- local play ---------------------------------------------------------------------
 
 // The rotation (sv_maps) as a list of names separated by spaces or commas: whether
@@ -860,7 +1002,7 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
 
 void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Anims *anims,
                    const Weapons *weapons, Vec2 cursor, float game_width, float pixel, double time, const char *status,
-                   bool joined, bool hosting, const char (*maps)[64], int map_count)
+                   bool joined, bool hosting, const char (*maps)[64], int map_count, const Browser *browser)
 {
     if (!m->shown) {
         m->wheel = 0;
@@ -891,10 +1033,11 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
 
     // the home column
     float y = 120;
-    static const char *const PAGES[] = {"Join Game", "Local Play", "Player", "Controls", "Options"};
-    for (int i = 0; i < 5; i++) {
+    static const char *const PAGES[] = {"Servers", "Join by Address", "Local Play", "Player", "Controls", "Options"};
+    for (int i = 0; i < 6; i++) {
         if (button(&ui, LEFT, y, 200, PAGES[i])) {
-            m->page = (MainPage)(MAIN_JOIN + i);
+            m->page = (MainPage)(MAIN_SERVERS + i);
+            if (m->page == MAIN_SERVERS) snprintf(m->command, sizeof m->command, "browse"); // the list as it is now
             m->color_picker[0] = '\0';
             m->capturing = -1;
             unfocus(m);
@@ -909,13 +1052,14 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     if (button(&ui, LEFT, y, 200, "Quit")) snprintf(m->command, sizeof m->command, "quit");
 
     switch (m->page) {
+    case MAIN_SERVERS: page_servers(&ui, browser); break;
     case MAIN_JOIN: page_join(&ui, status, joined); break;
     case MAIN_LOCAL: page_local(&ui, status, hosting, maps, map_count); break;
     case MAIN_PLAYER: page_player(&ui, gostek, anims, weapons); break;
     case MAIN_CONTROLS: page_controls(&ui); break;
     case MAIN_OPTIONS: page_options(&ui); break;
     default:
-        label(PAGE_X, 120, "Join a server, or play here against bots (Local Play). Escape returns here from the game.", DIM);
+        label(PAGE_X, 120, "Find a server to join (Servers), or play here against bots (Local Play). Escape returns here from the game.", DIM);
         break;
     }
     if (ui.click) unfocus(m); // a click on nothing takes the focus away
