@@ -19,12 +19,14 @@ typedef struct ClientNet {
     char name[NET_NAME_SIZE];
     char password[NET_PASSWORD_SIZE]; // the server's, said in the Hello
     PlayerLook look;             // mine, as the app keeps it current: the Hello says it
+    Gear gear;                   // the gear of my first placing, likewise
     WeaponId primary, secondary; // the loadout of my first placing, likewise
     int slot;               // mine on the server, once welcomed; -1 before
     uint32_t tick;          // the server's, as of the welcome
     uint16_t round;         // the round being played, as of the last Map
     char map[NET_MAP_SIZE]; // on which map
     char hostname[NET_NAME_SIZE]; // the server's name, as the Map said
+    bool rope; // whether the rope is allowed in this game (sv_rope), as the Map said
     char address[64];       // the server's, as connected to
     uint16_t port;
     bool had_map;           // a Map came since the join: the next is a change of map

@@ -61,7 +61,7 @@
 #define MAX_VELOCITY 11.0f // the safety clamp on a soldier's speed, each way
 
 // A fresh soldier at a spot; the tally and the count of its lives survive a respawn.
-void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId primary, WeaponId secondary);
+void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, Gear gear, WeaponId primary, WeaponId secondary);
 
 // The server places a soldier on one of its team's spawn points: a new life.
 void soldier_respawn(const Context *ctx, World *w, uint8_t index, Events *events);
@@ -110,6 +110,34 @@ void soldier_control(const Context *ctx, World *w, uint8_t index, Events *events
 
 // Leg transitions are blocked while lying down; Get_Up is the only way out of Prone.
 void legs_apply(const Anims *anims, Soldier *s, AnimId id, int32_t frame);
+
+// --- rope.c ------------------------------------------------------------------------
+
+// The LAW's bullet speed: the pace the throw's flying end is flung at, and the pace
+// the climb's ramp is a part of (a tenth at first, a fifth at most).
+#define ROPE_SPEED 23.0f
+// The swing's gathered momentum, cut at the walking clamp: faster, and a tick's
+// travel outruns the collision's push-out and the swing carries its owner through
+// polygons. The cut is on the gain — the push against the momentum still works.
+#define ROPE_SWING_MAX MAX_VELOCITY
+#define ROPE_GIVE 0.1875f // the part of its length a rope stretches at most, pulled past it
+
+// The rope's control step, in place of the jets' for a soldier of the rope gear: the
+// key held flings the rope at the aim, a rocket's flight that slows and falls, until
+// it holds a poly the player can stand on; pressed while it holds, it cuts. The up
+// key climbs the hold to its anchor, where the rope lets go — a slow pull that builds,
+// a tenth of the rope's pace gaining a hundredth a tick held, to a fifth at most —
+// and left and right swing on it. A release while it throws retracts it. Called from
+// soldier_control.
+void rope_control(const Context *ctx, World *w, uint8_t index, Events *events);
+
+// A cut from outside, where every machine's bullets pass computes it: the soldier
+// falls at its current velocity. `at` is where the cut happened, for the sparks.
+void rope_cut(World *w, uint8_t player, Vec2 at, Events *events);
+
+// Does the segment a-b cross the soldier's rope — the hanging part or the part wound
+// around its corners? Gives the crossing point. For the bullets' pass to cut it.
+bool rope_crosses(const Context *ctx, const Soldier *s, Vec2 a, Vec2 b, Vec2 *point);
 
 // --- soldier_collision.c -----------------------------------------------------------
 

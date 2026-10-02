@@ -483,7 +483,7 @@ static void audio_soldier(Audio *a, const Context *ctx, int slot, const Soldier 
                     ((s->legs.id == ANIM_JUMP_SIDE && ((s->direction == -1 && (c & BUTTON_RIGHT)) || (s->direction == 1 && (c & BUTTON_LEFT)))) ||
                      (s->legs.id == ANIM_ROLL_BACK && (c & BUTTON_JUMP)));
     if (!backflip) {
-        if ((c & BUTTON_JET) && s->jets > 0) voice_play(a, slot, VOICE_JETS, "rocketz.wav", at);
+        if (s->gear == GEAR_JETS && (c & BUTTON_JET) && s->jets > 0) voice_play(a, slot, VOICE_JETS, "rocketz.wav", at);
         else voice_stop(a, slot, VOICE_JETS);
     }
 

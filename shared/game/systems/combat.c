@@ -179,8 +179,9 @@ static void fire(const Context *ctx, World *w, uint8_t index, Events *events)
         s->vel = vec2_sub(s->vel, vec2_mul(vel, vec2(0.0412f, 0.041f)));
     }
     if (id == WEAPON_MINIGUN) {
-        Vec2 push = (s->controls & BUTTON_JET) && s->jets > 0 ? vec2_mul(vel, vec2(0.0012f, 0.0009f))
-                                                              : vec2_mul(vel, vec2(0.0082f, 0.0078f));
+        Vec2 push = (s->gear == GEAR_JETS && (s->controls & BUTTON_JET) && s->jets > 0)
+                        ? vec2_mul(vel, vec2(0.0012f, 0.0009f))
+                        : vec2_mul(vel, vec2(0.0082f, 0.0078f));
         if (s->held) push = vec2_mul(push, vec2(0.5f, 0.7f)); // anything held: the flag, even the parachute
         push.x *= 0.6f;
         s->vel = vec2_sub(s->vel, push);
@@ -560,7 +561,8 @@ float movement_inaccuracy(const Context *ctx, const Soldier *s)
     default:
         break;
     }
-    if ((s->controls & BUTTON_JET) && s->jets > 0) return acc * 7.0f;
+    // jetting, or riding a rope, spoils the aim
+    if ((s->controls & BUTTON_JET) && (s->gear == GEAR_JETS ? s->jets > 0 : s->rope != ROPE_NONE)) return acc * 7.0f;
 
     AnimId legs = s->legs.id;
     bool lying_or_crouched = legs == ANIM_PRONE || legs == ANIM_PRONE_MOVE || legs == ANIM_CROUCH ||

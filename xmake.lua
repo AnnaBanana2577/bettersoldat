@@ -200,7 +200,8 @@ task("dist")
         local version = project.version()
         local distdir = path.join(config.buildir(), "dist")
         local stem = ("soldatreloaded-%s-%s-%s"):format(version, plat, arch)
-        local extension = plat == "windows" and ".zip" or ".tar.gz"
+        -- the mingw cross-build's exes are Windows', so they want a zip too
+        local extension = (plat == "windows" or plat == "mingw") and ".zip" or ".tar.gz"
         local client, server, launcher = project.target("client"), project.target("server"), project.target("launcher")
 
         -- the art and the sound: the client's alone

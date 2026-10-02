@@ -175,6 +175,19 @@ static void soldier_halves(void)
     src->kills = 3;
     src->rng = 0xdeadbeefcafef00dull;
     src->cmd_seq = 123456;
+    // the rope out: its fields ride the owned half, and the gear rides the served
+    src->rope = ROPE_ATTACHED;
+    src->rope_tip = vec2(src->pos.x, src->pos.y - 120.0f);
+    src->rope_tip_vel = vec2(3.0f, -4.0f);
+    src->rope_len = 120.0f;
+    src->rope_grab = 96.5f;
+    src->rope_climb = 7.5f;
+    // the per-machine memory too: the corners wound and the key's press edge
+    src->rope_wraps_count = 2;
+    src->rope_wraps[0] = vec2(101.5f, -42.0f);
+    src->rope_wraps[1] = vec2(103.0f, -39.0f);
+    src->was_jet = true;
+    src->gear = GEAR_ROPE;
 
     uint8_t data[512];
     NetBuf w = netbuf_writer(data, sizeof data);
@@ -207,7 +220,9 @@ static void soldier_halves(void)
     run(g, 1, press_nothing);
     w = netbuf_writer(data, sizeof data);
     netfields_serialize(&w, SOLDIER_OWNED_FIELDS, SOLDIER_OWNED_COUNT, src, &before);
-    CHECK(netbuf_ok(&w) && netbuf_bytes(&w) < 40, "a tick's delta of the owned half is small (%zu bytes)", netbuf_bytes(&w));
+    // the rope may catch a corner in the tick: its pins ride the owned half now, a
+    // handful of bytes the delta carries as they change
+    CHECK(netbuf_ok(&w) && netbuf_bytes(&w) < 60, "a tick's delta of the owned half is small (%zu bytes)", netbuf_bytes(&w));
     scene_free(g);
 }
 

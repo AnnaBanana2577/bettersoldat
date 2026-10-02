@@ -80,10 +80,15 @@ static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, cons
     out.grenades = to->grenades;
     out.health = to->health;
     out.vest = to->vest;
-    out.jetting = (to->controls & BUTTON_JET) && to->jets > 0;
+    out.jetting = to->gear == GEAR_JETS && (to->controls & BUTTON_JET) && to->jets > 0;
     out.fired = to->fired;
     out.spawn_protected = to->cease_fire_counter >= 0;
     out.look = to->look;
+    out.rope = to->rope;
+    out.rope_tip = to->rope_tip;
+    out.rope_wraps_count = to->rope_wraps_count;
+    for (int w = 0; w < to->rope_wraps_count; w++) out.rope_wraps[w] = to->rope_wraps[w];
+    out.gear = to->gear;
     if (team_game) out.look.shirt = team_shirt(to->team);
     return out;
 }

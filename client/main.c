@@ -106,10 +106,12 @@ typedef struct App {
     Cvar *shirt, *pants, *skin, *hair, *jet;      // the look's colours, "RRGGBB"
     Cvar *hair_style, *head_style, *chain_style;  // and its styles, by number
     Cvar *style;                                  // the gostek: 0 male, 1 female, 2 waifu, 3 rat
+    Cvar *gear;                                   // the gear at the next spawn: jets, or a rope
     Cvar *primary, *secondary;                    // the loadout at the next spawn
     Cvar *smooth;                                 // milliseconds a correction of another player is smoothed over
     Cvar *interp;                                 // ticks the view keeps behind the newest snapshot, at least (cl_interp)
     Cvar *netstats;                               // a line a second on the console of how the line is doing (cl_netstats)
+    Cvar *rope_debug;                             // cl_rope_debug: each soldier's rope each half second, and changes at once
     Cvar *volume;                                 // snd_volume, 0 to 100
     Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
@@ -119,6 +121,7 @@ typedef struct App {
     // keeps, so a dedicated server started beside this config plays the same game.
     Cvar *sv_port, *sv_maps, *sv_hostname, *sv_gamemode, *sv_timelimit, *sv_killlimit;
     Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat, *votepercent;
+    Cvar *rope; // sv_rope: whether the rope is allowed in a game hosted here (Local Play)
     Host *host; // the game hosted here (the `host` command), joined over the loopback; NULL for none
 
     Game *game; // large; on the heap
@@ -128,6 +131,12 @@ typedef struct App {
     ClientNet net; // the line to a server, once `connect` opens one
     Browser browser; // the main menu's server list (the `browse` command)
     uint32_t seq; // my commands, numbered
+    // cl_rope_debug's memory: each soldier's rope as of the last line, to log changes
+    struct {
+        uint8_t rope, wraps;
+        Vec2 pos;
+    } rope_seen[MAX_PLAYERS];
+    uint32_t rope_dropped, rope_held_back; // the stream's counters, as of the last line
     bool chat_just_opened; // the key that opened the prompt is not its first letter
     int chat_completing;   // Tab: the player last completed to, index + 1; 0 when not completing
     int chat_complete_from;
@@ -642,6 +651,7 @@ static void cmd_host(Console *con, int argc, char **argv, void *user)
         .bots_chat = app->bots_chat->integer != 0,
         .vote_percent = app->votepercent->integer,
         .quiet = true, // the client's own console says what happens, as online
+        .rope = app->rope->integer != 0,
     };
     snprintf(s.assets, sizeof s.assets, "%s", app->assets->value);
     snprintf(s.maps, sizeof s.maps, "%s", app->sv_maps->value);
@@ -783,12 +793,15 @@ static bool console_open(App *app, int argc, char *argv[])
     app->style = cvar_register(con, "cl_player_style", "0", CVAR_ARCHIVE, "the gostek: 0 male, 1 female, 2 waifu, 3 rat, 4 furry");
     app->primary = cvar_register(con, "cl_player_wep", "1", CVAR_ARCHIVE, "the primary at the next spawn, 1 to 10");
     app->secondary = cvar_register(con, "cl_player_secwep", "1", CVAR_ARCHIVE, "0 USSOCOM, 1 knife, 2 chainsaw, 3 LAW");
+    app->gear = cvar_register(con, "cl_player_gear", "0", CVAR_ARCHIVE, "the gear at the next spawn, 0 jets, 1 rope");
     app->smooth = cvar_register(con, "cl_smooth", "100", CVAR_ARCHIVE,
                                 "milliseconds a correction of another player is smoothed over; 0 snaps");
     app->interp = cvar_register(con, "cl_interp", "0", CVAR_ARCHIVE,
                                 "ticks the others are shown behind the newest snapshot, at least, so jitter doesn't show; raised by itself while snapshots come late");
     app->netstats = cvar_register(con, "cl_netstats", "0", 0,
                                   "1: a line a second on the console: ping, frames in hand, snapshots late and missed, the view clock's nudges, and how far the others were corrected");
+    app->rope_debug = cvar_register(con, "cl_rope_debug", "0", 0,
+                                    "log each soldier's rope each half second and changes at once, with the snapshots dropped");
     app->volume = cvar_register(con, "snd_volume", "50", CVAR_ARCHIVE, "the sound's volume, 0 to 100");
     const char *calls[RADIO_CALLS] = {"Enemy flagger", "Friendly flagger", "Enemy spotted"};
     const char *places[RADIO_CALLS] = {"up!", "middle!", "down!"};
@@ -810,6 +823,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->sv_gamemode = cvar_register(con, "sv_gamemode", "0", CVAR_ARCHIVE, "0 the map's own, 1 deathmatch, 2 capture the flag");
     app->sv_timelimit = cvar_register(con, "sv_timelimit", "15", CVAR_ARCHIVE, "minutes a round lasts");
     app->sv_killlimit = cvar_register(con, "sv_killlimit", "10", CVAR_ARCHIVE, "the score that wins a round: kills, or captures in CTF");
+    app->rope = cvar_register(con, "sv_rope", "1", CVAR_ARCHIVE, "whether the rope is allowed; 0 gives everyone jets");
     app->bots_noteam = cvar_register(con, "bots_random_noteam", "0", CVAR_ARCHIVE, "bots in a deathmatch");
     app->bots_alpha = cvar_register(con, "bots_random_alpha", "0", CVAR_ARCHIVE, "bots on alpha in capture the flag");
     app->bots_bravo = cvar_register(con, "bots_random_bravo", "0", CVAR_ARCHIVE, "bots on bravo in capture the flag");
@@ -929,9 +943,12 @@ static void apply_cvars(App *app)
         map_view_build_minimap(&app->render.map_view, window_rect(app).height);
     Soldier *me = &app->game->world.soldiers[app->me];
     me->look = look_from_cvars(app);
+    me->gear = (Gear)clampi(app->gear->integer, GEAR_JETS, GEAR_ROPE);
+    if (!app->game->world.rules.rope && me->gear == GEAR_ROPE) me->gear = GEAR_JETS; // sv_rope off: the boots are jets
     me->primary_choice = (WeaponId)clampi(app->primary->integer, WEAPON_EAGLE, WEAPON_MINIGUN);
     me->secondary_choice = (WeaponId)(WEAPON_COLT + clampi(app->secondary->integer, 0, WEAPON_LAW - WEAPON_COLT));
     app->net.look = me->look; // what the Hello says of me
+    app->net.gear = me->gear;
     app->net.primary = me->primary_choice;
     app->net.secondary = me->secondary_choice;
 }
@@ -944,7 +961,10 @@ static bool game_open(App *app, bool local)
     if (!app->game || !context_load(&app->game->ctx, app->assets->value, app->map->value)) return false;
 
     Game *g = app->game;
-    game_init(g, 1, match_settings_for_map(g->ctx.map));
+    MatchSettings settings = match_settings_for_map(g->ctx.map);
+    settings.rope = local ? app->rope->integer != 0 : app->net.rope; // sv_rope: the host's word, heard with the map
+    game_init(g, 1, settings);
+    app->menus.rope = g->world.rules.rope; // what the boots row of the weapons menu may offer
     g->world.authority = local;
     for (int i = 0; i < MAX_PLAYERS; i++) g->world.soldiers[i].look = look_from_cvars(app);
     if (!local) return true;
@@ -952,9 +972,11 @@ static bool game_open(App *app, bool local)
     Soldier *me = &g->world.soldiers[app->me];
     Team team = team_game(app) ? TEAM_ALPHA : TEAM_NONE;
     Vec2 at = spawn_point(g->ctx.map, team, &g->world.rng);
+    Gear gear = (Gear)clampi(app->gear->integer, GEAR_JETS, GEAR_ROPE);
+    if (!g->world.rules.rope && gear == GEAR_ROPE) gear = GEAR_JETS; // no rope in this game: the boots are jets
     WeaponId primary = (WeaponId)clampi(app->primary->integer, WEAPON_EAGLE, WEAPON_MINIGUN);
     WeaponId secondary = (WeaponId)(WEAPON_COLT + clampi(app->secondary->integer, 0, WEAPON_LAW - WEAPON_COLT));
-    soldier_spawn(&g->ctx, me, at, team, primary, secondary);
+    soldier_spawn(&g->ctx, me, at, team, gear, primary, secondary);
     return true;
 }
 
@@ -1068,6 +1090,39 @@ static void snapshot_tick(App *app)
     tick_snapshot_capture(&app->latest, &app->game->world);
 }
 
+// cl_rope_debug: each tick a soldier's rope changed, and every 30th tick every
+// soldier's, one line of the state as this machine has it; a snapshot dropped or held
+// back since the last line too. With a friend's rope missing, their lines stay phase 0
+// here while the friend's own client shows a rope out — the two consoles side by side
+// say where it goes wrong.
+static void rope_debug_tick(App *app)
+{
+    if (!app->rope_debug->integer) return;
+    World *w = &app->game->world;
+    bool periodic = w->tick % 30 == 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        Soldier *s = &w->soldiers[i];
+        if (!s->active) continue;
+        bool changed = s->rope != app->rope_seen[i].rope || s->rope_wraps_count != app->rope_seen[i].wraps ||
+                       vec2_length(vec2_sub(s->pos, app->rope_seen[i].pos)) > 30.0f;
+        if (!periodic && !changed) continue;
+        app->rope_seen[i].rope = (uint8_t)s->rope;
+        app->rope_seen[i].wraps = s->rope_wraps_count;
+        app->rope_seen[i].pos = s->pos;
+        console_print(app->console, "rope %d%s t%u %d tip (%.0f,%.0f) len %.0f wraps %d pos (%.0f,%.0f) vel (%.1f,%.1f)\n",
+                      i, i == app->me ? " me" : (s->remote ? "" : " local"), w->tick, s->rope, s->rope_tip.x,
+                      s->rope_tip.y, s->rope_len, s->rope_wraps_count, s->pos.x, s->pos.y, s->vel.x, s->vel.y);
+    }
+    if (app->net.stream.dropped != app->rope_dropped) {
+        console_print(app->console, "rope: %u snapshots dropped\n", app->net.stream.dropped);
+        app->rope_dropped = app->net.stream.dropped;
+    }
+    if (app->net.stream.held_back != app->rope_held_back) {
+        console_print(app->console, "rope: %u snapshots held back\n", app->net.stream.held_back);
+        app->rope_held_back = app->net.stream.held_back;
+    }
+}
+
 // One tick of the game on this frame's input. Online, the snapshot of the tick on show
 // goes onto the world first (client_stream_begin_tick), everyone else steps on the
 // keys they were last heard with (stream_command), and my state goes to the server.
@@ -1090,6 +1145,7 @@ static void tick(App *app)
     int followed = app->free_camera ? -1 : app->camera_follow >= 0 ? app->camera_follow : app->me;
     audio_tick(&app->audio, app->game, app->me, followed, app->camera.pos, &app->render.sparks);
     if (online) client_net_tick(&app->net, app->game);
+    rope_debug_tick(app);
     input_clear(&app->input);
     snapshot_tick(app);
     char names[MAX_PLAYERS][HUD_NAME];
@@ -1214,6 +1270,13 @@ static void apply_menu_action(App *app, MenuAction action)
         cvar_set(app->console, "cl_player_secwep", number);
         app->hud_data.selected_secondary = (WeaponId)action.value;
         if (!me->dead) me->secondary = weapon_state(&app->game->ctx, (WeaponId)action.value);
+        break;
+    }
+    case MENU_ACTION_PICK_GEAR: {
+        char number[8];
+        snprintf(number, sizeof number, "%d", action.value);
+        cvar_set(app->console, "cl_player_gear", number);
+        if (!me->dead) me->rope = ROPE_NONE; // a gear change cuts the rope; the switch itself is apply_cvars'
         break;
     }
     case MENU_ACTION_KICK: // the reason first, typed at the prompt; the vote goes with it
@@ -1566,6 +1629,7 @@ static void interface_open(App *app)
     if (!fonts_load(app->assets->value, r.height)) fprintf(stderr, "no fonts: the HUD draws without text\n");
     map_view_build_minimap(&app->render.map_view, r.height);
     menus_init(&app->menus, GAME_HEIGHT * r.width / r.height, &app->game->ctx.weapons);
+    app->menus.rope = app->game->world.rules.rope; // the boots offer what this game allows (sv_rope)
 }
 
 // A server's map: the world and its picture made anew for it, nobody in it until the
@@ -1629,7 +1693,10 @@ int main(int argc, char *argv[])
     audio_init(&app.audio, app.assets->value);
     interface_load(&app.hud, app.assets->value, &app.scales);
     interface_open(&app);
-    if (app.hud_demo->integer == 2) menus_show(&app.menus, MENU_LIMBO, true, HUD_MODE_CTF, 1);
+    if (app.hud_demo->integer == 2) {
+        app.menus.gear = app.game->world.soldiers[app.me].gear;
+        menus_show(&app.menus, MENU_LIMBO, true, HUD_MODE_CTF, 1);
+    }
     if (app.hud_demo->integer == 3) {
         menus_show(&app.menus, MENU_ESC, true, HUD_MODE_CTF, 1);
         app.menus.noob_show = true;

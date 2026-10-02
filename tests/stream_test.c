@@ -335,6 +335,41 @@ void stream_tests(void)
           "one release throws one grenade here and one on the server (%d here, %d there; %d left, %d there)", c.frags_of[0],
           server_frags_of[0], mine->grenades, gs->world.soldiers[0].grenades);
 
+    // the rope online: hung from a platform's edge, the corner it is wound around
+    // travels with the state, and a press of the rope key cuts it on every machine —
+    // none re-reads the press on the cut state and throws a phantom rope
+    mine->gear = gs->world.soldiers[0].gear = GEAR_ROPE;
+    Vec2 anchor = vec2(800.0f, -300.0f), hang = vec2(860.0f, -302.0f);
+    for (int i = 0; i < 2; i++) {
+        Soldier *s = i ? theirs : mine;
+        place(s, hang);
+        s->rope = ROPE_ATTACHED;
+        s->rope_tip = anchor;
+        s->rope_tip_vel = (Vec2){0};
+        s->rope_len = s->rope_grab = 60.0f;
+        s->rope_wraps_count = 0;
+        s->was_jet = false;
+    }
+    play(&conns, gs, &c, 30, 0, 0);
+    CHECK(mine->rope == ROPE_ATTACHED && theirs->rope == ROPE_ATTACHED, "the rope holds here and there (%d, %d)", mine->rope,
+          theirs->rope);
+    CHECK(mine->rope_wraps_count == theirs->rope_wraps_count && mine->rope_wraps_count > 0 &&
+              vec2_length(vec2_sub(mine->rope_wraps[0], theirs->rope_wraps[0])) < 0.5f,
+          "and the corner it is wound around is the one pin, here and there (%d wraps, (%.1f,%.1f) vs (%.1f,%.1f))",
+          mine->rope_wraps_count, mine->rope_wraps[0].x, mine->rope_wraps[0].y, theirs->rope_wraps[0].x, theirs->rope_wraps[0].y);
+    play(&conns, gs, &c, 1, BUTTON_JET, 0); // the press: the cut
+    bool phantom = false;
+    for (int round = 0; round < 15; round++) {
+        connections_poll(&conns, gs);
+        server_tick(&conns, gs, 0);
+        if (gs->world.soldiers[0].rope == ROPE_THROWING) phantom = true;
+        client_pump(&c);
+        client_tick(&c, 0);
+        enet_host_service(server.host, NULL, 10);
+    }
+    CHECK(!phantom && mine->rope == ROPE_NONE && theirs->rope == ROPE_NONE,
+          "the press cuts the rope on every machine, none throwing it again (here %d, there %d)", mine->rope, theirs->rope);
+
     // an old state is dropped
     uint32_t dropped = conns.streams[0].dropped;
     uint8_t buf[NET_MTU];
