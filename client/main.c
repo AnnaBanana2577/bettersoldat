@@ -1726,7 +1726,7 @@ int main(int argc, char *argv[])
             } else { // the menu on its own background: the game is not watched from here
                 gfx_clear((Rgba){0, 0, 0, 255});
                 Rect r = app.camera.viewport;
-                mainmenu_draw(&app.mainmenu, app.console, &app.hud, app.render.gosteks, app.game->ctx.anims, &app.game->ctx.weapons,
+                mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, app.game->ctx.anims, &app.game->ctx.weapons,
                               app.input.cursor, GAME_HEIGHT * r.width / r.height, GAME_HEIGHT / r.height, app.time,
                               console_log_line(app.console, 0), client_net_joined(&app.net), app.host != NULL, app.maps, app.map_count);
                 char command[256];

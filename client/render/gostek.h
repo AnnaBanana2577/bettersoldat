@@ -27,22 +27,23 @@
 
 #define GOSTEK_PART_COUNT 59
 
-// One sprite per (part, team 2, mirrored), plus the weapons and their muzzle flashes.
+// One sprite per (style, part, team 2, mirrored), plus the weapons and their muzzle
+// flashes. A part every style shares (the hair, the headgear, the belt's grenades) is
+// loaded once, as the male's.
 typedef struct Gostek {
-    Sprite parts[GOSTEK_PART_COUNT][2][2];
+    Sprite parts[GOSTEK_STYLE_COUNT][GOSTEK_PART_COUNT][2][2];
     Sprite weapons[WEAPON_COUNT][2]; // [mirrored]
     Sprite flashes[WEAPON_COUNT];
     bool loaded;
 } Gostek;
 
-// The gostek's and the weapons' art from <base>/gostek-gfx/<style> and
-// <base>/weapons-gfx, all at the one gostek scale; the hair and the headgear come from
-// the shared hair/ and headgear/ folders. A style with no art loads empty and draws
-// nothing.
-void gostek_load(Gostek *g, const char *base, GostekStyle style);
+// Every style's art from <base>/gostek-gfx/<style>, the hair and the headgear from the
+// shared hair/ and headgear/ folders, and the weapons' from <base>/weapons-gfx, all at
+// the one gostek scale. A style with no art loads empty and draws nothing.
+void gostek_load(Gostek *g, const char *base);
 void gostek_unload(Gostek *g);
 
-// The soldier's sprites on its pose. For a corpse (once ragdolls exist) the face hangs
+// The soldier's sprites on its pose, in the style its look gives. For a corpse (once ragdolls exist) the face hangs
 // from the head point rather than the neck, so a cut head rolls off with it. Under the
 // camera's transform.
 void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse);

@@ -469,9 +469,9 @@ static void color_picker(Ui *ui, const char *cvar, float x, float y, bool draw)
 
 // The gostek as the cvars dress it, standing, at `at` in the menu's units, `scale`
 // times its size in the world. Drawn from the art of the style the cvars choose.
-static void preview(Ui *ui, const Gostek *gosteks, const Anims *anims, Vec2 at, float scale)
+static void preview(Ui *ui, const Gostek *gostek, const Anims *anims, Vec2 at, float scale)
 {
-    if (!gosteks || !anims) return;
+    if (!gostek || !anims) return;
     Console *con = ui->con;
     Soldier s = {.active = true, .team = TEAM_NONE, .direction = 1, .health = DEFAULT_HEALTH, .aim = vec2(60, -12)};
     anim_set(anims, &s.legs, ANIM_STAND, 1);
@@ -499,12 +499,12 @@ static void preview(Ui *ui, const Gostek *gosteks, const Anims *anims, Vec2 at, 
     };
     // the world's origin lands on `at`, the world `scale` times larger than the units
     gfx_transform(mat3_ortho(-at.x / scale, (ui->game_width - at.x) / scale, -at.y / scale, (GAME_HEIGHT_UNITS - at.y) / scale));
-    gostek_draw(&gosteks[rs.look.style], &rs, false);
+    gostek_draw(gostek, &rs, false);
     gfx_transform(mat3_ortho(0, ui->game_width, 0, GAME_HEIGHT_UNITS));
     text_pixel_ratio(vec2(ui->pixel, ui->pixel));
 }
 
-static void page_player(Ui *ui, const Gostek *gosteks, const Anims *anims, const Weapons *weapons)
+static void page_player(Ui *ui, const Gostek *gostek, const Anims *anims, const Weapons *weapons)
 {
     float x = PAGE_X, y = 100;
     label(x, y, "Name", DIM);
@@ -578,7 +578,7 @@ static void page_player(Ui *ui, const Gostek *gosteks, const Anims *anims, const
     y += ROW;
     label(x, y, "Enter RRGGBB or click a swatch to pick. Team games use the team's shirt.", DIM);
 
-    preview(ui, gosteks, anims, vec2(ui->game_width - 110, 250), 3.0f);
+    preview(ui, gostek, anims, vec2(ui->game_width - 110, 250), 3.0f);
     for (size_t i = 0; i < sizeof COLOURS / sizeof COLOURS[0]; i++) {
         if (strcmp(ui->m->color_picker, COLOURS[i][1]) == 0) {
             color_picker(ui, COLOURS[i][1], x, colors_y + (float)i * ROW - 3, true);
@@ -858,7 +858,7 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
     }
 }
 
-void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gosteks, const Anims *anims,
+void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Anims *anims,
                    const Weapons *weapons, Vec2 cursor, float game_width, float pixel, double time, const char *status,
                    bool joined, bool hosting, const char (*maps)[64], int map_count)
 {
@@ -911,7 +911,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     switch (m->page) {
     case MAIN_JOIN: page_join(&ui, status, joined); break;
     case MAIN_LOCAL: page_local(&ui, status, hosting, maps, map_count); break;
-    case MAIN_PLAYER: page_player(&ui, gosteks, anims, weapons); break;
+    case MAIN_PLAYER: page_player(&ui, gostek, anims, weapons); break;
     case MAIN_CONTROLS: page_controls(&ui); break;
     case MAIN_OPTIONS: page_options(&ui); break;
     default:

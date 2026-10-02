@@ -93,9 +93,7 @@ static const GostekPart GOSTEK_PARTS[] = {
     {.file = "hair2", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 2},
     {.file = "hair4", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 4},
     // The waifu's, styles 5 and 6, the same anchors, on any gostek. Her fringe's bangs
-    // sit a little right on everyone, so it is anchored 10% in. (Her retired templates
-    // — hair1, the long hair, hair4, a copy of the bob, dred and kap — stay in her
-    // folder, never loaded.)
+    // sit a little right on everyone, so it is anchored 10% in.
     {.file = "hair5", .p1 = 9, .p2 = 12, .cx = 0.03f, .cy = 0.65f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 5},
     {.file = "hair6", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 6},
     {.file = "lancuch", .p1 = 10, .p2 = 22, .cx = 0.1f, .cy = 0.5f, .team = true, .chain = 1},
@@ -163,11 +161,16 @@ static const WeaponArt WEAPON_ART[WEAPON_COUNT] = {
 // style, whichever gostek wears them.
 static const char *const STYLE_DIRS[GOSTEK_STYLE_COUNT] = {"male", "female", "waifu", "rat", "furry"};
 
-void gostek_load(Gostek *g, const char *base, GostekStyle style)
+// A part every style wears the same: from a shared folder, loaded once, as the male's.
+static bool part_shared(const GostekPart *part)
+{
+    return part->dir || part->hair || part->head;
+}
+
+void gostek_load(Gostek *g, const char *base)
 {
     char path[512];
     *g = (Gostek){0};
-    style = (GostekStyle)clampi(style, 0, GOSTEK_STYLE_COUNT - 1);
 
     for (int id = 0; id < WEAPON_COUNT; id++) {
         const WeaponArt *art = &WEAPON_ART[id];
@@ -182,22 +185,25 @@ void gostek_load(Gostek *g, const char *base, GostekStyle style)
         }
     }
 
-    for (int i = 0; i < GOSTEK_PART_COUNT; i++) {
-        const GostekPart *part = &GOSTEK_PARTS[i];
-        for (int team = 0; team < 2; team++) {
-            for (int mirrored = 0; mirrored < 2; mirrored++) {
-                if (mirrored && !part->flip) continue; // no mirrored image: the quad flips instead
-                if (part->dir) {
-                    snprintf(path, sizeof(path), "%s/%s/%s%s.png", base, part->dir, part->file, mirrored ? "2" : "");
-                } else {
-                    // the part's style folder; team 2's under it, as the original's — except
-                    // the hair and the headgear, which come from their own shared folders
-                    // (hair/ and headgear/), one file per style
-                    const char *dir = part->hair ? "hair" : part->head ? "headgear" : STYLE_DIRS[style];
-                    snprintf(path, sizeof(path), "%s/gostek-gfx/%s%s/%s%s.png", base, dir,
-                             team == 1 && part->team ? "/team2" : "", part->file, mirrored ? "2" : "");
+    for (int style = 0; style < GOSTEK_STYLE_COUNT; style++) {
+        for (int i = 0; i < GOSTEK_PART_COUNT; i++) {
+            const GostekPart *part = &GOSTEK_PARTS[i];
+            if (style > 0 && part_shared(part)) continue;
+            for (int team = 0; team < (part->team ? 2 : 1); team++) {
+                for (int mirrored = 0; mirrored < 2; mirrored++) {
+                    if (mirrored && !part->flip) continue; // no mirrored image: the quad flips instead
+                    if (part->dir) {
+                        snprintf(path, sizeof(path), "%s/%s/%s%s.png", base, part->dir, part->file, mirrored ? "2" : "");
+                    } else {
+                        // the part's style folder; team 2's under it, as the original's — except
+                        // the hair and the headgear, which come from their own shared folders
+                        // (hair/ and headgear/), one file per style
+                        const char *dir = part->hair ? "hair" : part->head ? "headgear" : STYLE_DIRS[style];
+                        snprintf(path, sizeof(path), "%s/gostek-gfx/%s%s/%s%s.png", base, dir, team == 1 ? "/team2" : "",
+                                 part->file, mirrored ? "2" : "");
+                    }
+                    sprite_load(&g->parts[style][i][team][mirrored], path, NULL);
                 }
-                sprite_load(&g->parts[i][team][mirrored], path, NULL);
             }
         }
     }
@@ -206,9 +212,11 @@ void gostek_load(Gostek *g, const char *base, GostekStyle style)
 
 void gostek_unload(Gostek *g)
 {
-    for (int i = 0; i < GOSTEK_PART_COUNT; i++) {
-        for (int t = 0; t < 2; t++) {
-            for (int m = 0; m < 2; m++) sprite_unload(&g->parts[i][t][m]);
+    for (int style = 0; style < GOSTEK_STYLE_COUNT; style++) {
+        for (int i = 0; i < GOSTEK_PART_COUNT; i++) {
+            for (int t = 0; t < 2; t++) {
+                for (int m = 0; m < 2; m++) sprite_unload(&g->parts[style][i][t][m]);
+            }
         }
     }
     for (int id = 0; id < WEAPON_COUNT; id++) {
@@ -295,6 +303,7 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
     int team = s->team == TEAM_BRAVO || s->team == TEAM_DELTA ? 1 : 0;
     bool facing_left = s->facing_left;
     const PlayerLook *look = &s->look;
+    int style = clampi(look->style, 0, GOSTEK_STYLE_COUNT - 1);
 
     // the pose's points, and the four the chains and the dreadlocks hang from
     Vec2 p[GOSTEK_POINTS];
@@ -338,7 +347,7 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
         if (part->cigar && s->has_cigar != 5 && s->has_cigar != 10) continue;
 
         bool mirrored = facing_left && part->flip;
-        Sprite sprite = g->parts[i][part->team ? team : 0][mirrored ? 1 : 0];
+        Sprite sprite = g->parts[part_shared(part) ? 0 : style][i][part->team ? team : 0][mirrored ? 1 : 0];
         if (sprite.tex.handle == 0) continue;
 
         Vec2 p1 = p[part->p1 - 1];

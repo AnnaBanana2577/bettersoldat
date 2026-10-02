@@ -5,7 +5,7 @@
 void render_init(Render *r, const char *base, const Context *ctx)
 {
     *r = (Render){.bones = &ctx->skeletons->gostek};
-    for (int style = 0; style < GOSTEK_STYLE_COUNT; style++) gostek_load(&r->gosteks[style], base, (GostekStyle)style);
+    gostek_load(&r->gostek, base);
     bullet_art_load(&r->bullet_art, base);
     things_art_load(&r->things_art, base);
     sparks_load(&r->sparks, base);
@@ -18,7 +18,7 @@ void render_destroy(Render *r)
     sparks_unload(&r->sparks);
     things_art_unload(&r->things_art);
     bullet_art_unload(&r->bullet_art);
-    for (int style = 0; style < GOSTEK_STYLE_COUNT; style++) gostek_unload(&r->gosteks[style]);
+    gostek_unload(&r->gostek);
 }
 
 void render_tick(Render *r, const Context *ctx, const World *w, const Events *events)
@@ -30,8 +30,7 @@ static void draw_soldiers(const Render *r, const RenderState *state)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const RenderSoldier *s = &state->soldiers[i];
-        if (s->active && s->team != TEAM_SPECTATOR)
-            gostek_draw(&r->gosteks[clampi(s->look.style, 0, GOSTEK_STYLE_COUNT - 1)], s, s->corpse);
+        if (s->active && s->team != TEAM_SPECTATOR) gostek_draw(&r->gostek, s, s->corpse);
     }
 }
 
