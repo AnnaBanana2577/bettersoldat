@@ -2,7 +2,8 @@
 
 // How big each image is in game units: <base>/mod.ini's [SCALE] section, the original's
 // ScaleData. An image drawn at its pixel size divided by its scale; a scale by its path
-// (interface-gfx/cursor.png=10), else by its folder, else DefaultScale (4.5).
+// (interface-gfx/cursor.png=10), else by the nearest folder above it, else DefaultScale
+// (4.5).
 
 #include <stdbool.h>
 

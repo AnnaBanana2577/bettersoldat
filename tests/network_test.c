@@ -171,7 +171,7 @@ static void soldier_halves(void)
     src->stat = 5;
     src->use_time = 4;
     src->look = (PlayerLook){.shirt = {1, 2, 3, 255}, .pants = {4, 5, 6, 255}, .skin = {7, 8, 9, 255}, .hair = {10, 11, 12, 255},
-                             .jet = {13, 14, 15, 255}, .hair_style = 2, .head_style = 1, .chain_style = 2};
+                             .jet = {13, 14, 15, 255}, .hair_style = 2, .head_style = 1, .chain_style = 2, .style = GOSTEK_STYLE_WAIFU};
     src->kills = 3;
     src->rng = 0xdeadbeefcafef00dull;
     src->cmd_seq = 123456;
@@ -217,7 +217,9 @@ static void messages(void)
     NetBuf w = netbuf_writer(data, sizeof data);
     MsgKind kind = MSG_HELLO;
     MsgHello hello = {.version = NET_VERSION, .name = "Major Pain"};
-    hello.look.hair_style = 3;
+    hello.look.hair_style = 6;
+    hello.look.head_style = 3;
+    hello.look.style = GOSTEK_STYLE_FURRY; // the last style, the widest the wire lets it be
     hello.primary = WEAPON_BARRETT;
     msg_kind(&w, &kind);
     msg_hello(&w, &hello);
@@ -228,7 +230,9 @@ static void messages(void)
     msg_hello(&r, &got);
     CHECK(got_kind == MSG_HELLO && got.version == NET_VERSION && strcmp(got.name, hello.name) == 0 && netbuf_done(&r),
           "a Hello round trips, kind first");
-    CHECK(got.look.hair_style == 3 && got.primary == WEAPON_BARRETT, "with the player's look and loadout");
+    CHECK(got.look.hair_style == 6 && got.look.head_style == 3 && got.look.style == GOSTEK_STYLE_FURRY &&
+              got.primary == WEAPON_BARRETT,
+          "with the player's look and loadout");
     CHECK(MSG_RELIABLE[MSG_HELLO] && MSG_RELIABLE[MSG_CHAT] && MSG_RELIABLE[MSG_VOTE] && !MSG_RELIABLE[MSG_SNAPSHOT] &&
               !MSG_RELIABLE[MSG_CLIENT_STATE],
           "news is reliable and state is not, by the table");

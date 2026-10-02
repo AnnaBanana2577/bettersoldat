@@ -21,7 +21,7 @@ typedef struct RenderOptions {
 } RenderOptions;
 
 typedef struct Render {
-    Gostek gostek;
+    Gostek gosteks[GOSTEK_STYLE_COUNT]; // one per GostekStyle, loaded from its folder under gostek-gfx
     BulletArt bullet_art;
     ThingsArt things_art;
     Sparks sparks;
@@ -31,7 +31,7 @@ typedef struct Render {
 
 // The gostek's art and the map's, from `base`. The window must be open; the context
 // must outlive the renderer.
-void render_init(Render *r, const char *base, const Context *ctx);
+void render_init(Render *r, const char *base, const Context *ctx, const ScaleData *scales);
 void render_destroy(Render *r);
 
 // Once per tick, after the game's: the tick's events become sparks, and the sparks

@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 typedef enum GostekColor {
     GOSTEK_COLOR_NONE,
@@ -15,7 +16,7 @@ typedef enum GostekColor {
 
 typedef struct GostekPart {
     const char *file; // base name under `dir`
-    const char *dir;  // the folder it is read from; gostek-gfx when NULL
+    const char *dir;  // the folder it is read from; the style's under gostek-gfx when NULL
     int p1, p2;       // skeleton points, the original's 1-based numbering
     float cx, cy;     // anchor within the sprite, 0..1
     float flex;       // if > 0, stretch along the part's length
@@ -47,6 +48,8 @@ static const GostekPart GOSTEK_PARTS[] = {
     // (Grabbed_Helmet, Grabbed_Hat): behind everything, as the original draws them.
     {.file = "helm", .p1 = 15, .p2 = 19, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 1, .grabbed = true},
     {.file = "kap", .p1 = 15, .p2 = 19, .cx = 0.1f, .cy = 0.4f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 2, .grabbed = true},
+    // The waifu's headgear takes 3, its own file.
+    {.file = "helm3", .p1 = 15, .p2 = 19, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 3, .grabbed = true},
     {.file = "udo", .p1 = 6, .p2 = 3, .cx = 0.2f, .cy = 0.5f, .flex = 5, .flip = true, .team = true, .color = GOSTEK_COLOR_PANTS},
     {.file = "ranny/udo", .p1 = 6, .p2 = 3, .cx = 0.2f, .cy = 0.5f, .flex = 5, .flip = true, .team = true, .blood = true},
     {.file = "stopa", .p1 = 2, .p2 = 18, .cx = 0.35f, .cy = 0.35f, .flip = true, .team = true, .foot = true},
@@ -72,10 +75,15 @@ static const GostekPart GOSTEK_PARTS[] = {
     {.file = "morda", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_SKIN},
     {.file = "ranny/morda", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HEAD_BLOOD, .blood = true},
     // The hair, the headgear and the chain, in the original's order. A helmet or a hat
-    // covers every hair style but Mr. T's; the bow's band replaces them all.
+    // covers every hair style but the mohawk's (Mr. T's); the bow's band replaces them
+    // all. The hairstyles and the headgear live in their own shared folders under
+    // gostek-gfx (hair/ and headgear/), each file named by its style — hair1 to hair6
+    // and helm, kap, helm3 — whichever gostek wears it, except the rat and the furry,
+    // which wear only army, punk and Mr. T, and no headgear.
     {.file = "hair3", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 3},
-    {.file = "helm", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 1},
+    {.file = "helm", .p1 = 9, .p2 = 12, .cx = -0.1, .cy = 0.52f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 1},
     {.file = "kap", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 2},
+    {.file = "helm3", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_MAIN, .head = 3},
     {.file = "badge", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .badge = true},
     {.file = "hair1", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 1},
     {.file = "dred", .p1 = 23, .p2 = 24, .cx = 0, .cy = 1.22f, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 1, .dread = 1},
@@ -85,6 +93,12 @@ static const GostekPart GOSTEK_PARTS[] = {
     {.file = "dred", .p1 = 23, .p2 = 24, .cx = -0.2f, .cy = -1.35f, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 1, .dread = 5},
     {.file = "hair2", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 2},
     {.file = "hair4", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 4},
+    // The waifu's, styles 5 and 6, the same anchors: her art, at its own 20.5 scale, on
+    // any gostek. Her fringe's bangs sit a little right on everyone, so it is anchored
+    // 10% in. (Her retired templates — hair1, the long hair, hair4, a copy of the bob,
+    // dred and kap — stay in her folder, never loaded.)
+    {.file = "hair5", .p1 = 9, .p2 = 12, .cx = 0.03f, .cy = 0.65f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 5},
+    {.file = "hair6", .p1 = 9, .p2 = 12, .cx = 0, .cy = 0.5f, .flip = true, .team = true, .color = GOSTEK_COLOR_HAIR, .hair = 6},
     {.file = "lancuch", .p1 = 10, .p2 = 22, .cx = 0.1f, .cy = 0.5f, .team = true, .chain = 1},
     {.file = "lancuch", .p1 = 11, .p2 = 22, .cx = 0.1f, .cy = 0.5f, .team = true, .chain = 1},
     {.file = "metal", .p1 = 22, .p2 = 21, .cx = 0.5f, .cy = 0.7f, .flip = true, .team = true, .chain = 1},
@@ -143,21 +157,29 @@ static const WeaponArt WEAPON_ART[WEAPON_COUNT] = {
     [WEAPON_KNIFE] = {"knife", -0.1f, 0.6f, 0, 0, NULL, 0, 0, .hand_p2 = 20, .unslung = true},
 };
 
-void gostek_load(Gostek *g, const char *base)
+// The style folders under gostek-gfx: each holds the parts (ranny/ and team2/ among
+// them) at the scale mod.ini gives the folder. Female and rat are templates for now
+// (copies of the male's art); the furry keeps the rat's rules with its own face. The
+// hair and the headgear do not come from here: they live in their own shared folders
+// (hair/ and headgear/), one file per style, whichever gostek wears them.
+static const char *const STYLE_DIRS[GOSTEK_STYLE_COUNT] = {"male", "female", "waifu", "rat", "furry"};
+
+void gostek_load(Gostek *g, const char *base, const ScaleData *scales, GostekStyle style)
 {
     char path[512];
     *g = (Gostek){0};
+    style = (GostekStyle)clampi(style, 0, GOSTEK_STYLE_COUNT - 1);
 
     for (int id = 0; id < WEAPON_COUNT; id++) {
         const WeaponArt *art = &WEAPON_ART[id];
         if (!art->stem) continue;
         for (int mirrored = 0; mirrored < 2; mirrored++) {
             snprintf(path, sizeof(path), "%s/weapons-gfx/%s%s", base, art->stem, mirrored ? "-2.png" : ".png");
-            sprite_load(&g->weapons[id][mirrored], path, NULL);
+            sprite_load_scaled(&g->weapons[id][mirrored], path, NULL, scale_data_get(scales, path + strlen(base) + 1));
         }
         if (art->fire) {
             snprintf(path, sizeof(path), "%s/weapons-gfx/%s.png", base, art->fire);
-            sprite_load(&g->flashes[id], path, NULL);
+            sprite_load_scaled(&g->flashes[id], path, NULL, scale_data_get(scales, path + strlen(base) + 1));
         }
     }
 
@@ -166,9 +188,18 @@ void gostek_load(Gostek *g, const char *base)
         for (int team = 0; team < 2; team++) {
             for (int mirrored = 0; mirrored < 2; mirrored++) {
                 if (mirrored && !part->flip) continue; // no mirrored image: the quad flips instead
-                const char *dir = part->dir ? part->dir : (team == 1 && part->team ? "gostek-gfx/team2" : "gostek-gfx");
-                snprintf(path, sizeof(path), "%s/%s/%s%s.png", base, dir, part->file, mirrored ? "2" : "");
-                sprite_load(&g->parts[i][team][mirrored], path, NULL);
+                if (part->dir) {
+                    snprintf(path, sizeof(path), "%s/%s/%s%s.png", base, part->dir, part->file, mirrored ? "2" : "");
+                } else {
+                    // the part's style folder; team 2's under it, as the original's — except
+                    // the hair and the headgear, which come from their own shared folders
+                    // (hair/ and headgear/), one file per style
+                    const char *dir = part->hair ? "hair" : part->head ? "headgear" : STYLE_DIRS[style];
+                    snprintf(path, sizeof(path), "%s/gostek-gfx/%s%s/%s%s.png", base, dir,
+                             team == 1 && part->team ? "/team2" : "", part->file, mirrored ? "2" : "");
+                }
+                sprite_load_scaled(&g->parts[i][team][mirrored], path, NULL,
+                                   scale_data_get(scales, path + strlen(base) + 1));
             }
         }
     }
@@ -284,7 +315,9 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
     // the headgear: on the head, or in the hand past the fourth frame of a wipe or a
     // take-off; the hair shows under neither but Mr. T's, and once the helmet is off
     bool grabbed = (s->body_anim == ANIM_WIPE || s->body_anim == ANIM_TAKE_OFF) && s->body_frame > 4;
-    bool capped = look->head_style != 0 && s->wear_helmet == 1;
+    // the rat and the furry never cap, so a stale head style from an old config cannot bare their heads
+    bool capped = look->head_style != 0 && s->wear_helmet == 1 && look->style != GOSTEK_STYLE_RAT &&
+                  look->style != GOSTEK_STYLE_FURRY;
     bool hair_shown = !bow && (grabbed || !capped || look->hair_style == 3);
 
     for (int i = 0; i < GOSTEK_PART_COUNT; i++) {
@@ -296,7 +329,12 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
         if (part->vest && s->vest <= 0.0f) continue;
         if (part->badge && !bow) continue;
         if (part->nade > 0 && part->nade > carried) continue; // a body keeps its belt, as the original leaves it
+        // the rat and the furry wear only army, punk and Mr. T (2 and 3), and no headgear
+        if (part->hair && (look->style == GOSTEK_STYLE_RAT || look->style == GOSTEK_STYLE_FURRY) &&
+            part->hair != 2 && part->hair != 3)
+            continue;
         if (part->hair && (part->hair != look->hair_style || !hair_shown)) continue;
+        if (part->head && (look->style == GOSTEK_STYLE_RAT || look->style == GOSTEK_STYLE_FURRY)) continue;
         if (part->head && (part->head != look->head_style || bow || !capped || part->grabbed != grabbed)) continue;
         if (part->chain && part->chain != look->chain_style) continue;
         if (part->cigar && s->has_cigar != 5 && s->has_cigar != 10) continue;

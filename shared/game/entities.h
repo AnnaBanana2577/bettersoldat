@@ -168,15 +168,28 @@ typedef struct Idle {
     uint8_t seen;
 } Idle;
 
+// Which gostek the soldier wears: the folder of its art under gostek-gfx, and the
+// parts' own scale in mod.ini. Female and rat wear the male's art as a template for
+// now; the furry has its own face and keeps the rat's rules.
+typedef enum GostekStyle {
+    GOSTEK_STYLE_MALE = 0,
+    GOSTEK_STYLE_FEMALE,
+    GOSTEK_STYLE_WAIFU,
+    GOSTEK_STYLE_RAT,
+    GOSTEK_STYLE_FURRY,
+    GOSTEK_STYLE_COUNT,
+} GostekStyle;
+
 // How a player looks: the colours and the styles the gostek is drawn with. The player
 // chooses them (the client's cl_player_* cvars) and they travel with the name, so every
 // client draws everyone the same. Nothing in a tick reads them.
 typedef struct PlayerLook {
     Rgba shirt, pants, skin, hair;
     Rgba jet;            // the jet's flame, once the sparks are drawn
-    uint8_t hair_style;  // 0 army (none), 1 dreadlocks, 2 punk, 3 Mr. T, 4 normal
-    uint8_t head_style;  // 0 none, 1 helmet, 2 hat
+    uint8_t hair_style;  // 0 army (none); 1-4 the male's (dreadlocks, punk, Mr. T, normal), 5-6 the waifu's (fringe, bob); the rat and the furry wear only army, punk and Mr. T
+    uint8_t head_style;  // 0 none; 1-2 the male's (helmet, hat), 3 the waifu's (her helmet); the rat and the furry wear none
     uint8_t chain_style; // 0 none, 1 dog tags, 2 gold chain
+    uint8_t style;       // the gostek: 0 male, 1 female, 2 waifu, 3 rat, 4 furry
 } PlayerLook;
 
 // A soldier is run in one place at a time: the server runs them all, on the commands
