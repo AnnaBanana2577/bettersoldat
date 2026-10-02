@@ -358,7 +358,10 @@ void stream_tests(void)
 
     // the rope online: hung from a platform's edge, the corner it is wound around
     // travels with the state, and a press of the rope key cuts it on every machine —
-    // none re-reads the press on the cut state and throws a phantom rope
+    // none re-reads the press on the cut state and throws a phantom rope; in a game that
+    // allows it (sv_rope 1: the rope is off by default)
+    gs->match.settings.rope = c.game->match.settings.rope = true;
+    gs->world.rules.rope = c.game->world.rules.rope = true;
     mine->gear = gs->world.soldiers[0].gear = GEAR_ROPE;
     Vec2 anchor = vec2(800.0f, -300.0f), hang = vec2(860.0f, -302.0f);
     for (int i = 0; i < 2; i++) {

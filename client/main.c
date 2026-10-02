@@ -861,7 +861,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->sv_gamemode = cvar_register(con, "sv_gamemode", "0", CVAR_ARCHIVE, "0 the map's own, 1 deathmatch, 2 capture the flag");
     app->sv_timelimit = cvar_register(con, "sv_timelimit", "15", CVAR_ARCHIVE, "minutes a round lasts");
     app->sv_killlimit = cvar_register(con, "sv_killlimit", "10", CVAR_ARCHIVE, "the score that wins a round: kills, or captures in CTF");
-    app->rope = cvar_register(con, "sv_rope", "1", CVAR_ARCHIVE, "whether the rope is allowed; 0 gives everyone jets");
+    app->rope = cvar_register(con, "sv_rope", "0", CVAR_ARCHIVE, "1: the rope is allowed in a game hosted here, an experimental gear in place of the jets; 0 gives everyone jets");
     app->bots_noteam = cvar_register(con, "bots_random_noteam", "0", CVAR_ARCHIVE, "bots in a deathmatch");
     app->bots_alpha = cvar_register(con, "bots_random_alpha", "0", CVAR_ARCHIVE, "bots on alpha in capture the flag");
     app->bots_bravo = cvar_register(con, "bots_random_bravo", "0", CVAR_ARCHIVE, "bots on bravo in capture the flag");

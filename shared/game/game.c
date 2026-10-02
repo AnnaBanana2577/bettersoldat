@@ -79,7 +79,7 @@ MatchSettings match_default_settings(void)
         .respawn_time = DEFAULT_RESPAWN_TIME,
         .max_grenades = DEFAULT_MAX_GRENADES,
         .medikit_cooldown = DEFAULT_MEDIKIT_COOLDOWN,
-        .rope = true,
+        .rope = false, // experimental: off unless a server allows it (sv_rope)
     };
 }
 

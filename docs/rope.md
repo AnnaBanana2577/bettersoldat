@@ -5,6 +5,10 @@ soldier flings at the aim; it holds on the first poly it reaches, and from then 
 it is a way up, a way down, a swing, and a slingshot — all of it on the rope key,
 the up and down keys, and left and right.
 
+It is experimental, and off unless the server allows it: sv_rope 1 on a dedicated
+server, or Rope On on the main menu's Local Play page. Off, everyone has jets and the
+weapons menu shows no Boots row; on, a player picks the rope there (cl_player_gear).
+
 ## The throw
 
 Hold the rope key (the jet key): the rope leaves the hand, flying at the aim the way

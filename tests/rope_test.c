@@ -10,7 +10,8 @@
 
 #include "test.h"
 
-// A game like scene(), but soldier 0 wears the rope.
+// A game like scene(), but soldier 0 wears the rope, in a game that allows it (sv_rope 1:
+// the rope is off by default).
 static Game *rope_scene(void)
 {
     Game *g = calloc(1, sizeof(Game));
@@ -18,7 +19,9 @@ static Game *rope_scene(void)
         printf("could not load map 'Arena' from assets/: the tests run from the project directory\n");
         exit(2);
     }
-    game_init(g, 1, match_settings_for_map(g->ctx.map));
+    MatchSettings settings = match_settings_for_map(g->ctx.map);
+    settings.rope = true;
+    game_init(g, 1, settings);
     g->world.authority = true;
 
     uint64_t rng = 7;
