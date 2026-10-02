@@ -29,11 +29,11 @@
 // until the server's state comes down the line.
 //
 // The binds below are the fallback for a missing config.cfg; the file's are the ones
-// that count. Alt held is the radio menu (+radio): a call by its number, then a
-// place by its, said to the team from the radio_* cvars. Alt with a letter is a taunt
-// in the config (say, say_team). The view's: Escape the menu, Tab the weapons, M the
-// teams, F1 the scoreboard, F2 the weapon stats, F3 the minimap (ui_minimap), F5 the
-// FPS line (ui_info), F7 the names (ui_playernames). F9 toggles the wireframe
+// that count. V is the radio menu (+radio), opened and shut by a press: a call by its
+// number, then a place by its, said to the team from the radio_* cvars. Alt with a
+// letter is a taunt in the config (say, say_team). The view's: Escape the menu, Tab the
+// weapons, M the teams, F1 the scoreboard, F2 the weapon stats, F3 the minimap
+// (ui_minimap), F5 the FPS line (ui_info), F7 the names (ui_playernames). F9 toggles the wireframe
 // (r_wireframe), F10 the debug overlay (r_debug), F4 vsync (r_swapeffect, off as the
 // original's default). There is no zoom: everyone sees the same 480 units of height.
 
@@ -72,6 +72,7 @@
 #define CONFIG "config.cfg"
 #define SCREENSHOT_FRAME 60
 #define RADIO_CALLS 3  // the radio menu's first choices, and each one's second choices
+#define RADIO_COOLDOWN (3 * TICK_RATE) // a radio call heard, the next stays quiet this long (RadioCooldown)
 #define CURSORSPRITE_DISTANCE 15.0f // the original's: how near the cursor names a player
 #define SPECTATORAIMDIST 30.0f      // the original's: the free camera's speed, by the cursor's offset
 
@@ -86,7 +87,7 @@ static const char *VIEW_BINDS =
     "bind escape escmenu; bind tab weaponsmenu; bind m teammenu; bind f1 fragsmenu; bind f2 statsmenu;"
     "bind f3 \"toggle ui_minimap\"; bind f4 \"toggle r_swapeffect\"; bind f5 \"toggle ui_info\";"
     "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
-    "bind alt +radio; bind t chat; bind y teamchat; bind slash cmd; bind f12 \"say /yes\"; bind f11 \"say /no\"";
+    "bind v +radio; bind t chat; bind y teamchat; bind slash cmd; bind f12 \"say /yes\"; bind f11 \"say /no\"";
 
 typedef struct App {
     Console *console; // large; on the heap
@@ -135,6 +136,7 @@ typedef struct App {
     int chat_complete_from;
     char chat_complete_base[HUD_TEXT];
     char chat_last[HUD_TEXT]; // the last line sent, for "//" to bring back
+    int radio_cooldown;       // ticks before another radio call is heard (RadioCooldown)
     HudChatType chat_last_type;
     Consoles consoles;        // the HUD's two consoles, fed from the game console's scrollback
     int console_scroll;       // how far back the big console is paged while a line is typed
@@ -261,8 +263,23 @@ static void chat_heard(App *app, int slot, bool team, ChatKind kind, Rgba own, c
     char name[HUD_NAME];
     player_name(app, slot, name, sizeof name);
     bool spectator = app->game->world.soldiers[slot].team == TEAM_SPECTATOR;
-    Rgba color = team ? HUD_COLOR_TEAMCHAT : spectator ? HUD_COLOR_SPECTATOR_CHAT : HUD_COLOR_CHAT;
-    const char *prefix = team ? "(TEAM) " : "";
+    // A radio call (NetworkClientMessages.pas): team chat that begins '*', the call and
+    // the place, said as (RADIO) without them, its words over the head as any chat's;
+    // its call is heard over the radio (PlayRadioSound), a few seconds apart at most.
+    bool radio = team && text[0] == '*' && text[1] >= '1' && text[1] <= '3' && text[2] >= '1' && text[2] <= '3';
+    if (radio) {
+        static const char *const CALLS[] = {"efc", "ffc", "es"}, *const PLACES[] = {"up", "mid", "down"};
+        if (app->radio_cooldown <= 0) {
+            char sound[32];
+            snprintf(sound, sizeof sound, "radio/%s%s.wav", CALLS[text[1] - '1'], PLACES[text[2] - '1']);
+            audio_flat(&app->audio, sound);
+            app->radio_cooldown = RADIO_COOLDOWN;
+        }
+        text += 3;
+        team = false; // the bubble over the head is not marked the team's
+    }
+    Rgba color = team || radio ? HUD_COLOR_TEAMCHAT : spectator ? HUD_COLOR_SPECTATOR_CHAT : HUD_COLOR_CHAT;
+    const char *prefix = radio ? "(RADIO) " : team ? "(TEAM) " : "";
     if (strlen(text) < MORECHATTEXT) console_print_color(con, color, "%s[%s] %s\n", prefix, name, text);
     else console_print_color(con, color, "%s[%s] \n %s\n", prefix, name, text);
 
@@ -677,13 +694,18 @@ static void cmd_addbot(Console *con, int argc, char **argv, void *user)
     host_add_bot(app->host, team, argc > 1 ? argv[1] : NULL);
 }
 
-// +radio / -radio: the radio menu, shown while the key is held. The digits choose
-// (menu_event): a call, then its place, and the two are said to the team.
+// +radio: the radio menu opened, or shut, as the original's TAction.Radio has it
+// (ControlGame.pas): a press flips it and starts the choice over, and it stays open
+// without the key held; not while typing, nor for a spectator. -radio does nothing.
+// The digits 1 to 3 choose (menu_event): a call, then its place, which sends it.
 static void cmd_radio(Console *con, int argc, char **argv, void *user)
 {
     (void)con, (void)argc;
     App *app = user;
-    app->hud_data.radio_menu = argv[0][0] == '+';
+    if (argv[0][0] != '+') return;
+    const Soldier *me = &app->game->world.soldiers[app->me];
+    if (app->hud_data.chat_type != HUD_CHAT_NONE || !me->active || me->team == TEAM_SPECTATOR) return;
+    app->hud_data.radio_menu = !app->hud_data.radio_menu;
     app->hud_data.radio_state = 0;
 }
 
@@ -694,10 +716,12 @@ static void radio_choose(App *app, int digit)
     if (digit < 1 || digit > RADIO_CALLS) return;
     if (!d->radio_state) {
         d->radio_state = digit;
+    // the original's radio line: '*', the call and the place as digits, then the words
+    // (ClientSendStringMessage, MSGTYPE_RADIO), to the team; chat_heard reads it back
         return;
     }
     char text[CONSOLE_TEXT_SIZE];
-    snprintf(text, sizeof text, "say_team \"%s %s\"", app->radio_first[d->radio_state - 1]->value,
+    snprintf(text, sizeof text, "say_team \"*%d%d%s %s\"", d->radio_state, digit, app->radio_first[d->radio_state - 1]->value,
              app->radio_second[d->radio_state - 1][digit - 1]->value);
     console_execute(app->console, text);
     d->radio_menu = false;
@@ -837,7 +861,7 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "cmd", cmd_chat, app, "type a command: a cvar or command here, or a word for the server");
     console_add_command(con, "votemap", cmd_vote, app, "start a vote to change the map: votemap <map>");
     console_add_command(con, "votekick", cmd_vote, app, "start a vote to kick a player: votekick <name or slot>");
-    console_add_command(con, "+radio", cmd_radio, app, "hold the radio menu open");
+    console_add_command(con, "+radio", cmd_radio, app, "open the radio menu, or shut it");
     console_add_command(con, "-radio", cmd_radio, app, NULL);
     console_add_command(con, "connect", cmd_connect, app, "join a server: connect <address[:port]>");
     console_add_command(con, "disconnect", cmd_disconnect, app, "leave the server, and stop hosting one here");
@@ -1193,6 +1217,7 @@ static void tick(App *app)
 // for the next frame.
 static int ticks_owed(App *app, double dt)
 {
+    if (app->radio_cooldown > 0) app->radio_cooldown--;
     app->accumulator += dt;
     if (app->accumulator > MAX_FRAME) app->accumulator = MAX_FRAME;
     int n = (int)(app->accumulator / TICK_SECONDS);
@@ -1296,9 +1321,18 @@ static bool menu_event(App *app, const SDL_Event *e)
     bool digit_down = e->type == SDL_KEYDOWN && !e->key.repeat && e->key.keysym.scancode >= SDL_SCANCODE_1 &&
                       e->key.keysym.scancode <= SDL_SCANCODE_0;
     int digit = e->key.keysym.scancode == SDL_SCANCODE_0 ? 0 : e->key.keysym.scancode - SDL_SCANCODE_1 + 1;
-    if (app->hud_data.radio_menu && !menus_any_active(m)) {
-        if (digit_down) radio_choose(app, digit);
-        return digit_down;
+    // The radio menu (ControlGame.pas): Escape shuts it, and the escape menu waits for
+    // the next press; 1 to 3 with no modifier choose, the rest of the keys going on to
+    // their binds. An open menu takes the digits first, as the original's do.
+    bool plain = e->type == SDL_KEYDOWN && !(e->key.keysym.mod & (KMOD_CTRL | KMOD_SHIFT | KMOD_ALT | KMOD_GUI));
+    if (app->hud_data.radio_menu && plain && !e->key.repeat && e->key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
+        app->hud_data.radio_menu = false;
+        app->hud_data.radio_state = 0;
+        return true;
+    }
+    if (app->hud_data.radio_menu && !menus_any_active(m) && plain && digit_down && digit >= 1 && digit <= RADIO_CALLS) {
+        radio_choose(app, digit);
+        return true;
     }
     if (!menus_any_active(m)) return false;
     if (digit_down) {
