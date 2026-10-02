@@ -25,7 +25,9 @@ void sprite_unload(Sprite *s);
 // A rotated, scaled quad whose `center` (world units from the sprite's top-left) lands
 // on `at`: the original's DrawGostekSprite matrix, used for everything.
 void draw_sprite(Sprite sprite, Vec2 at, Vec2 center, Vec2 scale, float angle, Rgba color);
-// Replaces every visible pixel with the chosen colour; white uses the original art.
+// Every visible pixel in `color`, flat (the mask sprite_load_colorizable made, a little
+// smaller), with the art's own silhouette; the art itself for a sprite without a mask.
+// Whether to draw it so is the caller's: draw_sprite draws the art.
 void draw_sprite_colorized(Sprite sprite, Vec2 at, Vec2 center, Vec2 scale, float angle, Rgba color);
 
 // A textured quad over four arbitrary points with a colour per corner: the flags' cloth

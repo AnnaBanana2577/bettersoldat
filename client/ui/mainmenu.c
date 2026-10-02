@@ -642,7 +642,12 @@ static void preview(Ui *ui, const Gostek *gostek, const Anims *anims, Vec2 at, f
     };
     // the world's origin lands on `at`, the world `scale` times larger than the units
     gfx_transform(mat3_ortho(-at.x / scale, (ui->game_width - at.x) / scale, -at.y / scale, (GAME_HEIGHT_UNITS - at.y) / scale));
-    gostek_draw(gostek, &rs, false, cvar_color(con, "cl_grenade_color"));
+    // the belt's grenades as the game will draw them: their art while no colour is set
+    const Cvar *nades = cvar_find(con, "cl_grenade_color");
+    Rgba nade_color = {0};
+    if (nades && rgba_parse_hex(nades->value, &nade_color)) nade_color.a = 255;
+    else nade_color = (Rgba){0};
+    gostek_draw(gostek, &rs, false, nade_color);
     gfx_transform(mat3_ortho(0, ui->game_width, 0, GAME_HEIGHT_UNITS));
     text_pixel_ratio(vec2(ui->pixel, ui->pixel));
 }
@@ -668,6 +673,10 @@ static void page_player(Ui *ui, const Gostek *gostek, const Anims *anims, const 
         field(ui, x + 110, y - 3, 90, COLOURS[i][1], 6);
         Rgba c = cvar_color(ui->con, COLOURS[i][1]);
         c.a = 255;
+        // the grenades with no colour set are their own art: the swatch stands empty
+        const Cvar *cv = cvar_find(ui->con, COLOURS[i][1]);
+        Rgba unset;
+        if (cv && !cv->default_value[0] && !rgba_parse_hex(cv->value, &unset)) c = FIELD;
         rect(x + 210, y - 3, x + 210 + ROW - 4, y - 3 + ROW - 4, c);
         if (take_click(ui, x + 210, y - 3, ROW - 4, ROW - 4)) {
             if (strcmp(ui->m->color_picker, COLOURS[i][1]) == 0)

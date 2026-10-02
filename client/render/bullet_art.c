@@ -83,10 +83,13 @@ static void draw_one(Sprite sprite, Vec2 at, Vec2 scale, float angle, Rgba color
     draw_sprite(sprite, at, vec2(0, 0), scale, angle, color);
 }
 
-static void draw_one_colorized(Sprite sprite, Vec2 at, Vec2 scale, float angle, Rgba color)
+// A thrown grenade or cluster: its art as the original draws it while cl_grenade_color is
+// unset (alpha 0), else my colour, flat and solid.
+static void draw_grenade(Sprite sprite, Vec2 at, Vec2 scale, float angle, Rgba color)
 {
     if (sprite.tex.handle == 0) return;
-    draw_sprite_colorized(sprite, at, vec2(0, 0), scale, angle, color);
+    if (color.a > 0) draw_sprite_colorized(sprite, at, vec2(0, 0), scale, angle, color);
+    else draw_sprite(sprite, at, vec2(0, 0), scale, angle, RGBA_WHITE);
 }
 
 static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, Rgba grenade_color, double seconds)
@@ -111,15 +114,15 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, R
         if (timeout < GRENADE_TIMEOUT - 3) {
             draw_streak(streak, vec2_sub(vec2_add(pos, off), vec2(0, 3)), vec2(speed / 3, 1), heading, (Rgba){100, 255, 100, 82});
         }
-        draw_one_colorized(b->shared[BULLET_ART_FRAG_GRENADE], vec2_sub(pos, vec2(1, 4)), vec2(1, 1), 0, grenade_color);
+        draw_grenade(b->shared[BULLET_ART_FRAG_GRENADE], vec2_sub(pos, vec2(1, 4)), vec2(1, 1), 0, grenade_color);
         break;
     case BULLET_CLUSTER_NADE: {
         float turn = timeout * -5.0f * (float)M_PI / 180.0f * (vel.x < 0 ? -1.0f : 1.0f);
-        draw_one_colorized(b->shared[BULLET_ART_CLUSTER_GRENADE], vec2_sub(pos, vec2(0, 3)), vec2(1, 1), turn, grenade_color);
+        draw_grenade(b->shared[BULLET_ART_CLUSTER_GRENADE], vec2_sub(pos, vec2(0, 3)), vec2(1, 1), turn, grenade_color);
         break;
     }
     case BULLET_CLUSTER:
-        draw_one_colorized(b->shared[BULLET_ART_CLUSTER], vec2_sub(pos, vec2(0, 2)), vec2(1, 1), 0, grenade_color);
+        draw_grenade(b->shared[BULLET_ART_CLUSTER], vec2_sub(pos, vec2(0, 2)), vec2(1, 1), 0, grenade_color);
         break;
     case BULLET_M79:
         if (timeout >= BULLET_TIMEOUT - 2) break;

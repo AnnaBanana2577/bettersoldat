@@ -34,5 +34,6 @@ void bullet_art_load(BulletArt *b, const char *base);
 void bullet_art_unload(BulletArt *b);
 
 // Every live bullet, `alpha` of the way from its last tick to this one. `seconds` drives
-// the M2's wobble. Under the camera's transform.
+// the M2's wobble, and `grenade_color` is cl_grenade_color (gostek.h). Under the
+// camera's transform.
 void bullets_draw(const BulletArt *b, const Bullet *bullets, float alpha, Rgba grenade_color, double seconds);

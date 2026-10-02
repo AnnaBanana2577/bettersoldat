@@ -807,7 +807,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->console_length =
         cvar_register(con, "ui_console_length", "6", CVAR_ARCHIVE, "how many console lines the HUD shows");
     app->player_name = cvar_register(con, "cl_player_name", "Player", CVAR_ARCHIVE, "my name");
-    app->grenade_color = cvar_register(con, "cl_grenade_color", "FFFFFF", CVAR_ARCHIVE, "the grenades' colour, RRGGBB");
+    app->grenade_color = cvar_register(con, "cl_grenade_color", "", CVAR_ARCHIVE, "the grenades in this colour, RRGGBB, flat and solid; empty for their own art");
     app->shirt = cvar_register(con, "cl_player_shirt", "304289", CVAR_ARCHIVE, "the shirt's colour, RRGGBB");
     app->pants = cvar_register(con, "cl_player_pants", "FF0000", CVAR_ARCHIVE, "the pants' colour, RRGGBB");
     app->skin = cvar_register(con, "cl_player_skin", "E6B478", CVAR_ARCHIVE, "the skin's colour, RRGGBB");
@@ -898,6 +898,16 @@ static void console_close(App *app)
 // A team game: the match's mode says, which the map decides alone and the server's
 // snapshots carry online.
 static bool team_game(const App *app) { return match_has_teams(&app->game->match); }
+
+// cl_grenade_color as the drawing takes it: alpha 0, the grenades' own art, while it
+// holds no colour (empty, its default); else that colour, solid.
+static Rgba grenade_color(const Cvar *cv)
+{
+    Rgba color = {0};
+    if (!rgba_parse_hex(cv->value, &color)) return (Rgba){0};
+    color.a = 255;
+    return color;
+}
 
 // A colour cvar's colour; its default's if what it holds isn't one.
 static Rgba cvar_color(const Cvar *cv)
@@ -1835,7 +1845,7 @@ int main(int argc, char *argv[])
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);
             if (!app.mainmenu.shown) {
-                render_draw(&app.render, &app.frame, &app.camera, app.render_options, cvar_color(app.grenade_color), app.time);
+                render_draw(&app.render, &app.frame, &app.camera, app.render_options, grenade_color(app.grenade_color), app.time);
                 hud_data_build(&app);
                 interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
                                &app.camera, app.input.cursor, app.camera.viewport);

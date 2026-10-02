@@ -385,16 +385,17 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse, Rgba gren
 
         Rgba tint = gostek_color(part->color, s);
         if (part->blood) tint.a = bleeding;
-        if (part->nade > 0) {
+        Vec2 at = vec2_add(p1, vec2(0, 1)), center = vec2(cx * sprite.width, cy * sprite.height);
+        if (part->nade > 0 && grenade_color.a > 0) {
+            // the belt's grenades in my colour (cl_grenade_color), flat and solid: no
+            // ALPHA_NADES, but the body's own alpha, so they fade and hide with it
             tint.r = grenade_color.r;
             tint.g = grenade_color.g;
             tint.b = grenade_color.b;
-            tint.a = grenade_color.a;
+            draw_sprite_colorized(sprite, at, center, vec2(sx, sy), angle, tint);
+            continue;
         }
-        if (part->nade > 0)
-            draw_sprite_colorized(sprite, vec2_add(p1, vec2(0, 1)), vec2(cx * sprite.width, cy * sprite.height),
-                                  vec2(sx, sy), angle, tint);
-        else
-            draw_sprite(sprite, vec2_add(p1, vec2(0, 1)), vec2(cx * sprite.width, cy * sprite.height), vec2(sx, sy), angle, tint);
+        if (part->nade > 0) tint.a = (uint8_t)(0.75f * (float)tint.a); // ALPHA_NADES: the art, as the original draws it
+        draw_sprite(sprite, at, center, vec2(sx, sy), angle, tint);
     }
 }

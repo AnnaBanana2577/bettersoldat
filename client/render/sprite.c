@@ -69,7 +69,7 @@ void draw_sprite(Sprite sprite, Vec2 at, Vec2 center, Vec2 scale, float angle, R
 
 void draw_sprite_colorized(Sprite sprite, Vec2 at, Vec2 center, Vec2 scale, float angle, Rgba color)
 {
-    if (sprite.colorized_tex.handle && (color.r != 255 || color.g != 255 || color.b != 255)) {
+    if (sprite.colorized_tex.handle) {
         sprite.tex = sprite.colorized_tex;
         scale = vec2_scale(scale, 0.87f);
     }
