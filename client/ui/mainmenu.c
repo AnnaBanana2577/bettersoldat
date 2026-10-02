@@ -886,6 +886,9 @@ static void page_options(Ui *ui)
     label(x, y, "Scenery", DIM);
     cycler(ui, x + 110, y - 3, "r_scenery", 0, 1, cvar_int(con, "r_scenery", 0, 1) ? "On" : "Off");
     y += ROW;
+    label(x, y, "Follow scoped shot", DIM);
+    cycler(ui, x + 110, y - 3, "cl_trackshot", 0, 1, cvar_int(con, "cl_trackshot", 0, 1) ? "On" : "Off");
+    y += ROW;
     label(x, y, "Map sky", DIM);
     cycler(ui, x + 110, y - 3, "r_forcebg", 0, 1, cvar_int(con, "r_forcebg", 0, 1) ? "My colours" : "The map's");
     y += ROW;

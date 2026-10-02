@@ -101,6 +101,7 @@ typedef struct App {
     Cvar *sensitivity;
     Cvar *wireframe, *debug;
     Cvar *scenery;        // r_scenery: the map's props drawn
+    Cvar *track_shot;     // cl_trackshot: the camera follows a scoped Barrett shot
     Cvar *forcebg, *forcebg_color1, *forcebg_color2; // the sky in colours of my own instead of the map's (r_forcebg)
     Cvar *minimap, *info, *player_names, *console_length;
     Cvar *player_name;
@@ -153,6 +154,8 @@ typedef struct App {
     // the cursor's offset from the middle, as the original's spectator has it.
     int camera_follow;
     bool free_camera;
+    bool tracking;          // the camera rides my scoped Barrett shot (track_shot)
+    uint32_t tracking_shot; // which shot: its number
     Buttons camera_keys; // last tick's, so a press switches once
     bool limbo_lock;       // the weapons menu closed while dead stays closed (the original's LimboLock)
     double accumulator;
@@ -768,6 +771,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->debug = cvar_register(con, "r_debug", "0", 0, "spawn points, colliders, special polys, bones");
     app->minimap = cvar_register(con, "ui_minimap", "0", CVAR_ARCHIVE, "the minimap");
     app->info = cvar_register(con, "ui_info", "0", CVAR_ARCHIVE, "the FPS and ping line");
+    app->track_shot = cvar_register(con, "cl_trackshot", "1", CVAR_ARCHIVE, "the camera follows a Barrett shot fired scoped, until you stand up");
     app->player_names = cvar_register(con, "ui_playernames", "1", CVAR_ARCHIVE, "teammates' names at the screen's edge when out of view (everyone's, spectating), and the ping dot");
     app->console_length =
         cvar_register(con, "ui_console_length", "6", CVAR_ARCHIVE, "how many console lines the HUD shows");
@@ -1074,6 +1078,37 @@ static void snapshot_tick(App *app)
 // One tick of the game on this frame's input. Online, the snapshot of the tick on show
 // goes onto the world first (client_stream_begin_tick), everyone else steps on the
 // keys they were last heard with (stream_command), and my state goes to the server.
+// My bullet `shot`, while it flies; NULL once it is gone.
+static const Bullet *my_shot(const App *app, uint32_t shot)
+{
+    const World *w = &app->game->world;
+    for (int i = 0; i < MAX_BULLETS; i++) {
+        const Bullet *b = &w->bullets[i];
+        if (b->active && b->owner == app->me && b->shot_id == shot) return b;
+    }
+    return NULL;
+}
+
+// The camera rides a Barrett shot fired scoped (the original's bullet Tracking,
+// Bullets.pas): a shot of mine this tick, scoped before it, is followed (cl_trackshot),
+// the newest if there are several, until it is gone, or I stand up or die.
+static void track_shot(App *app, bool scoped)
+{
+    const Events *events = &app->game->events;
+    if (scoped && app->track_shot->integer) {
+        for (int i = 0; i < events->count; i++) {
+            const Event *e = &events->items[i];
+            if (e->type == EVENT_SHOT && e->shot.player == app->me && e->shot.weapon == WEAPON_BARRETT) {
+                app->tracking = true;
+                app->tracking_shot = e->shot.shot;
+            }
+        }
+    }
+    const Soldier *me = &app->game->world.soldiers[app->me];
+    if (app->tracking && (!app->track_shot->integer || !me->active || me->dead || me->stance == STANCE_STAND || !my_shot(app, app->tracking_shot)))
+        app->tracking = false;
+}
+
 static void tick(App *app)
 {
     World *w = &app->game->world;
@@ -1087,7 +1122,11 @@ static void tick(App *app)
         if (s->remote) cmds[i] = stream_command(s, client_stream_quiet(&app->net.stream, i));
     }
     cmds[app->me] = input_command(&app->input, ++app->seq);
+    // scoped before the tick: the shot snaps the sniper view back within it
+    const Soldier *shooter = &w->soldiers[app->me];
+    bool scoped = shooter->active && !shooter->dead && shooter->aim_dist < DEFAULT_AIM_DIST;
     game_tick(app->game, cmds);
+    track_shot(app, scoped);
     if (app->game->match.state != MATCH_PAUSED) render_tick(&app->render, &app->game->ctx, &app->game->world, &app->game->events); // paused, the sparks hang too
     // the listener is whom the camera follows: me, the player I watch while dead, or the free camera
     int followed = app->free_camera ? -1 : app->camera_follow >= 0 ? app->camera_follow : app->me;
@@ -1731,7 +1770,11 @@ int main(int argc, char *argv[])
             Vec2 target = app.frame.focus;
             if (app.camera_follow >= 0 && app.frame.soldiers[app.camera_follow].active) target = app.frame.soldiers[app.camera_follow].pos;
             const RenderSoldier *watched = &app.frame.soldiers[app.camera_follow >= 0 ? app.camera_follow : app.me];
-            if (!app.free_camera) {
+            const Bullet *tracked = app.tracking ? my_shot(&app, app.tracking_shot) : NULL;
+            if (tracked) { // ahead of my scoped shot, where it is drawn, by five ticks of its flight
+                Vec2 at = vec2_add(tracked->old_pos, vec2_scale(vec2_sub(tracked->pos, tracked->old_pos), alpha));
+                app.camera.pos = vec2_add(at, vec2_scale(tracked->vel, 5.0f));
+            } else if (!app.free_camera) {
                 camera_follow(&app.camera, target, cursor(&app), watched->aim_dist, since_frame);
             } else { // the cursor pushes the free camera, per frame at the tick's rate so it glides
                 Vec2 off = vec2_sub(app.input.cursor, vec2_scale(app.input.view, 0.5f));
