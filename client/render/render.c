@@ -26,11 +26,11 @@ void render_tick(Render *r, const Context *ctx, const World *w, const Events *ev
     sparks_tick(&r->sparks, ctx, w, events);
 }
 
-static void draw_soldiers(const Render *r, const RenderState *state)
+static void draw_soldiers(const Render *r, const RenderState *state, Rgba grenade_color)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const RenderSoldier *s = &state->soldiers[i];
-        if (s->active && s->team != TEAM_SPECTATOR) gostek_draw(&r->gostek, s, s->corpse);
+        if (s->active && s->team != TEAM_SPECTATOR) gostek_draw(&r->gostek, s, s->corpse, grenade_color);
     }
 }
 
@@ -111,7 +111,8 @@ static void draw_map_debug(const Map *map, const GameCamera *camera)
     }
 }
 
-void render_draw(const Render *r, const RenderState *state, const GameCamera *camera, RenderOptions options, double seconds)
+void render_draw(const Render *r, const RenderState *state, const GameCamera *camera, RenderOptions options, Rgba grenade_color,
+                 double seconds)
 {
     const MapView *v = &r->map_view;
     if (!v->map) {
@@ -131,8 +132,8 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
     map_draw_background(v, camera);
     map_draw_background_polys(v);
     map_draw_scenery(v, 0);
-    bullets_draw(&r->bullet_art, state->bullets, state->alpha, seconds);
-    draw_soldiers(r, state);
+    bullets_draw(&r->bullet_art, state->bullets, state->alpha, grenade_color, seconds);
+    draw_soldiers(r, state, grenade_color);
     things_draw(&r->things_art, THINGS_SPRITES, state->things, state->soldiers, state->alpha, seconds);
     sparks_draw(&r->sparks, state->alpha);
     map_draw_scenery(v, 1);

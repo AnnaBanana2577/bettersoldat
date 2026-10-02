@@ -483,6 +483,7 @@ static void preview(Ui *ui, const Gostek *gostek, const Anims *anims, Vec2 at, f
         .weapon = (WeaponId)cvar_int(con, "cl_player_wep", WEAPON_EAGLE, WEAPON_MINIGUN),
         .secondary = (WeaponId)(WEAPON_COLT + cvar_int(con, "cl_player_secwep", 0, WEAPON_LAW - WEAPON_COLT)),
         .health = DEFAULT_HEALTH,
+        .grenades = 1,
         .body_anim = ANIM_STAND,
         .wear_helmet = 1, // on the head, so the chosen headgear shows
         .look = {
@@ -499,7 +500,7 @@ static void preview(Ui *ui, const Gostek *gostek, const Anims *anims, Vec2 at, f
     };
     // the world's origin lands on `at`, the world `scale` times larger than the units
     gfx_transform(mat3_ortho(-at.x / scale, (ui->game_width - at.x) / scale, -at.y / scale, (GAME_HEIGHT_UNITS - at.y) / scale));
-    gostek_draw(gostek, &rs, false);
+    gostek_draw(gostek, &rs, false, cvar_color(con, "cl_grenade_color"));
     gfx_transform(mat3_ortho(0, ui->game_width, 0, GAME_HEIGHT_UNITS));
     text_pixel_ratio(vec2(ui->pixel, ui->pixel));
 }
@@ -511,7 +512,8 @@ static void page_player(Ui *ui, const Gostek *gostek, const Anims *anims, const 
     field(ui, x + 110, y - 3, 170, "cl_player_name", NET_NAME_SIZE - 1);
     y += ROW + 6;
     static const char *const COLOURS[][2] = {{"Shirt", "cl_player_shirt"}, {"Pants", "cl_player_pants"}, {"Skin", "cl_player_skin"},
-                                             {"Hair", "cl_player_hair"},   {"Jet", "cl_player_jet"}};
+                                             {"Hair", "cl_player_hair"},   {"Jet", "cl_player_jet"},
+                                             {"Grenades", "cl_grenade_color"}};
     float colors_y = y;
     for (size_t i = 0; i < sizeof COLOURS / sizeof COLOURS[0]; i++) {
         if (strcmp(ui->m->color_picker, COLOURS[i][1]) == 0) {

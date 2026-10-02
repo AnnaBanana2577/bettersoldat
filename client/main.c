@@ -98,6 +98,7 @@ typedef struct App {
     Cvar *forcebg, *forcebg_color1, *forcebg_color2; // the sky in colours of my own instead of the map's (r_forcebg)
     Cvar *minimap, *info, *player_names, *console_length;
     Cvar *player_name;
+    Cvar *grenade_color;
     Cvar *shirt, *pants, *skin, *hair, *jet;      // the look's colours, "RRGGBB"
     Cvar *hair_style, *head_style, *chain_style;  // and its styles, by number
     Cvar *style;                                  // the gostek: 0 male, 1 female, 2 waifu, 3 rat
@@ -755,6 +756,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->console_length =
         cvar_register(con, "ui_console_length", "6", CVAR_ARCHIVE, "how many console lines the HUD shows");
     app->player_name = cvar_register(con, "cl_player_name", "Player", CVAR_ARCHIVE, "my name");
+    app->grenade_color = cvar_register(con, "cl_grenade_color", "FFFFFF", CVAR_ARCHIVE, "the grenades' colour, RRGGBB");
     app->shirt = cvar_register(con, "cl_player_shirt", "304289", CVAR_ARCHIVE, "the shirt's colour, RRGGBB");
     app->pants = cvar_register(con, "cl_player_pants", "FF0000", CVAR_ARCHIVE, "the pants' colour, RRGGBB");
     app->skin = cvar_register(con, "cl_player_skin", "E6B478", CVAR_ARCHIVE, "the skin's colour, RRGGBB");
@@ -1719,7 +1721,7 @@ int main(int argc, char *argv[])
 
             gfx_viewport(0, 0, (int)app.camera.viewport.width, (int)app.camera.viewport.height);
             if (!app.mainmenu.shown) {
-                render_draw(&app.render, &app.frame, &app.camera, app.render_options, app.time);
+                render_draw(&app.render, &app.frame, &app.camera, app.render_options, cvar_color(app.grenade_color), app.time);
                 hud_data_build(&app);
                 interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
                                &app.camera, app.input.cursor, app.camera.viewport);

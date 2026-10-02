@@ -1,5 +1,7 @@
 #include "render/sprite.h"
 
+#include <stdlib.h>
+
 bool sprite_load(Sprite *s, const char *path, const Rgba *color_key)
 {
     *s = (Sprite){0};
@@ -9,9 +11,40 @@ bool sprite_load(Sprite *s, const char *path, const Rgba *color_key)
     return true;
 }
 
+bool sprite_load_colorizable(Sprite *s, const char *path)
+{
+    *s = (Sprite){0};
+    GfxImage image;
+    if (!gfx_image_load(&image, path)) return false;
+
+    size_t size = (size_t)image.width * (size_t)image.height * 4;
+    uint8_t *mask = malloc(size);
+    if (!mask) {
+        gfx_image_free(&image);
+        return false;
+    }
+    for (size_t i = 0; i < size; i += 4) {
+        mask[i] = mask[i + 1] = mask[i + 2] = 255;
+        mask[i + 3] = image.rgba[i + 3];
+    }
+
+    s->tex = gfx_texture_create(image.width, image.height, image.rgba);
+    s->colorized_tex = gfx_texture_create(image.width, image.height, mask);
+    free(mask);
+    gfx_image_free(&image);
+    if (!s->tex.handle || !s->colorized_tex.handle) {
+        sprite_unload(s);
+        return false;
+    }
+    s->width = (float)s->tex.width * GOSTEK_SCALE;
+    s->height = (float)s->tex.height * GOSTEK_SCALE;
+    return true;
+}
+
 void sprite_unload(Sprite *s)
 {
     gfx_texture_delete(&s->tex);
+    gfx_texture_delete(&s->colorized_tex);
     *s = (Sprite){0};
 }
 
@@ -32,6 +65,15 @@ void draw_sprite(Sprite sprite, Vec2 at, Vec2 center, Vec2 scale, float angle, R
         gfx_vertex(origin.x + h * bx, origin.y + h * by, 0, 1, color),
     };
     gfx_draw_quad(sprite.tex, v);
+}
+
+void draw_sprite_colorized(Sprite sprite, Vec2 at, Vec2 center, Vec2 scale, float angle, Rgba color)
+{
+    if (sprite.colorized_tex.handle && (color.r != 255 || color.g != 255 || color.b != 255)) {
+        sprite.tex = sprite.colorized_tex;
+        scale = vec2_scale(scale, 0.87f);
+    }
+    draw_sprite(sprite, at, center, scale, angle, color);
 }
 
 void draw_quad(GfxTexture tex, const Vec2 p[4], const Vec2 uv[4], const Rgba colors[4])

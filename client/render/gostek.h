@@ -46,4 +46,4 @@ void gostek_unload(Gostek *g);
 // The soldier's sprites on its pose, in the style its look gives. For a corpse (once ragdolls exist) the face hangs
 // from the head point rather than the neck, so a cut head rolls off with it. Under the
 // camera's transform.
-void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse);
+void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse, Rgba grenade_color);

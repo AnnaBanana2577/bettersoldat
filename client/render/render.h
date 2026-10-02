@@ -43,4 +43,5 @@ void render_tick(Render *r, const Context *ctx, const World *w, const Events *ev
 // sprites, the sparks, scenery in the middle, the things' quads (cloth and kits), the
 // terrain, scenery in front. Sets the transform to the camera's. `seconds` drives what
 // pulses and wobbles.
-void render_draw(const Render *r, const RenderState *state, const GameCamera *camera, RenderOptions options, double seconds);
+void render_draw(const Render *r, const RenderState *state, const GameCamera *camera, RenderOptions options, Rgba grenade_color,
+                 double seconds);

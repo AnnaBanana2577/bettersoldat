@@ -202,7 +202,10 @@ void gostek_load(Gostek *g, const char *base)
                         snprintf(path, sizeof(path), "%s/gostek-gfx/%s%s/%s%s.png", base, dir, team == 1 ? "/team2" : "",
                                  part->file, mirrored ? "2" : "");
                     }
-                    sprite_load(&g->parts[style][i][team][mirrored], path, NULL);
+                    if (part->nade > 0)
+                        sprite_load_colorizable(&g->parts[style][i][team][mirrored], path);
+                    else
+                        sprite_load(&g->parts[style][i][team][mirrored], path, NULL);
                 }
             }
         }
@@ -294,7 +297,7 @@ static void draw_held_weapon(const Gostek *g, const RenderSoldier *s)
                 vec2(1, s->facing_left ? -1.0f : 1.0f), angle_between(p1, p2), RGBA_WHITE);
 }
 
-void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
+void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse, Rgba grenade_color)
 {
     if (!g->loaded) return;
 
@@ -382,7 +385,16 @@ void gostek_draw(const Gostek *g, const RenderSoldier *s, bool corpse)
 
         Rgba tint = gostek_color(part->color, s);
         if (part->blood) tint.a = bleeding;
-        if (part->nade > 0) tint.a = (uint8_t)(0.75f * (float)tint.a); // ALPHA_NADES
-        draw_sprite(sprite, vec2_add(p1, vec2(0, 1)), vec2(cx * sprite.width, cy * sprite.height), vec2(sx, sy), angle, tint);
+        if (part->nade > 0) {
+            tint.r = grenade_color.r;
+            tint.g = grenade_color.g;
+            tint.b = grenade_color.b;
+            tint.a = grenade_color.a;
+        }
+        if (part->nade > 0)
+            draw_sprite_colorized(sprite, vec2_add(p1, vec2(0, 1)), vec2(cx * sprite.width, cy * sprite.height),
+                                  vec2(sx, sy), angle, tint);
+        else
+            draw_sprite(sprite, vec2_add(p1, vec2(0, 1)), vec2(cx * sprite.width, cy * sprite.height), vec2(sx, sy), angle, tint);
     }
 }

@@ -28,13 +28,14 @@ static const char *const SHARED_STEMS[BULLET_ART_SHARED_COUNT] = {
     [BULLET_ART_KNIFE] = "knife",            [BULLET_ART_KNIFE_LEFT] = "knife2", [BULLET_ART_SMUDGE] = "smudge",
 };
 
-static bool load_stem(Sprite *s, const char *dir, const char *stem, const Rgba *key)
+static bool load_stem(Sprite *s, const char *dir, const char *stem, const Rgba *key, bool colorizable)
 {
     char name[128], path[512];
     *s = (Sprite){0};
     if (!stem) return true;
     snprintf(name, sizeof name, "%s.png", stem);
     if (!find_image(dir, name, path, sizeof path)) return false;
+    if (colorizable) return sprite_load_colorizable(s, path);
     return sprite_load(s, path, key);
 }
 
@@ -43,8 +44,11 @@ void bullet_art_load(BulletArt *b, const char *base)
     char dir[512];
     snprintf(dir, sizeof dir, "%s/weapons-gfx", base);
     int missing = 0;
-    for (int id = 0; id < WEAPON_COUNT; id++) missing += !load_stem(&b->weapons[id], dir, BULLET_STEMS[id], NULL);
-    for (int k = 0; k < BULLET_ART_SHARED_COUNT; k++) missing += !load_stem(&b->shared[k], dir, SHARED_STEMS[k], NULL);
+    for (int id = 0; id < WEAPON_COUNT; id++) missing += !load_stem(&b->weapons[id], dir, BULLET_STEMS[id], NULL, false);
+    for (int k = 0; k < BULLET_ART_SHARED_COUNT; k++) {
+        bool colorizable = k == BULLET_ART_FRAG_GRENADE || k == BULLET_ART_CLUSTER_GRENADE || k == BULLET_ART_CLUSTER;
+        missing += !load_stem(&b->shared[k], dir, SHARED_STEMS[k], NULL, colorizable);
+    }
     const Rgba green = {0, 255, 0, 255};
     for (int i = 0; i < FLAME_FRAMES; i++) {
         char path[512];
@@ -78,7 +82,13 @@ static void draw_one(Sprite sprite, Vec2 at, Vec2 scale, float angle, Rgba color
     draw_sprite(sprite, at, vec2(0, 0), scale, angle, color);
 }
 
-static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, double seconds)
+static void draw_one_colorized(Sprite sprite, Vec2 at, Vec2 scale, float angle, Rgba color)
+{
+    if (sprite.tex.handle == 0) return;
+    draw_sprite_colorized(sprite, at, vec2(0, 0), scale, angle, color);
+}
+
+static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, Rgba grenade_color, double seconds)
 {
     Vec2 pos = vec2_add(bullet->old_pos, vec2_scale(vec2_sub(bullet->pos, bullet->old_pos), alpha));
     float timeout = (float)bullet->timeout + 1.0f - alpha; // TimeOutReal
@@ -100,14 +110,16 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, d
         if (timeout < GRENADE_TIMEOUT - 3) {
             draw_streak(streak, vec2_sub(vec2_add(pos, off), vec2(0, 3)), vec2(speed / 3, 1), heading, (Rgba){100, 255, 100, 82});
         }
-        draw_one(b->shared[BULLET_ART_FRAG_GRENADE], vec2_sub(pos, vec2(1, 4)), vec2(1, 1), 0, RGBA_WHITE);
+        draw_one_colorized(b->shared[BULLET_ART_FRAG_GRENADE], vec2_sub(pos, vec2(1, 4)), vec2(1, 1), 0, grenade_color);
         break;
     case BULLET_CLUSTER_NADE: {
         float turn = timeout * -5.0f * (float)M_PI / 180.0f * (vel.x < 0 ? -1.0f : 1.0f);
-        draw_one(b->shared[BULLET_ART_CLUSTER_GRENADE], vec2_sub(pos, vec2(0, 3)), vec2(1, 1), turn, RGBA_WHITE);
+        draw_one_colorized(b->shared[BULLET_ART_CLUSTER_GRENADE], vec2_sub(pos, vec2(0, 3)), vec2(1, 1), turn, grenade_color);
         break;
     }
-    case BULLET_CLUSTER: draw_one(b->shared[BULLET_ART_CLUSTER], vec2_sub(pos, vec2(0, 2)), vec2(1, 1), 0, RGBA_WHITE); break;
+    case BULLET_CLUSTER:
+        draw_one_colorized(b->shared[BULLET_ART_CLUSTER], vec2_sub(pos, vec2(0, 2)), vec2(1, 1), 0, grenade_color);
+        break;
     case BULLET_M79:
         if (timeout >= BULLET_TIMEOUT - 2) break;
         draw_one(own, vec2_add(pos, vec2(0, 1)), vec2(1, 1), spin, (Rgba){255, 255, 255, 252}); // only the M79 round tumbles
@@ -172,9 +184,9 @@ static void bullet_draw(const BulletArt *b, const Bullet *bullet, float alpha, d
     }
 }
 
-void bullets_draw(const BulletArt *b, const Bullet *bullets, float alpha, double seconds)
+void bullets_draw(const BulletArt *b, const Bullet *bullets, float alpha, Rgba grenade_color, double seconds)
 {
     if (!b->loaded) return;
     for (int i = 0; i < MAX_BULLETS; i++)
-        if (bullets[i].active) bullet_draw(b, &bullets[i], alpha, seconds);
+        if (bullets[i].active) bullet_draw(b, &bullets[i], alpha, grenade_color, seconds);
 }
