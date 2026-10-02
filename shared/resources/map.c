@@ -476,7 +476,8 @@ static bool ray_poly_collides(PolyType t, RayFilter f)
     }
 }
 
-bool map_ray_cast(const Map *m, Vec2 a, Vec2 b, float max_dist, RayFilter filter, float *dist)
+bool map_ray_cast_hit(const Map *m, Vec2 a, Vec2 b, float max_dist, RayFilter filter, float *dist, Vec2 *hit,
+                      int *poly_index)
 {
     float d = vec2_length(vec2_sub(a, b));
     if (dist) *dist = d;
@@ -504,11 +505,15 @@ bool map_ray_cast(const Map *m, Vec2 a, Vec2 b, float max_dist, RayFilter filter
                 if (!ray_poly_collides((PolyType)poly->type, filter)) continue;
                 if (point_in_poly(a, poly)) {
                     if (dist) *dist = 0.0f;
+                    if (hit) *hit = a;
+                    if (poly_index) *poly_index = sector.polys[i];
                     return true;
                 }
                 Vec2 p;
                 if (line_in_poly(a, b, poly, &p)) {
                     if (dist) *dist = vec2_length(vec2_sub(p, a));
+                    if (hit) *hit = p;
+                    if (poly_index) *poly_index = sector.polys[i];
                     return true;
                 }
             }
@@ -534,6 +539,11 @@ bool map_ray_cast(const Map *m, Vec2 a, Vec2 b, float max_dist, RayFilter filter
         }
     }
     return false;
+}
+
+bool map_ray_cast(const Map *m, Vec2 a, Vec2 b, float max_dist, RayFilter filter, float *dist)
+{
+    return map_ray_cast_hit(m, a, b, max_dist, filter, dist, NULL, NULL);
 }
 
 bool map_collision_test(const Map *m, Vec2 pos, bool is_flag, Vec2 *push)

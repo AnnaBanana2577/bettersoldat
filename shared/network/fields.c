@@ -22,6 +22,25 @@ const NetField SOLDIER_OWNED_FIELDS[] = {
     NETFIELD_ENUM(Soldier, stance, STANCE_PRONE),
     NETFIELD(Soldier, on_ground, NET_BOOL, 0),
     NETFIELD(Soldier, jets, NET_I, 32), // a map's fuel can be anything
+    NETFIELD_ENUM(Soldier, rope, ROPE_PHASE_COUNT - 1),
+    NETFIELD(Soldier, rope_tip, NET_VEC2, 0),
+    NETFIELD(Soldier, rope_tip_vel, NET_VEC2, 0),
+    NETFIELD(Soldier, rope_len, NET_F32, 0),
+    NETFIELD(Soldier, rope_grab, NET_F32, 0),
+    NETFIELD(Soldier, rope_climb, NET_F32, 0),
+    // the rope's per-machine memory, carried so every machine sees the same rope:
+    // the corners it is wound around (rope.c's comment) and the key's press edge.
+    // Derived locally they diverge a tick — a corner caught from a stale position
+    // pins the rope elsewhere, and a press re-read on the owner's cut state throws
+    // a phantom rope.
+    NETFIELD(Soldier, rope_wraps_count, NET_U, 8),
+    NETFIELD(Soldier, rope_wraps[0], NET_VEC2, 0),
+    NETFIELD(Soldier, rope_wraps[1], NET_VEC2, 0),
+    NETFIELD(Soldier, rope_wraps[2], NET_VEC2, 0),
+    NETFIELD(Soldier, rope_wraps[3], NET_VEC2, 0),
+    NETFIELD(Soldier, rope_wraps[4], NET_VEC2, 0),
+    NETFIELD(Soldier, rope_wraps[5], NET_VEC2, 0),
+    NETFIELD(Soldier, was_jet, NET_BOOL, 0),
     NETFIELD_ENUM(Soldier, legs.id, ANIM_COUNT - 1),
     NETFIELD(Soldier, legs.frame, NET_I, 8),
     NETFIELD_ENUM(Soldier, body.id, ANIM_COUNT - 1),
@@ -77,6 +96,7 @@ const NetField SOLDIER_SERVED_FIELDS[] = {
     NETFIELD(Soldier, rng, NET_U, 64),
     NETFIELD(Soldier, cmd_seq, NET_U, 32),
     NETFIELD(Soldier, shot_count, NET_U, 32),
+    NETFIELD_ENUM(Soldier, gear, GEAR_COUNT - 1),
     NETFIELD_ENUM(Soldier, primary_choice, WEAPON_COUNT - 1),
     NETFIELD_ENUM(Soldier, secondary_choice, WEAPON_COUNT - 1),
     NETFIELD(Soldier, look.shirt, NET_RGBA, 0),
@@ -108,6 +128,7 @@ const NetField PLAYER_LOOK_FIELDS[] = {
 const int PLAYER_LOOK_COUNT = sizeof PLAYER_LOOK_FIELDS / sizeof PLAYER_LOOK_FIELDS[0];
 
 const NetField SOLDIER_LOADOUT_FIELDS[] = {
+    NETFIELD_ENUM(Soldier, gear, GEAR_COUNT - 1),
     NETFIELD_ENUM(Soldier, primary_choice, WEAPON_COUNT - 1),
     NETFIELD_ENUM(Soldier, secondary_choice, WEAPON_COUNT - 1),
 };

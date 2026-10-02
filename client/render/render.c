@@ -34,6 +34,48 @@ static void draw_soldiers(const Render *r, const RenderState *state, Rgba grenad
     }
 }
 
+// One stretch of a rope, dipped under its own weight: the curve's middle hangs a
+// part of the stretch's length below the line, so the rope curves the way a rope
+// hangs instead of cutting straight.
+static void draw_rope_stretch(Vec2 a, Vec2 b, Rgba color)
+{
+    Vec2 d = vec2_sub(b, a);
+    float len = vec2_length(d);
+    if (len < 0.001f) return;
+    Vec2 mid = vec2_scale(vec2_add(a, b), 0.5f);
+    Vec2 c = vec2_add(mid, vec2(0.0f, fminf(len * 0.05f, 6.0f))); // down is +y
+    Vec2 prev = a;
+    for (int i = 1; i <= 6; i++) {
+        float t = (float)i / 6.0f;
+        Vec2 p = vec2_add(vec2_add(vec2_scale(a, (1.0f - t) * (1.0f - t)), vec2_scale(c, 2.0f * t * (1.0f - t))),
+                          vec2_scale(b, t * t));
+        gfx_draw_line(prev, p, BONE_THICKNESS, color);
+        prev = p;
+    }
+}
+
+// The ropes: a line in the owner's colour, from the hand through the corners the
+// rope is caught around to the anchor, each stretch dipping under its own weight —
+// a rope that curves, the way a rope hangs, and never a straight cut through the
+// map. Drawn behind the soldiers, whose sprites cover the hand that holds it.
+static void draw_ropes(const Render *r, const RenderState *state)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        const RenderSoldier *s = &state->soldiers[i];
+        if (!s->active || s->dead || s->rope == ROPE_NONE) continue;
+        if (s->rope == ROPE_THROWING) { // flying: pulled taut, a straight line
+            gfx_draw_line(s->pose.p[14], s->rope_tip, BONE_THICKNESS, s->look.jet);
+            continue;
+        }
+        Vec2 a = s->pose.p[14];
+        for (int w = (int)s->rope_wraps_count - 1; w >= -1; w--) {
+            Vec2 b = w < 0 ? s->rope_tip : s->rope_wraps[w];
+            draw_rope_stretch(a, b, s->look.jet);
+            a = b;
+        }
+    }
+}
+
 // The skeleton under the sprites: the gostek's own constraints are the bones.
 static void draw_bones(const Render *r, const RenderState *state)
 {
@@ -133,6 +175,7 @@ void render_draw(const Render *r, const RenderState *state, const GameCamera *ca
     map_draw_background_polys(v);
     if (options.scenery) map_draw_scenery(v, 0);
     bullets_draw(&r->bullet_art, state->bullets, state->alpha, grenade_color, seconds);
+    draw_ropes(r, state);
     draw_soldiers(r, state, grenade_color);
     things_draw(&r->things_art, THINGS_SPRITES, state->things, state->soldiers, state->alpha, seconds);
     sparks_draw(&r->sparks, state->alpha);

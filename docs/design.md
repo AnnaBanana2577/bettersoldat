@@ -160,8 +160,9 @@ The asks and their doers:
 Everything else is a consequence, emitted for whoever is listening: EVENT_FIRE (the
 muzzle), EVENT_BULLET_SPAWN and EVENT_BULLET_END, the wall hits, ricochets, bounces and
 splits, EVENT_BLOOD, EVENT_EXPLOSION, EVENT_DAMAGE, EVENT_FLAG_GRAB, RETURN, DROP and
-SCORE, EVENT_THING_HIT, EVENT_POLY_EFFECT, EVENT_CORPSE_HIT, EVENT_MATCH_END, and
-EVENT_ANTIC (an antic's spit, puff, match, stub or piss, for the sparks and the audio).
+SCORE, EVENT_THING_HIT, EVENT_POLY_EFFECT, EVENT_CORPSE_HIT, EVENT_MATCH_END,
+EVENT_ANTIC (an antic's spit, puff, match, stub or piss, for the sparks and the audio),
+and EVENT_ROPE_CUT (a rope's cut, for the sparks).
 
 An event carries what its listeners need and nothing that requires looking the world
 up afterwards: a kill says who, whom, with what, where, the killer's tally now and the
@@ -266,10 +267,10 @@ missed:
 
 - **WIRE_LOCAL**, never sent: every consequence each machine produces for itself by
   flying the same bullet from the same seed (fire, bullet end, wall hit, ricochet,
-  collider hit, bounce, split, blood, explosion, thing hit, poly effect, corpse hit),
-  and every ask between systems within a machine (Hit, knife land, thing knock). Hit is
-  the simulation proposing a wound; it never travels, and only the server's wounds
-  pass acts on it.
+  collider hit, bounce, split, blood, explosion, thing hit, poly effect, corpse hit,
+  rope cut), and every ask between systems within a machine (Hit, knife land, thing
+  knock). Hit is the simulation proposing a wound; it never travels, and only the
+  server's wounds pass acts on it.
 - **WIRE_OWNER**, a soldier's owner's decision: EVENT_SHOT, numbered so the same bullet
   comes out everywhere; EVENT_WEAPON_DROP; EVENT_FLAG_THROW. A client sends its own
   to the server, which does them as its own and relays them to everyone else.

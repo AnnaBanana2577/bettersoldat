@@ -463,6 +463,9 @@ static void page_local(Ui *ui, const char *status, bool hosting, const char (*ma
     y += ROW;
     label(x, y, "Bot chat", DIM);
     choice(ui, x + 110, y - 3, "bots_chat", ONOFF, ONOFF_NAMES, 2);
+    y += ROW;
+    label(x, y, "Rope", DIM);
+    choice(ui, x + 110, y - 3, "sv_rope", ONOFF, ONOFF_NAMES, 2);
     y += ROW + 6;
     label(x, y, "Port", DIM);
     field(ui, x + 110, y - 3, 80, "sv_port", 5);

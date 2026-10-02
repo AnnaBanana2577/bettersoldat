@@ -33,8 +33,8 @@ Game *scene(const char *map, float gap, WeaponId a_weapon, WeaponId b_weapon)
 
     uint64_t rng = 7;
     Vec2 at = spawn_point(g->ctx.map, TEAM_ALPHA, &rng);
-    soldier_spawn(&g->ctx, &g->world.soldiers[0], at, TEAM_ALPHA, a_weapon, WEAPON_COLT);
-    soldier_spawn(&g->ctx, &g->world.soldiers[1], vec2(at.x + gap, at.y), TEAM_BRAVO, b_weapon, WEAPON_COLT);
+    soldier_spawn(&g->ctx, &g->world.soldiers[0], at, TEAM_ALPHA, GEAR_JETS, a_weapon, WEAPON_COLT);
+    soldier_spawn(&g->ctx, &g->world.soldiers[1], vec2(at.x + gap, at.y), TEAM_BRAVO, GEAR_JETS, b_weapon, WEAPON_COLT);
     return g;
 }
 
@@ -161,6 +161,7 @@ int main(void)
     thing_tests();
     corpse_tests();
     events_tests();
+    rope_tests();
     network_tests();
     join_tests();
     wire_tests();

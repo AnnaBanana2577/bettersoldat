@@ -19,6 +19,13 @@ static void button_init(GameMenu *menu, int i, const char *caption, float x, flo
     if (i >= menu->button_count) menu->button_count = i + 1;
 }
 
+// The boots button names the gear it would switch to.
+static void gear_caption(GameMenus *m)
+{
+    GameMenu *limbo = &m->menus[MENU_LIMBO];
+    snprintf(limbo->buttons[MAIN_WEAPONS].caption, MENU_CAPTION, "Boots: %s", m->gear == GEAR_JETS ? "Jet" : "Rope");
+}
+
 // The original's InitGameMenus, its numbers.
 void menus_init(GameMenus *m, float game_width, const Weapons *weapons)
 {
@@ -53,6 +60,10 @@ void menus_init(GameMenus *m, float game_width, const Weapons *weapons)
         else snprintf(caption, sizeof(caption), "%s", name);
         button_init(limbo, i, caption, 35, (float)(154 + 18 * (i + (i >= PRIMARY_WEAPONS))), 235, 16, true);
     }
+    // The boots under the weapons: the gear of the next spawn, jets or a rope. The
+    // caption names the current one and a click switches, as the weapons do.
+    button_init(limbo, MAIN_WEAPONS, "Boots: Jet", 35, (float)(154 + 18 * (MAIN_WEAPONS + 1)), 235, 16, true);
+    gear_caption(m);
 
     GameMenu *kick = &m->menus[MENU_KICK];
     kick->w = 370;
@@ -126,6 +137,11 @@ void menus_show(GameMenus *m, MenuId id, bool show, HudGameMode mode, int player
     case MENU_LIMBO:
         menu->active = false;
         if (!show) m->limbo_was_active = false;
+        if (show) {
+            // a game without the rope offers no choice of boots: the row is not shown
+            menu->buttons[MAIN_WEAPONS].active = m->rope;
+            gear_caption(m);
+        }
         break;
     default: break;
     }
@@ -200,6 +216,11 @@ static MenuAction menu_action(GameMenus *m, MenuId id, int button)
         default: return none;
         }
     case MENU_LIMBO: {
+        if (button == MAIN_WEAPONS) { // the boots: jets, or the rope where the game has it
+            m->gear = m->gear == GEAR_JETS ? (m->rope ? GEAR_ROPE : GEAR_JETS) : GEAR_JETS;
+            gear_caption(m);
+            return (MenuAction){MENU_ACTION_PICK_GEAR, m->gear};
+        }
         WeaponId weapon = (WeaponId)(button + 1);
         if (!m->weapons_active[weapon]) return none;
         if (button < PRIMARY_WEAPONS) {

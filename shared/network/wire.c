@@ -37,6 +37,7 @@ WireSide wire_side(EventType type)
     case EVENT_POLY_EFFECT:
     case EVENT_CORPSE_HIT:
     case EVENT_ANTIC:
+    case EVENT_ROPE_CUT:
     case EVENT_ECHO_TEST: return WIRE_LOCAL;
     }
     return WIRE_LOCAL;
@@ -80,6 +81,13 @@ static void team(NetBuf *b, Team *v)
     uint32_t x = (uint32_t)*v;
     net_range(b, &x, TEAM_COUNT - 1);
     *v = (Team)x;
+}
+
+static void gear(NetBuf *b, Gear *v)
+{
+    uint32_t x = (uint32_t)*v;
+    net_range(b, &x, GEAR_COUNT - 1);
+    *v = (Gear)x;
 }
 
 static void i16(NetBuf *b, int32_t *v)
@@ -143,6 +151,7 @@ void wire_event(NetBuf *b, Event *e)
         slot(b, &r->target);
         net_u8(b, &r->life);
         team(b, &r->team);
+        gear(b, &r->gear);
         weapon(b, &r->primary);
         weapon(b, &r->secondary);
         net_vec2(b, &r->pos);

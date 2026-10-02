@@ -32,9 +32,11 @@ void msg_hello(NetBuf *b, MsgHello *m)
     net_string(b, m->name, sizeof m->name);
     net_string(b, m->password, sizeof m->password);
     netfields_serialize(b, PLAYER_LOOK_FIELDS, PLAYER_LOOK_COUNT, &m->look, NULL);
-    uint32_t primary = m->primary, secondary = m->secondary;
+    uint32_t gear = m->gear, primary = m->primary, secondary = m->secondary;
+    net_range(b, &gear, GEAR_COUNT - 1);
     net_range(b, &primary, WEAPON_COUNT - 1);
     net_range(b, &secondary, WEAPON_COUNT - 1);
+    m->gear = (Gear)gear;
     m->primary = (WeaponId)primary;
     m->secondary = (WeaponId)secondary;
 }
@@ -52,6 +54,7 @@ void msg_map(NetBuf *b, MsgMap *m)
     net_u16(b, &m->round);
     net_string(b, m->map, sizeof m->map);
     net_string(b, m->hostname, sizeof m->hostname);
+    net_bool(b, &m->rope);
 }
 
 void msg_vote(NetBuf *b, MsgVote *m)
