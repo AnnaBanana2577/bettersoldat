@@ -56,6 +56,7 @@ static void send_hello(ClientNet *n)
     snprintf(m.name, sizeof m.name, "%s", n->name);
     snprintf(m.password, sizeof m.password, "%s", n->password);
     m.look = n->look;
+    m.gear = n->gear;
     m.primary = n->primary;
     m.secondary = n->secondary;
     msg_kind(&b, &kind);
@@ -87,6 +88,7 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         n->round = m.round;
         snprintf(n->map, sizeof n->map, "%s", m.map);
         snprintf(n->hostname, sizeof n->hostname, "%s", m.hostname);
+        n->rope = m.rope;
         n->mapped = true;
         client_stream_reset(&n->stream, m.round);
         n->had_map = true;

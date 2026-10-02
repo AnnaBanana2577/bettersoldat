@@ -79,6 +79,7 @@ MatchSettings match_default_settings(void)
         .respawn_time = DEFAULT_RESPAWN_TIME,
         .max_grenades = DEFAULT_MAX_GRENADES,
         .medikit_cooldown = DEFAULT_MEDIKIT_COOLDOWN,
+        .rope = true,
     };
 }
 
@@ -99,6 +100,7 @@ WorldRules match_rules(const Match *m)
         .respawn_time = m->settings.respawn_time,
         .max_grenades = m->settings.max_grenades,
         .flags = m->settings.mode == MATCH_CTF,
+        .rope = m->settings.rope,
     };
 }
 

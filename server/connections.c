@@ -119,7 +119,7 @@ void connections_ban(Connections *c, int slot, uint32_t ticks, const char *reaso
 static void tell_map(Connections *c, ENetPeer *peer)
 {
     uint8_t buf[NET_MTU];
-    MsgMap m = {.round = c->round};
+    MsgMap m = {.round = c->round, .rope = c->rope};
     snprintf(m.map, sizeof m.map, "%s", c->map);
     snprintf(m.hostname, sizeof m.hostname, "%s", c->hostname);
     size_t n = build(buf, sizeof buf, MSG_MAP, route_map, &m);
@@ -241,6 +241,7 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     c->streams[slot].event_ack = wire_queue_present(&c->events); // what happened before it came is nobody's news
     Soldier *s = &g->world.soldiers[slot];
     s->look = m.look;
+    s->gear = m.gear;
     s->primary_choice = m.primary;
     s->secondary_choice = m.secondary;
     s->kills = s->deaths = s->flags = 0; // the slot's last occupant's tally is not its
@@ -268,13 +269,14 @@ void connections_place(Connections *c, Game *g, int slot, Team team)
     // with the weapons it chose, or the original's first loadout for a choice that isn't one
     WeaponId primary = weapon_is_primary(s->primary_choice) ? s->primary_choice : WEAPON_EAGLE;
     WeaponId secondary = weapon_is_secondary(s->secondary_choice) ? s->secondary_choice : WEAPON_KNIFE;
+    Gear gear = !g->world.rules.rope && s->gear == GEAR_ROPE ? GEAR_JETS : s->gear; // no rope in this game: the boots are jets
     if (team == TEAM_SPECTATOR) {
         // present and dead, never respawned: the simulation passes a spectator by
-        soldier_spawn(&g->ctx, s, vec2(0, 0), TEAM_SPECTATOR, primary, secondary);
+        soldier_spawn(&g->ctx, s, vec2(0, 0), TEAM_SPECTATOR, gear, primary, secondary);
         s->dead = true;
     } else {
         Vec2 at = spawn_point(g->ctx.map, team, &g->world.rng);
-        soldier_spawn(&g->ctx, s, at, team, primary, secondary);
+        soldier_spawn(&g->ctx, s, at, team, gear, primary, secondary);
     }
     s->life++;
     s->remote = !c->items[slot].bot; // a player's keys move it and it tells what it fires; a bot is played here
@@ -295,6 +297,7 @@ void connections_new_round(Connections *c, Game *g, const char *map)
 {
     c->round++;
     snprintf(c->map, sizeof c->map, "%s", map);
+    c->rope = g->world.rules.rope; // what the next map says of the rope, to every client
     wire_queue_init(&c->events); // the old round's news is nobody's now
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (c->items[i].bot) {

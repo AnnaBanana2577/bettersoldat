@@ -412,13 +412,15 @@ static void draw_bars(const Interface *hud, const Frame *f, const RenderSoldier 
     draw_bar(f, &hud->fire_bar, INT.fire_bar_pos, INT.fire_ico_x, INT.ammo_ico_x, INT.fire_ico_y, INT.ammo_ico_y,
              INT.fire_ico_rotate, fire, INT.fire_bar_left);
 
-    // jets
-    x = pixel_align(f, INT.jet_ico_x * f->iscale_x);
-    y = pixel_align(f, INT.jet_ico_y);
-    draw_sprite(&hud->jet, x, y, deg_to_rad(INT.jet_ico_rotate), color);
-    if (ctx->map->start_jet > 0) {
-        draw_bar(f, &hud->jet_bar, INT.jet_bar_pos, INT.jet_bar_x, INT.jet_ico_x, INT.jet_bar_y, INT.jet_ico_y,
-                 INT.jet_bar_rotate, (float)me->jets / (float)ctx->map->start_jet, INT.jet_bar_left);
+    // jets; a rope hangs there instead of the icon and the bar
+    if (me->gear == GEAR_JETS) {
+        x = pixel_align(f, INT.jet_ico_x * f->iscale_x);
+        y = pixel_align(f, INT.jet_ico_y);
+        draw_sprite(&hud->jet, x, y, deg_to_rad(INT.jet_ico_rotate), color);
+        if (ctx->map->start_jet > 0) {
+            draw_bar(f, &hud->jet_bar, INT.jet_bar_pos, INT.jet_bar_x, INT.jet_ico_x, INT.jet_bar_y, INT.jet_ico_y,
+                     INT.jet_bar_rotate, (float)me->jets / (float)ctx->map->start_jet, INT.jet_bar_left);
+        }
     }
 
     // the grenades on the belt, one image each
@@ -1223,7 +1225,7 @@ static void draw_menu_boxes(const Interface *hud, const Frame *f, const HudData 
     if (menus->menus[MENU_LIMBO].active) {
         float sx = 252 / BACKGROUND_WIDTH;
         draw_sprite_scaled(&hud->back, 45, 140, sx, 210 / BACKGROUND_WIDTH, box);
-        draw_sprite_scaled(&hud->back, 45, 350, sx, 80 / BACKGROUND_WIDTH, box);
+        draw_sprite_scaled(&hud->back, 45, 350, sx, (menus->rope ? 98 : 80) / BACKGROUND_WIDTH, box); // the boots row lives at its foot, when the game has it
 
         float x = pixel_align(f, 55), y = 157;
         for (int k = 1; k <= 10; k++) { // the primaries

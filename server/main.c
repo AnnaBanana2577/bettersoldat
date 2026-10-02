@@ -47,6 +47,8 @@ typedef struct Server {
     Cvar *votepercent;
     Cvar *floodingpackets, *warnings_flood;
     Cvar *script_path; // sv_script
+    Cvar *rope; // sv_rope: the rope allowed; off, everyone's boots are jets
+    Cvar *rope_debug; // sv_rope_debug: each soldier's rope each half second, and changes at once
     Host host;
     Script script;
     bool quit;
@@ -220,6 +222,9 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->votepercent = cvar_register(con, "sv_votepercent", "60", 0, "the percentage of players whose yes passes a vote");
     sv->floodingpackets = cvar_register(con, "net_floodingpackets", "120", 0, "messages in a second from one player that count as flooding (a client sends sixty)");
     sv->warnings_flood = cvar_register(con, "sv_warnings_flood", "4", 0, "flood warnings before the player is kicked and barred for a quarter of an hour");
+    sv->rope = cvar_register(con, "sv_rope", "1", 0, "whether the rope is allowed; 0 gives everyone jets");
+    sv->rope_debug = cvar_register(con, "sv_rope_debug", "0", 0,
+                                   "log each soldier's rope each half second and changes at once, with the states dropped");
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
     console_add_command(con, "say", cmd_say, sv, "say something to everyone, as the server");
@@ -252,6 +257,7 @@ static HostSettings settings_from_cvars(const Server *sv)
         .vote_percent = sv->votepercent->integer,
         .flood_packets = sv->floodingpackets->integer,
         .flood_warnings = sv->warnings_flood->integer,
+        .rope = sv->rope->integer != 0,
     };
     snprintf(s.assets, sizeof s.assets, "%s", sv->assets->value);
     snprintf(s.ip, sizeof s.ip, "%s", sv->ip->value);
@@ -278,6 +284,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     script_start(&sv);
+    sv.host.rope_debug = sv.rope_debug; // the host logs it, sv_rope_debug
     if (!stdin_reader_start()) fprintf(stderr, "the console won't read its input\n");
     signal(SIGINT, on_interrupt);
     signal(SIGTERM, on_interrupt);

@@ -52,6 +52,7 @@ typedef struct WorldRules {
     int32_t medikit_cooldown; // ticks before a soldier may take a second medikit
     bool stationary_guns;     // the map's stationary guns are placed
     bool flags;               // the flags are placed: a game of capture the flag
+    bool rope;                // the rope is allowed (sv_rope); off, the boots are jets
 } WorldRules;
 
 typedef struct World {
@@ -100,6 +101,7 @@ typedef struct MatchSettings {
     int32_t medikit_cooldown;     // seconds (sv_healthcooldown)
     int32_t bonus_frequency;      // 0 none, 1 rare .. 5 often (sv_bonus_frequency)
     bool bonus_flamer, bonus_predator, bonus_berserker, bonus_vest, bonus_cluster;
+    bool rope; // sv_rope: the rope is allowed; off, a rope soldier's boots are jets
 } MatchSettings;
 
 typedef struct Match {

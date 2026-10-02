@@ -66,6 +66,7 @@ void combat_tests(void);
 void thing_tests(void);
 void corpse_tests(void);
 void events_tests(void);
+void rope_tests(void);
 void network_tests(void);
 void join_tests(void);
 void wire_tests(void);

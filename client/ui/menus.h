@@ -36,6 +36,8 @@ typedef struct GameMenus {
     bool noob_show;                   // the keys help in the escape menu (cl_runs < 3)
     int kick_index;                   // the player the kick window shows
     int map_index;                    // the map the map window shows
+    Gear gear;                        // the boots the weapons menu offers: jets, or a rope
+    bool rope;                        // whether the rope is allowed here (sv_rope): the boots offer it, or not
     bool weapons_active[WEAPON_COUNT]; // what the server allows (WeaponActive)
 } GameMenus;
 
@@ -44,6 +46,7 @@ typedef enum MenuActionKind {
     MENU_ACTION_QUIT,           // exit to the (not yet existing) main menu
     MENU_ACTION_PICK_PRIMARY,   // value: the WeaponId
     MENU_ACTION_PICK_SECONDARY, // value: the WeaponId
+    MENU_ACTION_PICK_GEAR,      // value: the Gear
     MENU_ACTION_PICK_TEAM,      // value: the Team
     MENU_ACTION_KICK,           // value: the player
     MENU_ACTION_VOTE_MAP,       // value: the map index

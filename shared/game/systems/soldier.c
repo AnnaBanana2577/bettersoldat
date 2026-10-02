@@ -17,7 +17,7 @@ static uint64_t seed_from_position(Vec2 pos)
     return ((uint64_t)x << 32 | (uint64_t)y) | 1;
 }
 
-void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId primary, WeaponId secondary)
+void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, Gear gear, WeaponId primary, WeaponId secondary)
 {
     int32_t kills = s->kills, deaths = s->deaths, flags = s->flags;
     uint8_t life = s->life;
@@ -48,6 +48,7 @@ void soldier_spawn(const Context *ctx, Soldier *s, Vec2 pos, Team team, WeaponId
         .cease_fire_counter = DEFAULT_CEASE_FIRE,
         .grenades = 1,
         .grenade_type = WEAPON_FRAG,
+        .gear = gear,
         .primary_choice = primary,
         .secondary_choice = secondary,
         .weapon = weapon_state(ctx, primary),
@@ -84,7 +85,7 @@ void soldier_respawn(const Context *ctx, World *w, uint8_t index, Events *events
     // What it held goes back (a flag to its base, a parachute away) and a high spawn
     // gets a parachute: the things pass does both on hearing of the respawn.
     Vec2 pos = spawn_point(ctx->map, s->team, &w->rng);
-    soldier_spawn(ctx, s, pos, s->team, s->primary_choice, s->secondary_choice);
+    soldier_spawn(ctx, s, pos, s->team, s->gear, s->primary_choice, s->secondary_choice);
     s->life++;
     event_emit(events, (Event){
         .type = EVENT_RESPAWN,
@@ -92,6 +93,7 @@ void soldier_respawn(const Context *ctx, World *w, uint8_t index, Events *events
             .target = index,
             .life = s->life,
             .team = s->team,
+            .gear = s->gear,
             .primary = s->primary_choice,
             .secondary = s->secondary_choice,
             .pos = pos,
@@ -212,6 +214,15 @@ void soldier_copy_owned(const Anims *anims, Soldier *dst, const Soldier *src)
     dst->stance = src->stance;
     dst->on_ground = src->on_ground;
     dst->jets = src->jets;
+    dst->rope = src->rope;
+    dst->rope_tip = src->rope_tip;
+    dst->rope_tip_vel = src->rope_tip_vel;
+    dst->rope_len = src->rope_len;
+    dst->rope_grab = src->rope_grab;
+    dst->rope_climb = src->rope_climb;
+    dst->rope_wraps_count = src->rope_wraps_count;
+    for (int i = 0; i < ROPE_WRAPS; i++) dst->rope_wraps[i] = src->rope_wraps[i];
+    dst->was_jet = src->was_jet;
     anim_copy(anims, &dst->legs, src->legs);
     anim_copy(anims, &dst->body, src->body);
     dst->weapon = src->weapon;
@@ -264,6 +275,7 @@ void soldier_copy_served(Soldier *dst, const Soldier *src)
     dst->rng = src->rng;
     dst->cmd_seq = src->cmd_seq;
     dst->shot_count = src->shot_count;
+    dst->gear = src->gear;
     dst->primary_choice = src->primary_choice;
     dst->secondary_choice = src->secondary_choice;
     dst->look = src->look;
@@ -279,6 +291,7 @@ void soldier_copy_rest(Soldier *dst, const Soldier *src)
     dst->old_direction = src->old_direction;
     dst->was_running_left = src->was_running_left;
     dst->was_jumping = src->was_jumping;
+    dst->was_jet = src->was_jet;
     dst->on_ground_last = src->on_ground_last;
     dst->on_ground_permanent = src->on_ground_permanent;
     dst->on_ground_for_law = src->on_ground_for_law;

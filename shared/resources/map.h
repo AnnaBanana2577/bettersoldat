@@ -204,6 +204,11 @@ typedef struct RayFilter {
 // (may be NULL). Rays longer than max_dist report a hit at a huge distance.
 bool map_ray_cast(const Map *m, Vec2 a, Vec2 b, float max_dist, RayFilter filter, float *dist);
 
+// As map_ray_cast, also telling where the ray met the solid and which poly it was
+// (either may be NULL); left unset when nothing is hit.
+bool map_ray_cast_hit(const Map *m, Vec2 a, Vec2 b, float max_dist, RayFilter filter, float *dist, Vec2 *hit,
+                      int *poly_index);
+
 // Point-in-solid test for spawn checks (muzzle, grenade release point); *push is the
 // push-out vector of the containing poly (may be NULL).
 bool map_collision_test(const Map *m, Vec2 pos, bool is_flag, Vec2 *push);

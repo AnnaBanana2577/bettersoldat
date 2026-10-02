@@ -49,6 +49,21 @@ static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? 
 static inline int mini(int a, int b) { return a < b ? a : b; }
 static inline int maxi(int a, int b) { return a > b ? a : b; }
 
+// Where two segments cross, if they do: the intersection point of the lines they
+// lie on, when it lies within both. Not for collinear or parallel segments.
+static inline bool segments_cross(Vec2 a1, Vec2 a2, Vec2 b1, Vec2 b2, Vec2 *hit)
+{
+    Vec2 r = vec2_sub(a2, a1), s = vec2_sub(b2, b1);
+    float denom = r.x * s.y - r.y * s.x;
+    if (denom == 0.0f) return false;
+    Vec2 qp = vec2_sub(b1, a1);
+    float t = (qp.x * s.y - qp.y * s.x) / denom;
+    float u = (qp.x * r.y - qp.y * r.x) / denom;
+    if (t < 0.0f || t > 1.0f || u < 0.0f || u > 1.0f) return false;
+    *hit = vec2_add(a1, vec2_scale(r, t));
+    return true;
+}
+
 // --- color.c -----------------------------------------------------------------------
 
 typedef struct Rgba {

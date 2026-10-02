@@ -50,6 +50,11 @@ typedef struct RenderSoldier {
     int body_frame;       // the body animation's frame: the headgear is in the hand past a wipe's fourth
     uint8_t has_cigar;    // the cigar in the mouth: 5 unlit, 10 lit
     uint8_t wear_helmet;  // 1 on the head; anything else bares the hair
+    RopePhase rope;       // anything but none draws the line below
+    Vec2 rope_tip;        // the rope's far end: growing, or anchored
+    uint8_t rope_wraps_count;      // the corners the rope is caught around
+    Vec2 rope_wraps[ROPE_WRAPS];   // each, from the anchor out to its owner
+    Gear gear;            // jets, or a rope: the flame only burns the first
 } RenderSoldier;
 
 typedef struct RenderState {

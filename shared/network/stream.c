@@ -118,7 +118,12 @@ bool server_stream_receive(ServerStream *s, Game *g, int slot, const uint8_t *da
     // its loadout always, a weapon that isn't a primary or a secondary put right
     Soldier *soldier = &g->world.soldiers[slot];
     if (soldier->active && !soldier->dead && m.life == soldier->life) soldier_copy_owned(g->ctx.anims, soldier, &m.owned);
+    if (!g->world.rules.rope && soldier->rope != ROPE_NONE) { // sv_rope off: none rides in on the wire
+        soldier->rope = ROPE_NONE;
+        soldier->rope_wraps_count = 0;
+    }
     soldier->typing = m.typing;
+    soldier->gear = !g->world.rules.rope && m.owned.gear == GEAR_ROPE ? GEAR_JETS : m.owned.gear; // and the boots stay jets
     soldier->primary_choice = weapon_is_primary(m.owned.primary_choice) ? m.owned.primary_choice : WEAPON_EAGLE;
     soldier->secondary_choice = weapon_is_secondary(m.owned.secondary_choice) ? m.owned.secondary_choice : WEAPON_KNIFE;
     return true;
@@ -372,15 +377,17 @@ static void frame_apply(ClientStream *c, Game *g, int me, int k)
         if (c->snap_word[k][i] == SNAP_GONE) {
             if (i != me) s->active = false;
         } else if (c->snap_word[k][i] == SNAP_STATE && i == me) {
-            // the server's word of me, but my look, loadout and typing are mine
+            // the server's word of me, but my look, loadout, gear and typing are mine
             const Soldier *heard = &c->snaps[k][i];
             bool placed = heard->life != s->life;
             PlayerLook look = s->look;
             WeaponId primary = s->primary_choice, secondary = s->secondary_choice;
+            Gear gear = s->gear;
             bool typing = s->typing;
             soldier_copy_served(s, heard);
             s->look = look;
             s->typing = typing;
+            s->gear = gear;
             s->primary_choice = primary;
             s->secondary_choice = secondary;
             if (placed) soldier_copy_owned(g->ctx.anims, s, heard);

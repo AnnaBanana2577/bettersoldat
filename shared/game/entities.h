@@ -146,6 +146,20 @@ typedef enum Stance { STANCE_STAND, STANCE_CROUCH, STANCE_PRONE } Stance;
 
 typedef enum Bonus { BONUS_NONE, BONUS_FLAME_GOD, BONUS_PREDATOR, BONUS_BERSERKER } Bonus;
 
+// The gear the soldier wears instead of the jets: chosen in the weapons menu, played
+// with the same button.
+typedef enum Gear { GEAR_JETS, GEAR_ROPE, GEAR_COUNT } Gear;
+
+// What a rope is doing, for its owner to play and for every machine to draw and cut.
+typedef enum RopePhase {
+    ROPE_NONE,      // none out, or the last one retracted
+    ROPE_THROWING,  // in the air, on its way to an anchor
+    ROPE_ATTACHED,  // holding a poly, its owner hanging on it
+    ROPE_PHASE_COUNT
+} RopePhase;
+
+#define ROPE_WRAPS 6 // the corners a rope can be caught around at once
+
 #define BACKGROUND_NORMAL 0
 #define BACKGROUND_TRANSITION 1
 #define BACKGROUND_POLY_NONE (-1)
@@ -229,11 +243,26 @@ typedef struct Soldier {
     // Left+Right held together keeps the previous direction: memory of the last tick.
     bool was_running_left;
     bool was_jumping;
+    bool was_jet; // the rope key was held last tick: a press and a hold are told apart
     Stance stance;
     Anim legs, body;
     bool on_ground;
     bool on_ground_last, on_ground_permanent, on_ground_for_law;
     int32_t jets;
+    // The rope when it replaces the jets: where its flying end (or anchor) is, how
+    // fast the end flies, the length it holds its owner at — and the length it had
+    // when it grabbed, the down key feeding it back out only that far — and the
+    // climb's pace (a slow pull that builds while the up key is held).
+    RopePhase rope;
+    Vec2 rope_tip;
+    Vec2 rope_tip_vel;
+    float rope_len;
+    float rope_grab;
+    float rope_climb;
+    // The corners the rope is caught around, from the anchor out to its owner: a
+    // rope cannot pass through the polys its line crosses, it winds around them.
+    uint8_t rope_wraps_count;
+    Vec2 rope_wraps[ROPE_WRAPS];
     BackgroundState bg;
     bool fired; // a shot went off this tick: the muzzle flash
     Weapon weapon;
@@ -270,7 +299,8 @@ typedef struct Soldier {
     float vest;
     Bonus bonus;
     int32_t bonus_time;
-    WeaponId primary_choice; // the loadout for the next spawn
+    Gear gear;                 // the loadout for the next spawn: jets, or a rope
+    WeaponId primary_choice;   // the loadout for the next spawn
     WeaponId secondary_choice;
     int32_t kills, deaths, flags;
     PlayerLook look;
@@ -427,7 +457,7 @@ typedef struct EventKill {
 } EventKill;
 // The server placed a soldier: where, on which team, holding what, and the number of
 // the life that begins. All its own client needs to begin it too.
-typedef struct EventRespawn { uint8_t target; uint8_t life; Team team; WeaponId primary, secondary; Vec2 pos; } EventRespawn;
+typedef struct EventRespawn { uint8_t target; uint8_t life; Team team; Gear gear; WeaponId primary, secondary; Vec2 pos; } EventRespawn;
 // The pickups carry the thing's index.
 typedef struct EventFlagGrab { uint8_t player; uint8_t thing; ThingStyle flag; Vec2 pos; } EventFlagGrab;
 typedef struct EventFlagReturn { uint8_t player; ThingStyle flag; Vec2 pos; } EventFlagReturn; // player 255: timed out
@@ -459,6 +489,10 @@ typedef struct EventFlagDrop { uint8_t player; ThingStyle flag; Vec2 pos; } Even
 // the piss brings the odds it shows this tick and how long the drop lives.
 typedef enum AnticKind { ANTIC_SPIT, ANTIC_CIGAR_PUFF, ANTIC_MATCH, ANTIC_CIGAR_THROW, ANTIC_PISS } AnticKind;
 typedef struct EventAntic { uint8_t player; AnticKind kind; Vec2 pos, vel; uint8_t odds, life; } EventAntic;
+// A knife, LAW, M79 or Barrett cut a player's rope. Every machine computes the cut
+// itself in the bullets pass; this is for the sparks and sounds alone, so it never
+// leaves the machine that made it.
+typedef struct EventRopeCut { uint8_t player; Vec2 pos; } EventRopeCut;
 typedef struct EventEchoTest { int n; } EventEchoTest; // the tests', to watch the passes' mail
 
 typedef enum EventType {
@@ -492,7 +526,8 @@ typedef enum EventType {
     EVENT_MATCH_END,
     EVENT_FLAG_DROP,
     EVENT_ANTIC,
-    EVENT_ECHO_TEST,
+    EVENT_ROPE_CUT,
+    EVENT_ECHO_TEST, // the last: wire_event's net_range tops out at it, so nothing may follow
 } EventType;
 
 typedef struct Event {
@@ -529,6 +564,7 @@ typedef struct Event {
         EventMatchEnd match_end;
         EventFlagDrop flag_drop;
         EventAntic antic;
+        EventRopeCut rope_cut;
         EventEchoTest echo;
     };
 } Event;
