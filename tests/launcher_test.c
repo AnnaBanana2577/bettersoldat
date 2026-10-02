@@ -140,20 +140,35 @@ static void tar_entry(Bytes *b, const char *name, const char *prefix, char type,
     if (size % 512) append(b, zeros, 512 - size % 512);
 }
 
-static bool write_tar_gz(const char *path, const Bytes *tar)
+// `tar` as a gzip member: the header (with a name, as gzip writes one), the deflate, the
+// CRC-32 and the size.
+static void gzip_member(Bytes *gz, const uint8_t *data, size_t size)
 {
     size_t packed_size = 0;
-    void *packed = tdefl_compress_mem_to_heap(tar->data, tar->size, &packed_size, TDEFL_DEFAULT_MAX_PROBES);
-    if (!packed) return false;
-    uint8_t header[10] = {0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff};
-    uint32_t crc = (uint32_t)mz_crc32(MZ_CRC32_INIT, tar->data, tar->size), isize = (uint32_t)tar->size;
+    void *packed = tdefl_compress_mem_to_heap(data, size, &packed_size, TDEFL_DEFAULT_MAX_PROBES);
+    uint8_t header[10] = {0x1f, 0x8b, 8, 8, 0, 0, 0, 0, 0, 0xff};
+    uint32_t crc = (uint32_t)mz_crc32(MZ_CRC32_INIT, data, size), isize = (uint32_t)size;
     uint8_t trailer[8] = {(uint8_t)crc, (uint8_t)(crc >> 8), (uint8_t)(crc >> 16), (uint8_t)(crc >> 24),
                           (uint8_t)isize, (uint8_t)(isize >> 8), (uint8_t)(isize >> 16), (uint8_t)(isize >> 24)};
-    Bytes gz = {0};
-    append(&gz, header, sizeof header);
-    append(&gz, packed, packed_size);
-    append(&gz, trailer, sizeof trailer);
+    append(gz, header, sizeof header);
+    append(gz, "pkg.tar", 8);
+    if (packed) append(gz, packed, packed_size);
+    append(gz, trailer, sizeof trailer);
     mz_free(packed);
+}
+
+// `tar` gzipped; `split` writes it as gzip members in sequence (an empty one first, as
+// xmake's archiver does, then the tar in two), which gzip reads as one stream.
+static bool write_tar_gz(const char *path, const Bytes *tar, bool split)
+{
+    Bytes gz = {0};
+    if (split) {
+        gzip_member(&gz, tar->data, 0);
+        gzip_member(&gz, tar->data, tar->size / 2);
+        gzip_member(&gz, tar->data + tar->size / 2, tar->size - tar->size / 2);
+    } else {
+        gzip_member(&gz, tar->data, tar->size);
+    }
     bool ok = files_write(path, gz.data, gz.size);
     free(gz.data);
     return ok;
@@ -192,9 +207,9 @@ static void archive_tests(void)
     tar_entry(&tar, "pkg/empty", NULL, '0', "", 0);
     uint8_t end[1024] = {0};
     append(&tar, end, sizeof end);
-    CHECK(write_tar_gz(SCRATCH "/pkg.tar.gz", &tar), "the test's tar.gz is written");
+    CHECK(write_tar_gz(SCRATCH "/pkg.tar.gz", &tar, true), "the test's tar.gz is written");
     bool ok = archive_extract(SCRATCH "/pkg.tar.gz", SCRATCH "/tar", NULL, NULL, error, sizeof error);
-    CHECK(ok, "a tar.gz unpacks: %s", ok ? "" : error);
+    CHECK(ok, "a tar.gz of several gzip members, an empty one first as xmake writes it, unpacks: %s", ok ? "" : error);
     CHECK(holds(SCRATCH "/tar/game", "the game"), "a file at the top, without the package's directory");
     CHECK(holds(SCRATCH "/tar/assets/maps/ctf_Ash.pms", "a map"), "a name split over the ustar prefix");
     char path[512];
@@ -203,12 +218,16 @@ static void archive_tests(void)
     snprintf(path, sizeof path, SCRATCH "/tar/%s", pax_name + 4);
     CHECK(holds(path, "pax"), "a pax path");
     CHECK(holds(SCRATCH "/tar/empty", ""), "an empty file");
+    files_remove_tree(SCRATCH "/tar");
+    CHECK(write_tar_gz(SCRATCH "/one.tar.gz", &tar, false), "the test's one-member tar.gz is written");
+    ok = archive_extract(SCRATCH "/one.tar.gz", SCRATCH "/tar", NULL, NULL, error, sizeof error);
+    CHECK(ok && holds(SCRATCH "/tar/game", "the game"), "a tar.gz of one member unpacks the same: %s", ok ? "" : error);
     free(tar.data);
 
     Bytes evil = {0};
     tar_entry(&evil, "pkg/../../escaped", NULL, '0', "x", 1);
     append(&evil, end, sizeof end);
-    write_tar_gz(SCRATCH "/evil.tar.gz", &evil);
+    write_tar_gz(SCRATCH "/evil.tar.gz", &evil, false);
     CHECK(!archive_extract(SCRATCH "/evil.tar.gz", SCRATCH "/evil", NULL, NULL, error, sizeof error) &&
               !files_exists("build/escaped"),
           "an entry reaching outside is refused");

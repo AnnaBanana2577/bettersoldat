@@ -272,36 +272,65 @@ static bool extract_tar_gz(const char *archive, const char *into, ArchiveProgres
         snprintf(error, error_size, "the archive can't be read");
         return false;
     }
-    // the gzip header (RFC 1952), its optional fields, then deflate, then CRC-32 and size
-    size_t at = 10;
-    uint8_t flags = size > 10 ? data[3] : 0;
-    if (size >= 18 && (flags & 4)) at += 2 + (size_t)(data[at] | data[at + 1] << 8);
-    if (flags & 8) while (at < size && data[at++]);
-    if (flags & 16) while (at < size && data[at++]);
-    if (flags & 2) at += 2;
-    if (size < 18 || data[2] != 8 || at + 8 > size) {
-        free(data);
-        snprintf(error, error_size, "the archive is damaged");
-        return false;
-    }
-    const uint8_t *trailer = data + size - 8;
-    uint32_t crc = (uint32_t)trailer[0] | (uint32_t)trailer[1] << 8 | (uint32_t)trailer[2] << 16 | (uint32_t)trailer[3] << 24;
-    uint32_t isize = (uint32_t)trailer[4] | (uint32_t)trailer[5] << 8 | (uint32_t)trailer[6] << 16 | (uint32_t)trailer[7] << 24;
-
-    Tar t = {.into = into, .state = TAR_HEADER, .crc = MZ_CRC32_INIT, .total = isize,
-             .progress = progress, .user = user, .error = error, .error_size = error_size};
+    // A gzip is one member or several, one after another (RFC 1952), each a header with
+    // its optional fields, a deflate stream, and its own CRC-32 and size; gzip reads
+    // them in turn as one stream, and so does this: the tar runs on across them. The
+    // tar.gz xmake writes (xmake dist) is an empty member, then the archive's own.
+    // The last member's size is the progress's total, near enough.
+    Tar t = {.into = into, .state = TAR_HEADER, .progress = progress, .user = user, .error = error, .error_size = error_size};
     error[0] = '\0';
-    size_t in_size = (size_t)size - 8 - at;
-    int inflated = tinfl_decompress_mem_to_callback(data + at, &in_size, tar_take, &t, 0);
+    if (size >= 8) {
+        const uint8_t *last = data + size - 8;
+        t.total = (uint32_t)last[4] | (uint32_t)last[5] << 8 | (uint32_t)last[6] << 16 | (uint32_t)last[7] << 24;
+    }
+    size_t at = 0;
+    int members = 0;
+    bool ok = true;
+    while (ok && at + 18 <= size && data[at] == 0x1f && data[at + 1] == 0x8b) {
+        uint8_t flags = data[at + 3];
+        size_t p = at + 10;
+        if (flags & 4) {
+            if (p + 2 > size) break;
+            p += 2 + (size_t)(data[p] | data[p + 1] << 8);
+        }
+        if (flags & 8) while (p < size && data[p++]);
+        if (flags & 16) while (p < size && data[p++]);
+        if (flags & 2) p += 2;
+        if (data[at + 2] != 8 || p + 8 > size) break;
+
+        t.crc = MZ_CRC32_INIT;
+        uint64_t start = t.done;
+        size_t in_size = (size_t)size - 8 - p;
+        ok = tinfl_decompress_mem_to_callback(data + p, &in_size, tar_take, &t, 0) != 0; // in_size: what it took
+        if (!ok) {
+            if (!error[0]) snprintf(error, error_size, "the archive is damaged");
+            break;
+        }
+        p += in_size;
+        if (p + 8 > size) {
+            ok = false;
+            break;
+        }
+        const uint8_t *trailer = data + p;
+        uint32_t crc = (uint32_t)trailer[0] | (uint32_t)trailer[1] << 8 | (uint32_t)trailer[2] << 16 | (uint32_t)trailer[3] << 24;
+        uint32_t isize = (uint32_t)trailer[4] | (uint32_t)trailer[5] << 8 | (uint32_t)trailer[6] << 16 | (uint32_t)trailer[7] << 24;
+        if (t.crc != crc || (uint32_t)(t.done - start) != isize) {
+            snprintf(error, error_size, "the archive is damaged (its checksum is wrong)");
+            ok = false;
+            break;
+        }
+        at = p + 8;
+        members++;
+    }
     if (t.out) fclose(t.out);
     free(t.meta);
     free(data);
-    if (!inflated) {
+    if (!ok) {
         if (!error[0]) snprintf(error, error_size, "the archive is damaged");
         return false;
     }
-    if (t.crc != crc || (uint32_t)t.done != isize) {
-        snprintf(error, error_size, "the archive is damaged (its checksum is wrong)");
+    if (members == 0 || at != size) {
+        snprintf(error, error_size, "the archive is damaged");
         return false;
     }
     if (t.state != TAR_HEADER || t.fill != 0) {

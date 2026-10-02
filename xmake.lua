@@ -237,7 +237,14 @@ task("dist")
             -- absolute: the archiver runs inside distdir so the directory's name is the archive's root
             local archivefile = path.absolute(path.join(distdir, name .. extension))
             os.tryrm(archivefile)
-            archive.archive(archivefile, name, {curdir = distdir})
+            if extension == ".tar.gz" then
+                -- tar itself, not xmake's archiver: that gzips its own output file (empty, just
+                -- made) before the tar, so the package comes out as two gzip members, an
+                -- empty one first, which the launchers shipped before 0.7.2 can't read
+                os.vrunv("tar", {"-czf", archivefile, name}, {curdir = distdir})
+            else
+                archive.archive(archivefile, name, {curdir = distdir})
+            end
             print("packaged " .. archivefile)
             return archivefile
         end
