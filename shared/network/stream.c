@@ -496,16 +496,21 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp)
         }
     }
 
-    // the frame on show, the others from their newest words, and the server's word due
+    // The frame on show; with none for this tick (lost, late, or the view ahead of the
+    // line after the server stood still a while), the newest before it not yet applied,
+    // so the server's word of me, the match and the things (a placing, a death, a
+    // capture) waits on the line and not on the clock, as everyone else's word does.
+    // Then the others from their newest words, and the server's events due.
     uint32_t v = w->tick;
-    int k = (int)(v % STREAM_RING);
-    bool have = c->snap_tick[k] == v;
-    if (have) {
+    if (c->snap_tick[v % STREAM_RING] != v && v > c->applied) c->misses++;
+    uint32_t t = v < c->newest ? v : c->newest;
+    for (; t > c->applied && c->newest - t < STREAM_RING; t--) {
+        int k = (int)(t % STREAM_RING);
+        if (c->snap_tick[k] != t) continue;
         frame_apply(c, g, me, k);
         c->applies++;
-        if (v > c->applied) c->applied = v;
-    } else if (v > c->applied) {
-        c->misses++;
+        c->applied = t;
+        break;
     }
     soldiers_apply(c, g, me, v);
     wire_pending_apply(&c->pending, g, v);

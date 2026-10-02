@@ -90,7 +90,9 @@ One clock, the server's tick, carried on every snapshot. A client's tick is the 
 of the frame it shows, kept against the newest snapshot it holds: the clock runs free
 and is nudged a tick at a time when the frames in hand run consistently over or under
 (client_stream_begin_tick; `cl_interp` keeps it some ticks behind the newest, which is
-off by default). A client runs its own soldier at the present with no delay and no
+off by default; when no snapshot has the tick on show, the newest before it is applied
+instead, so the server's word of a placing or a death never waits on the clock). A
+client runs its own soldier at the present with no delay and no
 correction, and shows everyone else where the game last heard they were, moving as
 they were moving: each is taken from its newest word and stepped on to the tick on
 show with its last controls through the ordinary `soldier_step` with `armed` false, so

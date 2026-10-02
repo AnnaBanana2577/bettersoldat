@@ -573,6 +573,28 @@ void stream_tests(void)
     CHECK(c.stream.dropped == 0, "and nothing of the new round was dropped (%u; %u stale ones of the old were)", c.stream.dropped,
           c.stream.stale);
 
+    // The view ahead of the line: the server stood still a while (a hitch there, or in
+    // Local Play the host behind its own client's clock) and the client ticked on, so
+    // the tick on show is one no snapshot has yet, and the clock is nudged back a tick a
+    // second. The server's word of me (a placing: a team chosen, a respawn) must not wait
+    // on the clock: it is taken from the newest frame before the tick on show, as
+    // everyone else's word is.
+    for (int i = 0; i < 5; i++) {
+        client_pump(&c);
+        client_tick(&c, 0);
+    }
+    CHECK(c.game->world.tick > c.stream.newest, "the client's clock has run %d ticks ahead of the newest snapshot",
+          (int)(c.game->world.tick - c.stream.newest));
+    connections_place(&conns, gs, 0, TEAM_ALPHA);
+    int waited = 0;
+    while (waited < 400 && mine->life != theirs->life) {
+        play(&conns, gs, &c, 1, 0, 0);
+        waited++;
+    }
+    CHECK(mine->life == theirs->life && waited <= 12,
+          "placed by the server while my view runs ahead, I hear of it within a few ticks, not when the clock has caught up (%d ticks)",
+          waited);
+
     net_close(&c.link);
     for (int round = 0; round < 50 && conns.items[0].peer; round++) {
         connections_poll(&conns, gs);
