@@ -1,9 +1,16 @@
-# A version tag (v0.1.0) builds the packages on Windows and Linux, runs the tests, and
-# attaches what `xmake dist` makes to a GitHub release named after the tag, with the
-# tag's own message as its notes (docs/git.md, Releases): for each platform the game
-# (soldatreloaded-<version>-<platform>), its update package (the same, -patch), the
-# server's (-server), and latest-<platform>.txt, the manifest the launcher reads. A tag
-# whose version is not the one in xmake.lua, or whose tests fail, makes no release.
+# A version tag (v0.1.0) makes a release, one job after another in one run:
+#
+#   version   the tag is the version in xmake.lua
+#   ci        the game built, packed and tested on Windows and Linux (ci.yml), its packages kept
+#   release   a GitHub release named after the tag, with the tag's own message as its notes
+#             (docs/git.md, Releases), given what `xmake dist` made: for each platform the
+#             game (soldatreloaded-<version>-<platform>), its update package (the same,
+#             -patch), the server's (-server), and latest-<platform>.txt, the manifest the
+#             launcher reads
+#   announce  the release on Discord (discord-notify.yml)
+#
+# Each needs the one before, so a tag whose version is wrong, or whose tests fail, makes no
+# release and no announcement.
 #
 # The launcher asks for releases/latest/download/latest-<platform>.txt, which is the
 # newest published release's. So the release is made as a draft, given every file, and
@@ -16,21 +23,12 @@ on:
     tags: ["v*.*.*"]
 
 jobs:
-  package:
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - os: windows-latest
-            platform: windows
-          - os: ubuntu-latest
-            platform: linux
-    runs-on: ${{ matrix.os }}
+  version:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: the tag is the version in xmake.lua
-        shell: bash
         run: |
           version=$(sed -n 's/^set_version("\([^"]*\)")/\1/p' xmake.lua)
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
@@ -38,46 +36,14 @@ jobs:
             exit 1
           fi
 
-      # What SDL2 builds against on Linux: X11, Wayland, OpenGL and the sound systems.
-      - name: system libraries
-        if: matrix.platform == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake pkg-config \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
-            libxss-dev libxfixes-dev libxrender-dev libxkbcommon-dev \
-            libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev \
-            libasound2-dev libpulse-dev libdbus-1-dev libudev-dev libdrm-dev libgbm-dev
-
-      - uses: xmake-io/github-action-setup-xmake@v1
-        with:
-          xmake-version: latest
-          package-cache: true
-          package-cache-key: ${{ matrix.platform }}
-
-      - name: configure
-        run: xmake f -m release -y
-
-      # packed first, so the tests check the packages too, as a launcher unpacks them
-      # (tests/launcher_test.c, release_tests)
-      - name: package
-        run: xmake dist
-
-      - name: test
-        run: xmake test -y
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: packages-${{ matrix.platform }}
-          path: |
-            build/release/*.zip
-            build/release/*.tar.gz
-            build/release/latest-*.txt
-          if-no-files-found: error
+  ci:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      keep-packages: true
 
   release:
-    needs: package
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -86,7 +52,6 @@ jobs:
 
       # The annotated tag's message is the release's notes.
       - name: the tag's message
-        shell: bash
         run: |
           git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > notes.md
@@ -114,3 +79,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
+  announce:
+    needs: release
+    uses: ./.github/workflows/discord-notify.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit

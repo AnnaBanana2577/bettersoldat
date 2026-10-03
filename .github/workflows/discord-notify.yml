@@ -1,23 +1,26 @@
 # A release, announced on Discord: an embed with the version, its notes (the tag's
 # message, docs/git.md) and the downloads, posted to the webhook in the repository's
-# DISCORD_RELEASE_WEBHOOK secret. The message is made by discord-release.jq, which
+# DISCORD_RELEASE_WEBHOOK secret. The message is made by discord-notify.jq, which
 # `gh release view --jq` runs, so it can be tried locally the same way:
 #
 #   gh release view v0.7.0 --json name,tagName,url,body,publishedAt,isPrerelease,assets \
-#     --jq "$(cat .github/discord-release.jq)"
+#     --jq "$(cat .github/discord-notify.jq)"
 #
-# The release workflow publishes with GITHUB_TOKEN, and GitHub starts no workflow on
-# events that token causes: a `release: published` trigger alone would never fire for
-# ours. So this follows the release workflow's runs, and posts when one succeeds; a
-# release published by hand (a draft released from the page) comes as `release`; and
-# it can be run by hand with a tag, to post one again.
+# The release workflow calls this as its last job, once the release is published
+# (release.yml). It publishes with GITHUB_TOKEN, and GitHub starts no workflow on events
+# that token causes, so its `release: published` comes to nothing here and the release is
+# announced once. A release published by hand (a draft released from the page) comes as
+# `release`; and this can be run by hand with a tag, to post one again.
 
-name: discord release
+name: discord notify
 
 on:
-  workflow_run:
-    workflows: [release]
-    types: [completed]
+  workflow_call:
+    inputs:
+      tag:
+        description: "the release's tag, as v0.7.0"
+        type: string
+        required: true
   release:
     types: [published]
   workflow_dispatch:
@@ -28,11 +31,6 @@ on:
 
 jobs:
   announce:
-    # the release workflow's run counts only when it made a release: it ran for a tag,
-    # and succeeded
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -45,7 +43,7 @@ jobs:
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.inputs.tag || github.event.release.tag_name || github.event.workflow_run.head_branch }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
@@ -68,6 +66,6 @@ jobs:
           fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
             --json name,tagName,url,body,publishedAt,isPrerelease,assets \
-            --jq "$(cat .github/discord-release.jq)" > message.json
+            --jq "$(cat .github/discord-notify.jq)" > message.json
           cat message.json
           curl --fail-with-body -sS -H "Content-Type: application/json" -d @message.json "$WEBHOOK"

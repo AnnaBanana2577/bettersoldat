@@ -100,7 +100,7 @@ You need [xmake](https://xmake.io) and a C compiler: Visual Studio's on Windows,
 clang on Linux. xmake fetches and builds the libraries itself: SDL2, ENet, Lua, libcurl,
 stb and miniz. On Linux, SDL2 builds against the system's X11, Wayland and audio
 headers, which have to be installed first (the list is in
-[.github/workflows/release.yml](.github/workflows/release.yml)).
+[.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 ```
 xmake              # the client, the server and the launcher

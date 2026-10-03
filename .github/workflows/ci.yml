@@ -1,0 +1,70 @@
+# The game built, packed and tested on Windows and Linux: on every push to main and every
+# pull request, and for a release, which calls this (release.yml) and ships what it packs.
+# It packs before it tests, so the tests check the packages too, as a launcher unpacks
+# them (tests/launcher_test.c, release_tests): packaging that breaks fails here, not on a
+# tag. A release's packages are kept as the artifacts packages-<platform>; anyone else's
+# are checked and dropped.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+    inputs:
+      keep-packages:
+        description: "upload the packages as packages-<platform>, for the release"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # What SDL2 builds against on Linux: X11, Wayland, OpenGL and the sound systems.
+      - name: system libraries
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libxss-dev libxfixes-dev libxrender-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev \
+            libasound2-dev libpulse-dev libdbus-1-dev libudev-dev libdrm-dev libgbm-dev
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+          package-cache: true
+          package-cache-key: ${{ matrix.platform }}
+
+      - name: configure
+        run: xmake f -m release -y
+
+      - name: package
+        run: xmake dist
+
+      - name: test
+        run: xmake test -y
+
+      - if: inputs.keep-packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.platform }}
+          path: |
+            build/release/*.zip
+            build/release/*.tar.gz
+            build/release/latest-*.txt
+          if-no-files-found: error

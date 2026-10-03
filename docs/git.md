@@ -93,7 +93,9 @@ package, and never touched. So:
   shouldn't go out to players is made a pre-release or left a draft.
 
 Pushing the tag makes them. The release workflow (.github/workflows/release.yml)
-builds the packages on Windows and Linux, runs the tests, and attaches the archives to
-a GitHub release named after the tag, with the tag's message as its notes. So the
+builds the packages on Windows and Linux and runs the tests (ci.yml, which runs the same
+on every push to main and every pull request), attaches the archives to a GitHub release
+named after the tag, with the tag's message as its notes, and announces it on Discord
+(discord-notify.yml), each step only if the one before succeeded. So the
 version in xmake.lua's `set_version` is bumped in a commit before the tag, the tag's
 message is written for players to read, and a tag whose tests fail releases nothing.

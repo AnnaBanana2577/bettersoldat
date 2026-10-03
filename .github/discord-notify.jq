@@ -1,7 +1,7 @@
 # A release as a Discord webhook's message: one embed, in the menu's ember, titled with
 # the version and linked to the release, its notes as the description, and the game's
 # downloads for each platform; the game's icon is the sender's avatar. Run over `gh release view
-# --json name,tagName,url,body,publishedAt,isPrerelease,assets` (discord-release.yml).
+# --json name,tagName,url,body,publishedAt,isPrerelease,assets` (discord-notify.yml).
 #
 # The notes are the tag's message (docs/git.md, Releases), written as plain text for
 # git: its lines are wrapped with an indent under each "- ", which Discord would show as
