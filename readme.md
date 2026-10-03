@@ -59,9 +59,28 @@ X to go prone, the right mouse button for the jets, Space to throw a grenade, Q 
 switch weapons, R to reload, Tab for the weapons menu, Escape for the game menu, T to
 chat, Y to chat to your team, V for the radio menu, F1 for the scoreboard.
 
-Settings live in `config/` beside the game, one flat folder the game ships at its defaults
-and writes back as you play; an update changes a file only while it is as the game shipped
-it. The game runs `client.cfg` and `server.cfg`; a server runs `server.cfg`:
+### The install
+
+The folder you unpacked, as the launcher keeps it:
+
+| | holds | an update |
+|---|---|---|
+| `Soldat Reloaded.exe` | the launcher (`soldatreloaded-launcher` on Linux) | replaces it first, on its own, then asks you to start again |
+| `bin/` | `client`, the game, and `server`, the dedicated server | replaces them |
+| `data/` | the maps, animations, skeletons and bots the game plays by | keeps it exactly as released |
+| `mods/default/` | the art, sounds and fonts | keeps it exactly as released |
+| `mods/` (beside `default/`) | your mods | never touches them |
+| `config/` | your settings, the server's lists and its weapons mod | makes a file that's missing; brings a new one only while yours is as the last release shipped it |
+| `scripts/main.lua` | the server's script, yours to write | the same as `config/` |
+| `scripts/examples/` | the example scripts | keeps it exactly as released |
+| `demos/` | the demos you record | never touches it |
+
+A file a release no longer ships is removed, unless it's one of yours that you changed.
+
+### Settings
+
+Settings live in `config/`, one flat folder the game ships at its defaults. The game runs
+`client.cfg` and `server.cfg`; a server runs `server.cfg`:
 
 | file | holds |
 |---|---|
@@ -99,9 +118,11 @@ line's `//` off to set it otherwise), or given on the command line, which goes o
 server +sv_hostname "My server" +sv_maps "ctf_Ash ctf_Kampf" +sv_password secret
 ```
 
-Beside it in `config/`, made on the first start. The `.cfg` files are console lines the
-server runs, `weapons.ini` its weapons; the `.txt` files are lists it reads, and the bans
-and mutes it writes:
+Beside it in `config/`, made on the first start, are its weapons mod and the lists it
+reads, the bans and mutes among them, which it writes too. The server package ships no
+`config/`, so unpacking a new release over a server never touches them; a server starts
+with the game's own weapons, and a `weapons.ini` that lists them all, commented out. (The
+game's package ships its `config/` with GatherWM as the weapons mod, for Local Play.)
 
 | file | holds |
 |---|---|
@@ -141,9 +162,9 @@ under `xmake run`, which holds them as an install lays them out, or an unpacked 
 | `packages/shared/` | The simulation (`game/`), the maps, animations and skeletons it reads (`resources/`), the wire (`network/`), the console and the utilities. Built into both the client and the server, so both run the same game. |
 | `packages/client/` | The window, input, rendering (OpenGL 2.1), audio, the HUD and menus, and the client's end of the netcode. |
 | `packages/server/` | The headless server: connections, rounds, bots, votes, the Lua scripting and the lobby heartbeat. |
-| `packages/launcher/` | The updater: fetches releases from GitHub, checks every file against the release's hashes, and starts the game. |
+| `packages/launcher/` | The updater: fetches the newest release from GitHub, brings only the files that changed, by the rules in [The install](#the-install), and starts the game. |
 | `tests/` | Headless checks of the simulation on real maps and of the netcode over the loopback. |
-| `runtime/` | What ships beside the executables, laid out as an install: `data/`, the maps, animations, skeletons and bots the game plays by, and `mods/default/`, the art, sounds and fonts it looks and sounds like, both from [opensoldat/base](https://github.com/opensoldat/base); `scripts/`, the server's Lua scripts. What the game writes there as you play (`config/`, `demos/`) and any mod beside `mods/default/` are yours, and git leaves them out. |
+| `runtime/` | What ships beside the executables, laid out as an install (see [The install](#the-install)): `data/`, the maps, animations, skeletons and bots the game plays by, and `mods/default/`, the art, sounds and fonts it looks and sounds like, both from [opensoldat/base](https://github.com/opensoldat/base); `config/` at its defaults; `scripts/`, the server's Lua scripts. What you add there as you play (`demos/`, a mod beside `mods/default/`) git leaves out. |
 | `docs/` | How it works and how to work on it. |
 
 The docs go deeper:
@@ -157,7 +178,7 @@ The docs go deeper:
 
 ## What's not done yet
 
-Demos, a map editor, a mod maker and editors for the skeletons and animations (the
+A map editor, a mod maker and editors for the skeletons and animations (the
 `.po` and `.poa` files) are planned but not started, and only deathmatch and capture
 the flag of OpenSoldat's game modes are in so far, with some of its server settings
 still to be ported. [docs/todo.md](docs/todo.md) keeps the

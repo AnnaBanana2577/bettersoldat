@@ -16,13 +16,14 @@ The types:
 - `perf` — the same behaviour, faster or smaller on the wire.
 - `docs` — the readme, docs/, the comments that carry reasoning.
 - `test` — tests, and the tools that run them.
-- `build` — build.odin, the flags, the packaging.
+- `build` — xmake.lua, the flags, the packaging, the workflows.
 - `chore` — everything else: files in, files out, housekeeping.
 
-The scope is the part of the tree the change lands in, named as the tree names it:
-`geom`, `polymap`, `anim`, `weapons`, `game`, `net`, `pms`, `cvar`, `timer`, `client`,
-`server`, `editor`, `hud`, `shared`, `data`, `mods`, `readme`, `docs`, `dev`. Leave it out
-when the change is the whole repo's.
+The scope is the part of the tree the change lands in, named as the tree names it: a
+package (`client`, `server`, `shared`, `launcher`), a part of one (`game`, `weapons`,
+`net`, `console`, `hud`, `anim`, `polymap`), or a part of the install (`config`, `data`,
+`mods`, `scripts`), and `readme`, `docs`, `tests`, `ci`. Leave it out when the change is
+the whole repo's.
 
 ### The body
 
@@ -69,10 +70,11 @@ does not match is refused, so any release that changes the protocol will not tal
 the one before it. Say so in the tag's message, every time.
 
 A tag is the version; what ships beside it is the client, the server, the launcher and
-the contents of `runtime/` (`data/`, `mods/default/` and `scripts/`), unpacked flat so
-that the art sits beside the executable: the packages `xmake dist` makes (see xmake.lua).
-The game's package ships config/ too, at its defaults. The tag alone is not a
-release until those exist.
+the contents of `runtime/` (`data/`, `mods/default/`, `config/` at its defaults and
+`scripts/`), unpacked flat so that the art sits beside the executable: the packages
+`xmake dist` makes (see xmake.lua). The server's package leaves `config/` out, so
+unpacking a release over a server never touches its settings, lists or weapons mod; it
+makes them on its first start. The tag alone is not a release until those exist.
 
 Players start the launcher (`Soldat Reloaded.exe`, `soldatreloaded-launcher` on
 Linux), at the top of the install, which keeps their copy at the newest release
