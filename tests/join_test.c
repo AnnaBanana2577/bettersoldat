@@ -18,6 +18,7 @@ typedef struct TestClient {
     NetLink link;
     uint16_t version;
     char password[NET_PASSWORD_SIZE]; // said in the Hello
+    char hwid[NET_HWID_SIZE];         // and its machine's, if any
     bool connected, welcomed, denied, closed, mapped;
     MsgWelcome welcome;
     MsgMap map;
@@ -55,6 +56,7 @@ static void client_pump(TestClient *c)
             c->connected = true;
             MsgHello hello = {.version = c->version, .name = "Tester"};
             snprintf(hello.password, sizeof hello.password, "%s", c->password);
+            snprintf(hello.hwid, sizeof hello.hwid, "%s", c->hwid);
             client_send(c, MSG_HELLO, route_hello, &hello);
         } else if (e.kind == NET_EVENT_DISCONNECT) {
             c->closed = true;
@@ -260,7 +262,7 @@ void join_tests(void)
 
     // A password asked for (sv_password) must be said in the Hello. The ban on this
     // address is lifted first, so the password alone decides.
-    lists_unban(&conns.lists, conns.lists.bans[0].host);
+    lists_unban(&conns.lists, conns.lists.bans[0].host, NULL);
     connections_set_password(&conns, "s3cret");
     TestClient p;
     TestClient *five[3] = {&a, &b, &p};
@@ -275,6 +277,29 @@ void join_tests(void)
           p.welcomed, p.denied, p.denial.reason);
     net_close(&p.link);
     connections_set_password(&conns, "");
+
+    // A machine banned by its hardware ID is kept out from any address; another isn't.
+    CHECK(connections_admin(&conns, NULL, -1, "banhw 0a1b2c3d4e5"), "a machine is banned by its hardware ID");
+    CHECK(client_open(&p, NET_VERSION), "it connects");
+    snprintf(p.hwid, sizeof p.hwid, "%s", "0A1B2C3D4E5");
+    pump(&conns, g, five, 3, third_answered);
+    CHECK(p.denied && !p.welcomed && strstr(p.denial.reason, "banned") != NULL, "and saying it in its Hello is denied: %s",
+          p.denial.reason);
+    net_close(&p.link);
+    CHECK(client_open(&p, NET_VERSION), "another machine connects from the same address");
+    snprintf(p.hwid, sizeof p.hwid, "%s", "FFFFFFFFFFF");
+    pump(&conns, g, five, 3, third_answered);
+    CHECK(p.welcomed && strcmp(conns.items[p.welcome.slot].hwid, "FFFFFFFFFFF") == 0,
+          "and is welcomed, the server keeping its hardware ID (welcomed %d: %s)", p.welcomed, p.denial.reason);
+    char mute[32];
+    snprintf(mute, sizeof mute, "mute %d", p.welcome.slot);
+    CHECK(connections_admin(&conns, NULL, -1, mute) && conns.lists.mute_count == 1 &&
+              strcmp(conns.lists.mutes[0].hwid, "FFFFFFFFFFF") == 0,
+          "a player muted is muted by their machine too");
+    connections_admin(&conns, NULL, -1, "unmute FFFFFFFFFFF");
+    connections_admin(&conns, NULL, -1, "unban 0A1B2C3D4E5");
+    CHECK(conns.lists.mute_count == 0 && conns.lists.ban_count == 0, "and unmuted and unbanned by hardware ID");
+    net_close(&p.link);
 
     // the first leaves carrying bravo's flag and manning a stationary gun
     Thing *flag = &g->world.things[MAX_THINGS - 1], *gun = &g->world.things[MAX_THINGS - 2];

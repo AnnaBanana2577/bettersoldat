@@ -1,3 +1,4 @@
-// The bans: the address, the Unix time the ban lifts (0 never), the name it was given, why.
+// The bans: the address, the hardware ID (- for either the ban doesn't name), the Unix
+// time it lifts (0 never), the name it was given, why. A player is kept out by either.
 // The server writes this as players are banned and unbanned; edit it with the server stopped.
 

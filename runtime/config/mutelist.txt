@@ -1,3 +1,4 @@
-// The mutes: the address, and the name it was given. Their chat reaches nobody until they are
-// unmuted. The server writes this as players are muted and unmuted; edit it with the server stopped.
+// The mutes: the address, the hardware ID (- for either the mute doesn't name), and the
+// name it was given. Their chat reaches nobody until they are unmuted. The server writes
+// this as players are muted and unmuted; edit it with the server stopped.
 

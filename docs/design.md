@@ -374,8 +374,8 @@ too). A client that hears it puts the scoreboard up, closes the weapons menu, pr
 "Next map:", and over the board says who won (`draw_end_game_texts`), as the original's
 ClientHandleMapChange and RenderEndGameTexts do. Votes (server/connections.c) run as
 the original's: twenty seconds, only yeses, against the players on when the vote began,
-passing at sv_votepercent; a kick passed bars the address for an hour. A player heard
-from more than net_floodingpackets times in a second is warned, and past sv_warnings_flood
+passing at sv_votepercent; a kick passed bars the address and the machine for an hour. A
+player heard from more than net_floodingpackets times in a second is warned, and past sv_warnings_flood
 warnings kicked and barred for a quarter of an hour; one who chats faster than a line a
 second for long is kicked for five minutes (the original's FloodWarnings and ChatWarnings). The escape
 menu's map window pages the server's own list (MsgMapQuery, MsgMapReply), the

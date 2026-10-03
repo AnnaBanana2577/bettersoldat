@@ -108,7 +108,7 @@ and mutes it writes:
 | `weapons.ini` | a weapons mod, as Soldat's weapons.ini has it (a Soldat or OpenSoldat mod works as it is): a section for each weapon, each number it changes; sent to every player who joins |
 | `maplist.txt` | the rotation, a map to a line, which Local Play's map list writes (`sv_maps` on the command line goes over it); a map the server hasn't got is passed over |
 | `admins.txt` | the addresses of the admins, who may `/kick`, `/ban`, `/mute` and `/map` from the chat (or set `sv_adminpassword` and `/login`) |
-| `banlist.txt`, `mutelist.txt` | the bans and mutes, which the server keeps as players are banned and muted |
+| `banlist.txt`, `mutelist.txt` | the bans and mutes, which the server keeps as players are banned and muted: each by the player's address and their machine's hardware ID, so a new address alone doesn't lift it (`/banip` and `/banhw` bar one of them alone) |
 
 `sv_public 1` lists it in the game's server browser, once its UDP port (23073 by
 default) can be reached from outside. A script in `scripts/main.lua` runs with it, yours to

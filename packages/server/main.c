@@ -281,11 +281,12 @@ static bool console_open(Server *sv, int argc, char *argv[])
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
     console_add_command(con, "say", cmd_say, sv, "say something to everyone, as the server");
     console_add_command(con, "kick", cmd_admin, sv, "put a player off: kick <player> [reason]");
-    console_add_command(con, "ban", cmd_admin, sv, "put a player off and bar their address: ban <player> [minutes] [reason]; no minutes for ever");
+    console_add_command(con, "ban", cmd_admin, sv, "put a player off and bar their address and machine: ban <player> [minutes] [reason]; no minutes for ever");
     console_add_command(con, "banip", cmd_admin, sv, "bar an address: banip <address> [minutes] [reason]");
-    console_add_command(con, "unban", cmd_admin, sv, "lift a ban: unban <address or name>");
+    console_add_command(con, "banhw", cmd_admin, sv, "bar a machine: banhw <hardware ID> [minutes] [reason]");
+    console_add_command(con, "unban", cmd_admin, sv, "lift a ban: unban <address, hardware ID or name>");
     console_add_command(con, "mute", cmd_admin, sv, "their chat reaches nobody, until unmuted: mute <player>");
-    console_add_command(con, "unmute", cmd_admin, sv, "unmute <player, address or name>");
+    console_add_command(con, "unmute", cmd_admin, sv, "unmute <player, address, hardware ID or name>");
     console_add_command(con, "bans", cmd_admin, sv, "the ban list");
     console_add_command(con, "mutes", cmd_admin, sv, "the mute list");
     console_add_command(con, "admins", cmd_admin, sv, "the admins (config/admins.txt)");

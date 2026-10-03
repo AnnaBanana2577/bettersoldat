@@ -105,7 +105,9 @@ target("client")
     add_files("packages/launcher/http.c", "packages/launcher/files.c", "packages/launcher/sha256.c")
     add_includedirs("packages/client", "packages/server", "packages/launcher")
     add_packages("libsdl2", "stb", "libcurl")
-    if not is_plat("windows") then
+    if is_plat("windows") then
+        add_syslinks("advapi32") -- the machine's ID, for its hardware ID (client/net/hwid.c)
+    else
         add_syslinks("pthread") -- curl's resolver
     end
     -- the escape menu shows the version xmake.lua sets
@@ -189,10 +191,12 @@ target("tests")
               "packages/server/host_cvars.c", "packages/server/weapons_ini.c")
     add_files("packages/launcher/*.c|main.c")
     -- the client's line and its demos, for the demo's round trip (tests/demo_test.c)
-    add_files("packages/client/net/client_net.c", "packages/client/net/demo.c")
+    add_files("packages/client/net/client_net.c", "packages/client/net/demo.c", "packages/client/net/hwid.c")
     add_includedirs("tests", "packages/server", "packages/launcher", "packages/client")
     add_packages("lua", "libcurl", "miniz")
-    if not is_plat("windows") then
+    if is_plat("windows") then
+        add_syslinks("advapi32") -- the machine's ID, for its hardware ID (client/net/hwid.c)
+    else
         add_syslinks("pthread") -- the script's requests
     end
     set_rundir("$(projectdir)")

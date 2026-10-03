@@ -43,6 +43,7 @@ typedef struct Connection {
     int chat_warnings;  // lines of chat outstanding; one forgiven a second (ChatWarnings)
     bool admin;         // may run the admin commands: on admins.txt, or logged in with sv_adminpassword
     bool muted;         // its chat reaches nobody (mutelist.txt)
+    char hwid[NET_HWID_SIZE]; // its machine's hardware ID, as its Hello said it (lists.h); empty for none
 } Connection;
 
 // The votes as the original runs them (Game.pas StartVote, CountVote, TimerVote): twenty
@@ -50,7 +51,7 @@ typedef struct Connection {
 // began, and it passes at sv_votepercent of them; a no is the voter's own business (its
 // client drops the box) and a vote that gathers too few yeses simply runs out. Nobody
 // may start one within two minutes of joining or of their last. A kick passed puts the
-// player off for an hour, by address.
+// player off for an hour, by address and machine.
 #define VOTE_TICKS (20 * TICK_RATE)             // DEFAULT_VOTING_TIME
 #define VOTE_COOLDOWN_TICKS (2 * 60 * TICK_RATE) // DEFAULT_VOTE_TIME
 #define VOTE_PERCENT_DEFAULT 60                  // sv_votepercent
@@ -154,7 +155,7 @@ bool connections_take_vote_map(Connections *c, char *map, size_t size);
 // told (MsgMapChange), and so is whoever joins before it does.
 void connections_map_change(Connections *c, const Game *g, const char *map);
 
-// The player in `slot` is put off by address for `seconds` (0 for ever), with a reason the
+// The player in `slot` is put off by address and machine for `seconds` (0 for ever), with a reason the
 // next Hello from it is denied with; on the ban list (lists.h).
 void connections_ban(Connections *c, int slot, int64_t seconds, const char *reason);
 
@@ -162,10 +163,12 @@ void connections_ban(Connections *c, int slot, int64_t seconds, const char *reas
 // server's console (`from` -1), and answered to whoever said it. False if `text` (the
 // command without its '/') isn't one; then it is a player's to try as anything else.
 //   kick <player> [reason]           off the server
-//   ban <player> [minutes] [reason]  off it and barred by address; no minutes, or 0, for ever
+//   ban <player> [minutes] [reason]  off it and barred by address and machine; no minutes, or 0, for ever
 //   banip <address> [minutes] [reason]
-//   unban <address>
-//   mute <player> / unmute <player or address>   their chat reaches nobody, rejoining or not
+//   banhw <hardware ID> [minutes] [reason]
+//   unban <address, hardware ID or the name banned>
+//   mute <player> / unmute <player, address, hardware ID or name>   their chat reaches nobody,
+//                                    rejoining or not, by address and machine
 //   map <name>                       the round ends, and that map follows
 //   bans / mutes / admins            the lists
 // A player names a slot, or a name or as much of one as is typed. Anyone may say

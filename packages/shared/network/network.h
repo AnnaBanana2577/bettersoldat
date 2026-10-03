@@ -25,10 +25,11 @@
 
 #include "game/entities.h"
 
-#define NET_VERSION 18
+#define NET_VERSION 19
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
 #define NET_PASSWORD_SIZE 32 // the server's password, with its terminator (sv_password, cl_password)
+#define NET_HWID_SIZE 12 // a player's hardware ID, eleven hex digits (net/hwid.h), with its terminator; empty for none
 #define NET_TEXT_SIZE 128 // a line of chat, a reason
 #define NET_MAP_SIZE 64  // a map's name, with its terminator
 #define NET_REASON_SIZE 26 // a kick vote's reason (the original's REASON_CHARS)
@@ -170,6 +171,7 @@ typedef struct MsgHello {
     PlayerLook look;             // how the player dresses its soldier, for the game
     Gear gear;                   // the gear of its first placing: jets, or a rope
     WeaponId primary, secondary; // the loadout of its first placing
+    char hwid[NET_HWID_SIZE];    // the machine's, for the server's bans and mutes; last, after what a version check needs
 } MsgHello;
 
 typedef struct MsgWelcome {

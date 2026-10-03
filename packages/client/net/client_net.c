@@ -1,4 +1,5 @@
 #include "net/client_net.h"
+#include "net/hwid.h"
 #include "ui/hud_data.h" // the colours of the line's word
 
 #include <stdio.h>
@@ -69,6 +70,7 @@ static void send_hello(ClientNet *n)
     m.gear = n->gear;
     m.primary = n->primary;
     m.secondary = n->secondary;
+    hwid_get(m.hwid); // this machine's, for the server's bans and mutes
     msg_kind(&b, &kind);
     msg_hello(&b, &m);
     if (netbuf_ok(&b)) net_send(n->link.peer, MSG_HELLO, buf, netbuf_bytes(&b));

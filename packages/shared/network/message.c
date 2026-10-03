@@ -43,6 +43,7 @@ void msg_hello(NetBuf *b, MsgHello *m)
     m->gear = (Gear)gear;
     m->primary = (WeaponId)primary;
     m->secondary = (WeaponId)secondary;
+    net_string(b, m->hwid, sizeof m->hwid);
 }
 
 void msg_welcome(NetBuf *b, MsgWelcome *m)
