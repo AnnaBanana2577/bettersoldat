@@ -2,7 +2,7 @@
 
 // The tests: headless checks of the simulation on real maps, and of the console. Each
 // suite is a function of checks; a check that fails says where and why, and the run
-// ends with how many failed. They read the maps and animations from assets/, so they
+// ends with how many failed. They read the maps and animations from runtime/assets/, so they
 // run from the project directory:
 //
 //   xmake test
@@ -13,6 +13,9 @@
 
 #include "game/game.h"
 #include "game/systems/systems.h"
+
+// The game's assets, as the tests find them from the project directory.
+#define TEST_ASSETS "runtime/assets"
 
 // --- checks ------------------------------------------------------------------------
 

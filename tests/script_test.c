@@ -43,7 +43,7 @@ void script_tests(void)
     CHECK(net_init(), "ENet starts");
     Host host;
     HostSettings settings = {.port = PORT, .mode = MATCH_CTF, .hostname = "script test"};
-    snprintf(settings.assets, sizeof settings.assets, "assets");
+    snprintf(settings.assets, sizeof settings.assets, "%s", TEST_ASSETS);
     snprintf(settings.map, sizeof settings.map, "ctf_Ash");
     if (!host_open(&host, NULL, &settings)) {
         CHECK(false, "a host on port %d for the script", PORT);

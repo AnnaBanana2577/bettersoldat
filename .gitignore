@@ -1,8 +1,9 @@
 build/
 .xmake
 *.exe
-demos/
-/config.cfg
-/config.cfg.old
-/config/client/
-/config/server/
+# what the game writes as it plays from runtime/: the player's, not the project's
+/runtime/demos/
+/runtime/config.cfg
+/runtime/config.cfg.old
+/runtime/config/client/
+/runtime/config/server/

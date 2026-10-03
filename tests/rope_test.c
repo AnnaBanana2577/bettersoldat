@@ -15,7 +15,7 @@
 static Game *rope_scene(void)
 {
     Game *g = calloc(1, sizeof(Game));
-    if (!g || !context_load(&g->ctx, "assets", "Arena")) {
+    if (!g || !context_load(&g->ctx, TEST_ASSETS, "Arena")) {
         printf("could not load map 'Arena' from assets/: the tests run from the project directory\n");
         exit(2);
     }

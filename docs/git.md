@@ -69,7 +69,7 @@ does not match is refused, so any release that changes the protocol will not tal
 the one before it. Say so in the tag's message, every time.
 
 A tag is the version; what ships beside it is the client, the server, the launcher and
-the contents of `assets/` and `config/defaults/`, unpacked flat so that the config and the
+the contents of `runtime/` (`assets/`, `config/defaults/` and `scripts/`), unpacked flat so that the config and the
 art sit beside the executable: the packages `xmake dist` makes (see xmake.lua). The tag
 alone is not a release until those exist.
 
@@ -85,9 +85,9 @@ install with it and downloads the small update package (`-patch`, the executable
 package, and never touched. So:
 
 - A release that adds a cvar registers it in code with its default (`cvar_register`), and
-  puts it in `config/defaults/` with its comment. A player's own files hold only what
+  puts it in `runtime/config/defaults/` with its comment. A player's own files hold only what
   they set otherwise, so a new or changed default reaches everyone who hasn't.
-- A new default bind goes in `config/defaults/binds.client.cfg` and reaches every player
+- A new default bind goes in `runtime/config/defaults/binds.client.cfg` and reaches every player
   who hasn't bound that key otherwise.
 - The newest *published* release is the one every launcher moves to, so a release that
   shouldn't go out to players is made a pre-release or left a draft.

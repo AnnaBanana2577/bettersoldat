@@ -12,7 +12,7 @@
 #include "test.h"
 
 #define PORT 40051
-#define DEFAULTS_FILE "config/defaults/weapons.server.cfg"
+#define DEFAULTS_FILE "runtime/config/defaults/weapons.server.cfg"
 
 // Every weapon's numbers read back from the messages `stats` made.
 static bool round_trip(const WeaponStats stats[WEAPON_COUNT], int *messages, size_t *largest)
@@ -98,7 +98,7 @@ void weapons_mod_tests(void)
     CHECK(net_init(), "ENet starts");
     static Host host;
     HostSettings settings = {.port = PORT, .mode = MATCH_DEATHMATCH, .hostname = "weapons test", .quiet = true, .weapons_mod = true};
-    snprintf(settings.assets, sizeof settings.assets, "assets");
+    snprintf(settings.assets, sizeof settings.assets, "%s", TEST_ASSETS);
     snprintf(settings.map, sizeof settings.map, "Arena");
     weapons_stats(&own, settings.weapons);
     settings.weapons[WEAPON_EAGLE].damage = 9.5f;

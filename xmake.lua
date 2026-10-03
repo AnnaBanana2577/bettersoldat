@@ -2,15 +2,17 @@
 -- keeps a player's copy up to date, and the tests.
 --
 --   xmake                the client, the server and the launcher
---   xmake run client     from the project directory, where config/ and assets/ are
+--   xmake run client     in runtime/, where config/, assets/ and scripts/ are
 --   xmake run server
 --   xmake test           the headless checks in tests/
---   xmake dist           the packages, in build/dist/: one for players, one for a server,
+--   xmake dist           the packages, in build/packages/: one for players, one for a server,
 --                        the launcher's update, and the manifest it reads (launcher/update.h)
 --
--- The game finds everything beside itself: config/ and assets/ in the directory it
--- runs from. That is the project directory under xmake run (set_rundir) and the
--- package's own directory once unpacked, so nothing is passed on the command line.
+-- The game finds everything beside itself: config/, assets/ and scripts/ in the
+-- directory it runs from. runtime/ holds them as an install lays them out, so that is runtime/
+-- under xmake run (set_rundir) and the package's own directory once unpacked, and
+-- nothing is passed on the command line. What the game writes there as it plays
+-- (config/client/, config/server/, demos/) is the player's, and not the project's.
 
 set_project("soldatreloaded")
 set_version("0.7.2")
@@ -43,13 +45,13 @@ add_requires("libcurl", {configs = {shared = false, mbedtls = not is_plat("windo
 -- on Windows, and the deflate inside a Linux tar.gz.
 add_requires("miniz")
 
--- The game's icon, assets/icon.ico, built into an executable on Windows: the one
+-- The game's icon, runtime/assets/icon.ico, built into an executable on Windows: the one
 -- Explorer, the taskbar and the window show, as SDL takes a window's icon from the first
 -- in its executable. The resource script that names it is written here, at build time.
 rule("icon")
     on_load(function (target)
         if not target:is_plat("windows") then return end
-        local ico = path.join(os.projectdir(), "assets", "icon.ico"):gsub("\\", "/")
+        local ico = path.join(os.projectdir(), "runtime", "assets", "icon.ico"):gsub("\\", "/")
         local rc = path.join(target:autogendir(), "icon.rc")
         io.writefile(rc, ("1 ICON \"%s\"\n"):format(ico))
         target:add("files", rc)
@@ -97,7 +99,7 @@ target("client")
             add_ldflags("/SUBSYSTEM:WINDOWS")
         end
     end
-    set_rundir("$(projectdir)")
+    set_rundir("$(projectdir)/runtime")
 
 -- The game server, headless: the same simulation with authority, ticked on its own
 -- clock. Nothing but the console and the world until the netcode is ported.
@@ -119,7 +121,7 @@ target("server")
     if not is_plat("windows") then
         add_syslinks("pthread") -- the console's reader, the script's requests and the lobby's
     end
-    set_rundir("$(projectdir)")
+    set_rundir("$(projectdir)/runtime")
 
 -- The launcher, what a player starts (launcher/main.c): it brings the install up to the
 -- latest release on GitHub, in a small window of its own, and starts the client. Its
@@ -170,9 +172,9 @@ target("tests")
     set_rundir("$(projectdir)")
     add_tests("default")
 
--- xmake dist: what a release holds for this platform, in build/dist/. Each package
--- unpacks to one directory holding the executables, version.txt, config/defaults/, the
--- licence and assets/, flat, which is how the game expects to find them (docs/git.md,
+-- xmake dist: what a release holds for this platform, in build/packages/. Each package
+-- unpacks to one directory holding the executables, version.txt, the licence and runtime/'s
+-- assets/, config/defaults/ and scripts/, flat, which is how the game expects to find them (docs/git.md,
 -- Releases). Windows gets zips; Linux tar.gzs, which keep the executable bit that a zip
 -- would lose.
 --
@@ -200,7 +202,7 @@ task("dist")
 
         local plat, arch = config.plat(), config.arch()
         local version = project.version()
-        local distdir = path.join(config.buildir(), "dist")
+        local distdir = path.join(config.buildir(), "packages")
         local stem = ("soldatreloaded-%s-%s-%s"):format(version, plat, arch)
         -- the mingw cross-build's exes are Windows', so they want a zip too
         local extension = (plat == "windows" or plat == "mingw") and ".zip" or ".tar.gz"
@@ -223,11 +225,11 @@ task("dist")
                 os.cp(target:targetfile(), dir)
             end
             os.mkdir(path.join(dir, "config"))
-            os.cp("config/defaults", path.join(dir, "config", "defaults")) -- the game's; the player's own are made by the game
+            os.cp("runtime/config/defaults", path.join(dir, "config", "defaults")) -- the game's; the player's own are made by the game
             os.cp("license.md", dir)
             io.writefile(path.join(dir, "version.txt"), version .. "\n")
-            if os.isdir("scripts") then os.cp("scripts", dir) end -- the server's scripts, the example among them
-            for _, entry in ipairs(os.filedirs("assets/*")) do
+            if os.isdir("runtime/scripts") then os.cp("runtime/scripts", dir) end -- the server's scripts, the example among them
+            for _, entry in ipairs(os.filedirs("runtime/assets/*")) do
                 local base = path.filename(entry)
                 if needs(base) then
                     os.cp(entry, path.join(dir, "assets", base))

@@ -45,7 +45,7 @@ static void side_take(Side *s)
     if (client_net_take_map(&s->net)) {
         side_free(s);
         s->g = calloc(1, sizeof(Game));
-        if (!s->g || !context_load(&s->g->ctx, "assets", s->net.map)) {
+        if (!s->g || !context_load(&s->g->ctx, TEST_ASSETS, s->net.map)) {
             printf("could not load map '%s' from assets/\n", s->net.map);
             exit(2);
         }
@@ -174,7 +174,7 @@ void demo_tests(void)
     CHECK(net_init(), "ENet starts");
     Host host;
     HostSettings settings = {.port = PORT, .mode = MATCH_DEATHMATCH, .hostname = "demo test", .bots_noteam = 3, .quiet = true};
-    snprintf(settings.assets, sizeof settings.assets, "assets");
+    snprintf(settings.assets, sizeof settings.assets, "%s", TEST_ASSETS);
     snprintf(settings.map, sizeof settings.map, "Arena");
     if (!host_open(&host, NULL, &settings)) {
         CHECK(false, "a host on port %d for the demo", PORT);
