@@ -77,6 +77,7 @@ typedef struct MainMenu {
     char edit[MAINMENU_EDIT];           // its text while typed
     int edit_max;                       // how much of it the field takes
     int capturing;                      // the controls row waiting for a key, -1 for none
+    char capture_mod[16];               // a modifier pressed while it waits: alone when let go, else with the next key
     bool clicked;                       // a left click since the last draw, at the cursor
     int wheel;                          // the wheel's notches since the last draw, up positive
     int map_scroll;                     // the map list's first row shown

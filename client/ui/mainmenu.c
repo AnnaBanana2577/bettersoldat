@@ -1885,6 +1885,12 @@ static const char *key_of(const Console *con, const char *command)
     return "";
 }
 
+static bool is_modifier(SDL_Scancode key)
+{
+    return key == SDL_SCANCODE_LSHIFT || key == SDL_SCANCODE_RSHIFT || key == SDL_SCANCODE_LCTRL || key == SDL_SCANCODE_RCTRL ||
+           key == SDL_SCANCODE_LALT || key == SDL_SCANCODE_RALT;
+}
+
 // `key` does `command` now, and nothing else does.
 static void rebind(Console *con, const char *key, const char *command)
 {
@@ -1905,11 +1911,15 @@ static void bind_row(Ui *ui, int i)
     MainMenu *m = ui->m;
     Row r = row(ui, 24, true);
     bool capturing = m->capturing == i;
-    if ((r.shown && take(ui, r.id, r.x, r.y, r.w, r.h)) || take_enter(ui, r.focused)) m->capturing = i;
+    if ((r.shown && take(ui, r.id, r.x, r.y, r.w, r.h)) || take_enter(ui, r.focused)) {
+        m->capturing = i;
+        m->capture_mod[0] = '\0';
+    }
     if (!r.shown) return;
     char key[40];
     const char *bound = key_of(ui->con, CONTROLS[i].command);
-    if (capturing) snprintf(key, sizeof key, "Press a key");
+    if (capturing && m->capture_mod[0]) snprintf(key, sizeof key, "%s + ...", m->capture_mod); // alone, or with the next
+    else if (capturing) snprintf(key, sizeof key, "Press a key");
     else if (!bound[0]) snprintf(key, sizeof key, "unbound");
     else {
         size_t n = 0;
@@ -2107,9 +2117,27 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
             m->capturing = -1;
             return true;
         }
-        char name[32];
+        // A modifier (Shift, Ctrl, Alt) waits: let go alone, it is the key; held with
+        // another, the two are, as "shift+e", which the binds look up first (input.h).
+        char name[32], combo[48];
+        bool modifier = (e->type == SDL_KEYDOWN || e->type == SDL_KEYUP) && is_modifier(e->key.keysym.scancode);
+        if (modifier) {
+            if (e->type == SDL_KEYDOWN && !m->capture_mod[0]) input_event_key_name(e, m->capture_mod, sizeof m->capture_mod);
+            if (e->type == SDL_KEYUP && m->capture_mod[0]) {
+                rebind(con, m->capture_mod, CONTROLS[m->capturing].command);
+                m->capture_mod[0] = '\0';
+                m->capturing = -1;
+            }
+            return true;
+        }
         if (input_event_key_name(e, name, sizeof name)) {
-            rebind(con, name, CONTROLS[m->capturing].command);
+            // the modifier held, named as the binds name it: Alt before Ctrl before Shift
+            SDL_Keymod mod = e->type == SDL_KEYDOWN ? e->key.keysym.mod : KMOD_NONE;
+            const char *with = (mod & KMOD_ALT) ? "alt" : (mod & KMOD_CTRL) ? "ctrl" : (mod & KMOD_SHIFT) ? "shift" : NULL;
+            if (with) snprintf(combo, sizeof combo, "%s+%s", with, name);
+            else snprintf(combo, sizeof combo, "%s", name);
+            rebind(con, combo, CONTROLS[m->capturing].command);
+            m->capture_mod[0] = '\0';
             m->capturing = -1;
             return true;
         }
