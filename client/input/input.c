@@ -213,7 +213,12 @@ void input_release_all(Input *in)
 bool input_event_key_name(const SDL_Event *e, char *buf, size_t size)
 {
     switch (e->type) {
-    case SDL_KEYDOWN: return key_name(e->key.keysym.scancode, buf, size) != NULL;
+    case SDL_KEYDOWN: { // into `buf` whichever way it is named: a table's name comes back as itself, unwritten
+        const char *name = key_name(e->key.keysym.scancode, buf, size);
+        if (!name) return false;
+        if (name != buf) snprintf(buf, size, "%s", name);
+        return true;
+    }
     case SDL_MOUSEBUTTONDOWN: snprintf(buf, size, "mouse%d", mouse_number(e->button.button)); return true;
     case SDL_MOUSEWHEEL:
         if (e->wheel.y == 0) return false;
