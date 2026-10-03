@@ -178,6 +178,7 @@ int main(void)
     demo_tests();
     shot_end_tests();
     bink_tests();
+    lists_tests();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }

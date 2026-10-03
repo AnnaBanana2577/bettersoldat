@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "game/systems/systems.h"
 
@@ -95,24 +96,11 @@ void connections_map_change(Connections *c, const Game *g, const char *map)
     tell_map_change(c, NULL, g);
 }
 
-// The ban on this address, or NULL.
-static const Ban *banned(const Connections *c, uint32_t host)
-{
-    for (int i = 0; i < MAX_BANS; i++)
-        if (c->bans[i].host == host && c->bans[i].host != 0 && c->bans[i].until > c->ticks) return &c->bans[i];
-    return NULL;
-}
-
-void connections_ban(Connections *c, int slot, uint32_t ticks, const char *reason)
+void connections_ban(Connections *c, int slot, int64_t seconds, const char *reason)
 {
     const Connection *conn = &c->items[slot];
     if (!conn->peer) return;
-    Ban *b = NULL;
-    for (int i = 0; i < MAX_BANS && !b; i++) // an empty place, or one whose ban has lifted
-        if (c->bans[i].host == 0 || c->bans[i].until <= c->ticks) b = &c->bans[i];
-    if (!b) b = &c->bans[0];
-    *b = (Ban){.host = conn->peer->address.host, .until = c->ticks + ticks};
-    snprintf(b->reason, sizeof b->reason, "%s", reason);
+    lists_ban(&c->lists, conn->peer->address.host, seconds > 0 ? (int64_t)time(NULL) + seconds : 0, conn->name, reason);
 }
 
 // The round's map to one peer.
@@ -220,7 +208,7 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
         return;
     }
     if (slot_of(c, peer) >= 0) return; // said hello twice
-    const Ban *ban = banned(c, peer->address.host);
+    const Ban *ban = lists_banned(&c->lists, peer->address.host, (int64_t)time(NULL));
     if (ban) {
         char reason[NET_TEXT_SIZE];
         snprintf(reason, sizeof reason, "You have been banned on this server. Reason: %s", ban->reason);
@@ -234,7 +222,8 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     }
 
     Connection *conn = &c->items[slot];
-    *conn = (Connection){.peer = peer, .joined = true};
+    *conn = (Connection){.peer = peer, .joined = true, .admin = lists_admin(&c->lists, peer->address.host),
+                         .muted = lists_muted(&c->lists, peer->address.host)};
     snprintf(conn->name, sizeof conn->name, "%s", m.name[0] ? m.name : "Player");
     peer->data = conn;
     server_stream_init(&c->streams[slot], c->round);
@@ -346,7 +335,7 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
     // barred five minutes, and the vote is over; else it ran on against the slot, and
     // whoever came into it next could be the one kicked
     if (c->vote.kind == VOTE_KICK && c->vote.slot == slot) {
-        connections_ban(c, slot, VOTE_LEFT_BAN_TICKS, "Vote Kicked (Left game)");
+        connections_ban(c, slot, VOTE_LEFT_BAN_SECONDS, "Vote Kicked (Left game)");
         vote_end(c, false);
     }
     char name[NET_NAME_SIZE];
@@ -369,6 +358,7 @@ static void leave(Connections *c, Game *g, ENetPeer *peer)
 }
 
 static void vote_command(Connections *c, Game *g, int slot, const char *text);
+static void tell(Connections *c, int slot, const char *fmt, ...);
 
 static void chat(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
 {
@@ -386,7 +376,11 @@ static void chat(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     // a script hears it first, and may keep it
     if (c->hooks && c->hooks->chat && c->hooks->chat(c->hooks->user, slot, m.text, m.team)) return;
     if (m.text[0] == '/') {
-        vote_command(c, g, slot, m.text + 1);
+        if (!connections_admin(c, g, slot, m.text + 1)) vote_command(c, g, slot, m.text + 1);
+        return;
+    }
+    if (c->items[slot].muted) { // its chat reaches nobody; it alone is told
+        tell(c, slot, "You are muted.");
         return;
     }
     say(c->console, "%s%s: %s\n", m.team ? "(team) " : "", c->items[slot].name, m.text);
@@ -567,7 +561,7 @@ static void vote_count(Connections *c, Game *g, int slot)
         snprintf(c->vote_map, sizeof c->vote_map, "%s", v.target);
     } else if (c->items[v.slot].joined) {
         c->items[v.slot].kick_why = KICK_VOTED;
-        connections_ban(c, v.slot, VOTE_KICK_BAN_TICKS, "Vote Kicked");
+        connections_ban(c, v.slot, VOTE_KICK_BAN_SECONDS, "Vote Kicked");
         connections_kick(c, v.slot, "Vote Kicked");
     }
     vote_end(c, true);
@@ -834,7 +828,7 @@ static void flood_tick(Connections *c)
             say(c->console, "%s is flooding the server\n", conn->name);
             if (++conn->flood_warnings > c->flood_warnings_max) {
                 conn->kick_why = KICK_FLOODING;
-                connections_ban(c, i, FLOOD_BAN_TICKS, "Flood Kicked");
+                connections_ban(c, i, FLOOD_BAN_SECONDS, "Flood Kicked");
                 connections_kick(c, i, "Flood Kicked");
                 continue; // gone; the leave frees the slot
             }
@@ -842,10 +836,210 @@ static void flood_tick(Connections *c)
         conn->messages = 0;
         if (conn->chat_warnings > CHAT_FLOOD_WARNINGS) {
             conn->kick_why = KICK_FLOODING;
-            connections_ban(c, i, CHAT_FLOOD_BAN_TICKS, "Chat Flood"); // twenty minutes is too harsh, says the original
+            connections_ban(c, i, CHAT_FLOOD_BAN_SECONDS, "Chat Flood"); // twenty minutes is too harsh, says the original
             connections_kick(c, i, "Chat Flood");
             continue;
         }
         if (conn->chat_warnings > 0) conn->chat_warnings--;
     }
+}
+
+// --- the admins ----------------------------------------------------------------------
+
+// An answer to whoever ran an admin command: the player, or the server's console.
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 3, 4)))
+#endif
+static void reply(Connections *c, int from, const char *fmt, ...)
+{
+    char text[NET_TEXT_SIZE];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(text, sizeof text, fmt, args);
+    va_end(args);
+    if (from >= 0) tell(c, from, "%s", text);
+    else say(c->console, "%s\n", text);
+}
+
+// The next word of `*p` into `out`, and `*p` past it and the spaces after.
+static void next_word(const char **p, char *out, size_t size)
+{
+    size_t n = 0;
+    while (**p && **p != ' ' && n + 1 < size) out[n++] = *(*p)++;
+    while (**p && **p != ' ') (*p)++;
+    out[n] = '\0';
+    while (**p == ' ') (*p)++;
+}
+
+// A ban's length, if the next word is a number of minutes: taken, in seconds (0 for ever).
+// With none, for ever.
+static int64_t ban_seconds(const char **rest)
+{
+    char *end;
+    long minutes = strtol(*rest, &end, 10);
+    if (end == *rest || (*end && *end != ' ')) return 0;
+    *rest = end;
+    while (**rest == ' ') (*rest)++;
+    return minutes > 0 ? (int64_t)minutes * 60 : 0;
+}
+
+static void ban_length(char *out, size_t size, int64_t expires)
+{
+    if (expires == 0) snprintf(out, size, "for ever");
+    else snprintf(out, size, "for %lld minutes", (long long)((expires - (int64_t)time(NULL) + 59) / 60));
+}
+
+// Everyone on from `host` cut off, with `reason`.
+static void kick_address(Connections *c, uint32_t host, const char *reason)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        Connection *conn = &c->items[i];
+        if (!conn->peer || conn->peer->address.host != host) continue;
+        conn->kick_why = KICK_CONSOLE;
+        connections_kick(c, i, reason);
+    }
+}
+
+static void set_muted(Connections *c, uint32_t host, bool muted)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++)
+        if (c->items[i].peer && c->items[i].peer->address.host == host) c->items[i].muted = muted;
+}
+
+// The player a command names, a person on the line and not a bot; -1, said, otherwise.
+static int person_named(Connections *c, int from, const char *name)
+{
+    int slot = player_named(c, name);
+    if (slot < 0 || !c->items[slot].peer) {
+        reply(c, from, "No player %s.", name);
+        return -1;
+    }
+    return slot;
+}
+
+bool connections_admin(Connections *c, Game *g, int from, const char *text)
+{
+    static const char *const COMMANDS[] = {"kick", "ban", "banip", "unban", "mute", "unmute", "map", "bans", "mutes", "admins"};
+    const char *rest = text;
+    char word[32], arg[NET_TEXT_SIZE];
+    next_word(&rest, word, sizeof word);
+
+    if (strcmp(word, "login") == 0) { // sv_adminpassword, said by a player
+        if (from < 0) return true;
+        const Cvar *password = c->console ? cvar_find(c->console, "sv_adminpassword") : NULL;
+        if (!password || !password->value[0] || strcmp(password->value, rest) != 0) {
+            reply(c, from, "Wrong password.");
+            say(c->console, "%s tried the admin password and missed\n", c->items[from].name);
+        } else {
+            c->items[from].admin = true;
+            reply(c, from, "You are an admin until you leave.");
+            say(c->console, "%s logged in as an admin\n", c->items[from].name);
+        }
+        return true;
+    }
+    bool known = false;
+    for (size_t i = 0; i < sizeof COMMANDS / sizeof COMMANDS[0]; i++) known |= strcmp(word, COMMANDS[i]) == 0;
+    if (!known) return false;
+    if (from >= 0 && !c->items[from].admin) {
+        reply(c, from, "/%s is for admins.", word);
+        return true;
+    }
+    const char *by = from >= 0 ? c->items[from].name : "the console";
+    char ip[32], length[32];
+
+    if (strcmp(word, "kick") == 0) {
+        next_word(&rest, arg, sizeof arg);
+        int slot = player_named(c, arg);
+        if (slot < 0) {
+            reply(c, from, "No player %s.", arg);
+        } else if (c->items[slot].bot) {
+            connections_remove_bot(c, g, slot);
+        } else {
+            say(c->console, "%s kicked by %s\n", c->items[slot].name, by);
+            c->items[slot].kick_why = KICK_CONSOLE;
+            connections_kick(c, slot, rest[0] ? rest : "Kicked by an admin");
+        }
+    } else if (strcmp(word, "ban") == 0 || strcmp(word, "banip") == 0) {
+        next_word(&rest, arg, sizeof arg);
+        uint32_t host;
+        char name[NET_NAME_SIZE] = "";
+        if (strcmp(word, "ban") == 0) {
+            int slot = person_named(c, from, arg);
+            if (slot < 0) return true;
+            host = c->items[slot].peer->address.host;
+            snprintf(name, sizeof name, "%s", c->items[slot].name);
+        } else if (!lists_address(arg, &host)) {
+            reply(c, from, "%s is not an address (1.2.3.4).", arg);
+            return true;
+        }
+        int64_t seconds = ban_seconds(&rest);
+        const char *reason = rest[0] ? rest : "Banned by an admin";
+        int64_t expires = seconds ? (int64_t)time(NULL) + seconds : 0;
+        lists_ban(&c->lists, host, expires, name, reason);
+        lists_address_text(host, ip, sizeof ip);
+        ban_length(length, sizeof length, expires);
+        reply(c, from, "%s (%s) banned %s.", name[0] ? name : ip, ip, length);
+        say(c->console, "%s banned %s (%s) %s: %s\n", by, name[0] ? name : ip, ip, length, reason);
+        kick_address(c, host, reason);
+    } else if (strcmp(word, "unban") == 0) {
+        next_word(&rest, arg, sizeof arg);
+        uint32_t host = 0;
+        if (!lists_address(arg, &host)) // or by the name the ban was given
+            for (int i = 0; i < c->lists.ban_count && !host; i++)
+                if (strcmp(c->lists.bans[i].name, arg) == 0) host = c->lists.bans[i].host;
+        if (host && lists_unban(&c->lists, host)) reply(c, from, "%s unbanned.", arg);
+        else reply(c, from, "%s isn't banned.", arg);
+    } else if (strcmp(word, "mute") == 0) {
+        next_word(&rest, arg, sizeof arg);
+        int slot = person_named(c, from, arg);
+        if (slot < 0) return true;
+        uint32_t host = c->items[slot].peer->address.host;
+        lists_mute(&c->lists, host, c->items[slot].name);
+        set_muted(c, host, true);
+        tell(c, slot, "You have been muted.");
+        reply(c, from, "%s muted.", c->items[slot].name);
+        say(c->console, "%s muted %s\n", by, c->items[slot].name);
+    } else if (strcmp(word, "unmute") == 0) {
+        next_word(&rest, arg, sizeof arg);
+        uint32_t host = 0;
+        int slot = player_named(c, arg);
+        if (slot >= 0 && c->items[slot].peer) host = c->items[slot].peer->address.host;
+        else if (!lists_address(arg, &host))
+            for (int i = 0; i < c->lists.mute_count && !host; i++)
+                if (strcmp(c->lists.mutes[i].name, arg) == 0) host = c->lists.mutes[i].host;
+        if (host && lists_unmute(&c->lists, host)) {
+            set_muted(c, host, false);
+            if (slot >= 0 && c->items[slot].peer) tell(c, slot, "You have been unmuted.");
+            reply(c, from, "%s unmuted.", arg);
+        } else {
+            reply(c, from, "%s isn't muted.", arg);
+        }
+    } else if (strcmp(word, "map") == 0) {
+        next_word(&rest, arg, sizeof arg);
+        if (!map_exists(c, arg)) {
+            reply(c, from, "No map %s.", arg);
+        } else {
+            snprintf(c->vote_map, sizeof c->vote_map, "%s", arg); // the server takes it as a passed vote
+            say(c->console, "%s changed the map to %s\n", by, arg);
+        }
+    } else if (strcmp(word, "bans") == 0) {
+        int64_t now = (int64_t)time(NULL);
+        reply(c, from, "%d bans", c->lists.ban_count);
+        for (int i = 0; i < c->lists.ban_count && (from < 0 || i < 10); i++) {
+            const Ban *b = &c->lists.bans[i];
+            lists_address_text(b->host, ip, sizeof ip);
+            ban_length(length, sizeof length, b->expires && b->expires > now ? b->expires : 0);
+            reply(c, from, "%s %s %s: %s", ip, b->name, length, b->reason);
+        }
+    } else { // mutes, admins
+        bool mutes = strcmp(word, "mutes") == 0;
+        const ListEntry *list = mutes ? c->lists.mutes : c->lists.admins;
+        int count = mutes ? c->lists.mute_count : c->lists.admin_count;
+        reply(c, from, "%d %s", count, word);
+        for (int i = 0; i < count && (from < 0 || i < 10); i++) {
+            lists_address_text(list[i].host, ip, sizeof ip);
+            reply(c, from, "%s %s", ip, list[i].name);
+        }
+    }
+    return true;
 }

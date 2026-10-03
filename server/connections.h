@@ -25,6 +25,7 @@
 #include "game/game.h"
 #include "network/stream.h"
 #include "network/transport.h"
+#include "lists.h"
 
 // Why a player is being cut off, for the word of its leaving.
 typedef enum KickWhy { KICK_NONE, KICK_VOTED, KICK_CONSOLE, KICK_FLOODING } KickWhy;
@@ -40,6 +41,8 @@ typedef struct Connection {
     int messages;       // heard from it this second (MessagesASecNum)
     int flood_warnings; // seconds it was heard from too often; one forgiven every five minutes (FloodWarnings)
     int chat_warnings;  // lines of chat outstanding; one forgiven a second (ChatWarnings)
+    bool admin;         // may run the admin commands: on admins.cfg, or logged in with sv_adminpassword
+    bool muted;         // its chat reaches nobody (mutelist.cfg)
 } Connection;
 
 // The votes as the original runs them (Game.pas StartVote, CountVote, TimerVote): twenty
@@ -51,9 +54,8 @@ typedef struct Connection {
 #define VOTE_TICKS (20 * TICK_RATE)             // DEFAULT_VOTING_TIME
 #define VOTE_COOLDOWN_TICKS (2 * 60 * TICK_RATE) // DEFAULT_VOTE_TIME
 #define VOTE_PERCENT_DEFAULT 60                  // sv_votepercent
-#define VOTE_KICK_BAN_TICKS (60 * 60 * TICK_RATE) // an hour
-#define VOTE_LEFT_BAN_TICKS (5 * 60 * TICK_RATE)  // a kick vote's target who leaves before it is decided
-#define MAX_BANS 32
+#define VOTE_KICK_BAN_SECONDS (60 * 60) // an hour
+#define VOTE_LEFT_BAN_SECONDS (5 * 60)  // a kick vote's target who leaves before it is decided
 
 // Flooding (ServerLoop.pas): a player heard from more than net_floodingpackets times in a
 // second gets a warning, and past sv_warnings_flood of them is kicked and barred for a
@@ -63,9 +65,9 @@ typedef struct Connection {
 #define FLOOD_PACKETS_DEFAULT 120  // net_floodingpackets
 #define FLOOD_WARNINGS_DEFAULT 4   // sv_warnings_flood
 #define FLOOD_FORGIVE_TICKS (5 * 60 * TICK_RATE)
-#define FLOOD_BAN_TICKS (15 * 60 * TICK_RATE)
+#define FLOOD_BAN_SECONDS (15 * 60)
 #define CHAT_FLOOD_WARNINGS 5
-#define CHAT_FLOOD_BAN_TICKS (5 * 60 * TICK_RATE)
+#define CHAT_FLOOD_BAN_SECONDS (5 * 60)
 
 typedef struct Vote {
     VoteKind kind;              // VOTE_NONE: none running
@@ -78,11 +80,6 @@ typedef struct Vote {
     uint8_t answer[MAX_PLAYERS]; // 1: voted yes
 } Vote;
 
-typedef struct Ban {
-    uint32_t host;  // the address, as ENet has it; 0 for an empty entry
-    uint32_t until; // the connections' tick it lifts at
-    char reason[NET_REASON_SIZE];
-} Ban;
 
 // What a host may hang on the line, for a server script: it hears a line of chat before
 // it is relayed and may keep it, hears a /command the line does not know, and who came
@@ -117,8 +114,8 @@ typedef struct Connections {
     int flood_packets;             // net_floodingpackets; FLOOD_PACKETS_DEFAULT unless set
     int flood_warnings_max;        // sv_warnings_flood; FLOOD_WARNINGS_DEFAULT unless set
     int32_t vote_cooldown[MAX_PLAYERS]; // ticks until each may start a vote; below 0 may
-    char vote_map[NET_MAP_SIZE];   // a map vote passed, until the server takes it
-    Ban bans[MAX_BANS];
+    char vote_map[NET_MAP_SIZE];   // a map vote passed (or an admin's /map), until the server takes it
+    Lists lists;                   // the bans, the mutes and the admins (lists.h)
 } Connections;
 
 // `map` is the map being played, round 1. False if the streams couldn't be made.
@@ -157,9 +154,23 @@ bool connections_take_vote_map(Connections *c, char *map, size_t size);
 // told (MsgMapChange), and so is whoever joins before it does.
 void connections_map_change(Connections *c, const Game *g, const char *map);
 
-// The player in `slot` is put off for `ticks` by address, with a reason the next Hello
-// from it is denied with.
-void connections_ban(Connections *c, int slot, uint32_t ticks, const char *reason);
+// The player in `slot` is put off by address for `seconds` (0 for ever), with a reason the
+// next Hello from it is denied with; on the ban list (lists.h).
+void connections_ban(Connections *c, int slot, int64_t seconds, const char *reason);
+
+// An admin command, said in the chat by an admin (`from` its slot) or typed at the
+// server's console (`from` -1), and answered to whoever said it. False if `text` (the
+// command without its '/') isn't one; then it is a player's to try as anything else.
+//   kick <player> [reason]           off the server
+//   ban <player> [minutes] [reason]  off it and barred by address; no minutes, or 0, for ever
+//   banip <address> [minutes] [reason]
+//   unban <address>
+//   mute <player> / unmute <player or address>   their chat reaches nobody, rejoining or not
+//   map <name>                       the round ends, and that map follows
+//   bans / mutes / admins            the lists
+// A player names a slot, or a name or as much of one as is typed. Anyone may say
+// /login <password>, which with sv_adminpassword set makes them an admin until they leave.
+bool connections_admin(Connections *c, Game *g, int from, const char *text);
 
 // The server's own chat to everyone, shown as "*SERVER*: text".
 void connections_say(Connections *c, const char *text);

@@ -42,6 +42,7 @@ typedef struct HostSettings {
     int flood_warnings;              // sv_warnings_flood; 0 for the default
     bool quiet;                      // no lines of its own to the console but the first: a client beside it says what matters
     bool rope;                       // sv_rope: the rope is allowed; off, the boots are jets
+    char lists_dir[256];             // where the bans, mutes and admins are kept (config/server); empty: in memory alone
 } HostSettings;
 
 // What a server script hangs on the host (host_set_hooks): it hears every tick once it

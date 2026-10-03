@@ -101,6 +101,7 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
         return false;
     }
     h->connections.hooks = &h->line_hooks;
+    lists_load(&h->connections.lists, settings->lists_dir, console);
     snprintf(h->connections.maps_dir, sizeof h->connections.maps_dir, "%s/maps", settings->assets);
     snprintf(h->connections.hostname, sizeof h->connections.hostname, "%s", settings->hostname);
     if (settings->vote_percent > 0) h->connections.vote_percent = settings->vote_percent;

@@ -3,6 +3,7 @@
 // chat relayed. Real sockets; a bad line is simulated outside these tests.
 
 #include <string.h>
+#include <time.h>
 
 #include "connections.h"
 
@@ -245,8 +246,10 @@ void join_tests(void)
     }
     CHECK(d.closed && d.denied && !conns.items[1].joined && conns.vote.kind == VOTE_NONE,
           "passed, it is told why and cut off, and its slot frees (denied: %s; closed %d, joined %d, vote %d)", d.denial.reason, d.closed, conns.items[1].joined, conns.vote.kind);
-    CHECK(conns.bans[0].host != 0 && conns.bans[0].until == conns.ticks + VOTE_KICK_BAN_TICKS && strcmp(conns.bans[0].reason, "Vote Kicked") == 0,
-          "and its address is barred for an hour");
+    int64_t lifts = conns.lists.bans[0].expires - (int64_t)time(NULL);
+    CHECK(conns.lists.ban_count == 1 && lifts > VOTE_KICK_BAN_SECONDS - 5 && lifts <= VOTE_KICK_BAN_SECONDS &&
+              strcmp(conns.lists.bans[0].reason, "Vote Kicked") == 0,
+          "and its address is barred for an hour (%lld seconds)", (long long)lifts);
     // which keeps it out: the same address comes back and is denied
     TestClient e;
     TestClient *four[3] = {&a, &b, &e};
@@ -257,7 +260,7 @@ void join_tests(void)
 
     // A password asked for (sv_password) must be said in the Hello. The ban on this
     // address is lifted first, so the password alone decides.
-    memset(&conns.bans[0], 0, sizeof conns.bans[0]);
+    lists_unban(&conns.lists, conns.lists.bans[0].host);
     connections_set_password(&conns, "s3cret");
     TestClient p;
     TestClient *five[3] = {&a, &b, &p};
@@ -292,9 +295,9 @@ void join_tests(void)
           "and the flag it carried falls, held by nobody (holder %d)", flag->holder);
     CHECK(!gun->is_static && g->world.soldiers[0].stat == 0, "and the stationary gun it manned is free");
     bool left_ban = false;
-    for (int i = 0; i < MAX_BANS; i++)
-        left_ban |= conns.bans[i].host != 0 && strcmp(conns.bans[i].reason, "Vote Kicked (Left game)") == 0 &&
-                    conns.bans[i].until == conns.ticks + VOTE_LEFT_BAN_TICKS;
+    for (int i = 0; i < conns.lists.ban_count; i++)
+        left_ban |= strcmp(conns.lists.bans[i].reason, "Vote Kicked (Left game)") == 0 &&
+                    conns.lists.bans[i].expires - (int64_t)time(NULL) > VOTE_LEFT_BAN_SECONDS - 5;
     CHECK(conns.vote.kind == VOTE_NONE && left_ban,
           "and leaving before the kick vote against it is decided ends the vote, and bars it five minutes");
     *flag = *gun = (Thing){0};

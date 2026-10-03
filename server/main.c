@@ -41,6 +41,7 @@
 #define CONFIG_DEFAULT_SETTINGS "config/defaults/settings.server.cfg"
 #define CONFIG_SETTINGS "config/server/settings.cfg"
 #define CONFIG_OLD "config.cfg"
+#define CONFIG_LISTS "config/server" // banlist.cfg, mutelist.cfg, admins.cfg (lists.h)
 #define SLEEP_MS 1 // between passes of the loop, so it never spins flat out
 
 typedef struct Server {
@@ -119,6 +120,26 @@ static void cmd_quit(Console *con, int argc, char **argv, void *user)
 {
     (void)con, (void)argc, (void)argv;
     ((Server *)user)->quit = true;
+}
+
+// kick, ban, banip, unban, mute, unmute, bans, mutes, admins: the admin commands, as an
+// admin says them in the chat (connections_admin), answered here.
+static void cmd_admin(Console *con, int argc, char **argv, void *user)
+{
+    Server *sv = user;
+    char text[NET_TEXT_SIZE];
+    size_t n = 0;
+    text[0] = '\0';
+    for (int i = 0; i < argc && n < sizeof text - 1; i++) {
+        int w = snprintf(text + n, sizeof text - n, i > 0 ? " %s" : "%s", argv[i]);
+        if (w < 0) break;
+        n += (size_t)w;
+    }
+    if (!sv->host.game) {
+        console_print(con, "no game is being hosted\n");
+        return;
+    }
+    connections_admin(&sv->host.connections, sv->host.game, -1, text);
 }
 
 // say <text...>: the server's chat to everyone.
@@ -222,6 +243,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->ip = cvar_register(con, "sv_ip", "", 0, "the address to listen on; empty for every one");
     sv->hostname = cvar_register(con, "sv_hostname", "SoldatReloaded server", 0, "the server's name, on the scoreboard");
     sv->password = cvar_register(con, "sv_password", "", 0, "the password to join; empty for none. Read live, so a script may set it");
+    cvar_register(con, "sv_adminpassword", "", 0, "the password a player says with /login to become an admin until they leave; empty for none");
     sv->gamemode = cvar_register(con, "sv_gamemode", "0", 0, "0 the map's own, 1 deathmatch, 2 capture the flag");
     sv->timelimit = cvar_register(con, "sv_timelimit", "15", 0, "minutes a round lasts");
     sv->killlimit = cvar_register(con, "sv_killlimit", "10", 0, "the score that wins a round: kills, or captures in CTF");
@@ -243,6 +265,15 @@ static bool console_open(Server *sv, int argc, char *argv[])
     console_add_command(con, "quit", cmd_quit, sv, "stop the server");
     console_add_command(con, "nextmap", cmd_nextmap, sv, "end the round and begin the next");
     console_add_command(con, "say", cmd_say, sv, "say something to everyone, as the server");
+    console_add_command(con, "kick", cmd_admin, sv, "put a player off: kick <player> [reason]");
+    console_add_command(con, "ban", cmd_admin, sv, "put a player off and bar their address: ban <player> [minutes] [reason]; no minutes for ever");
+    console_add_command(con, "banip", cmd_admin, sv, "bar an address: banip <address> [minutes] [reason]");
+    console_add_command(con, "unban", cmd_admin, sv, "lift a ban: unban <address or name>");
+    console_add_command(con, "mute", cmd_admin, sv, "their chat reaches nobody, until unmuted: mute <player>");
+    console_add_command(con, "unmute", cmd_admin, sv, "unmute <player, address or name>");
+    console_add_command(con, "bans", cmd_admin, sv, "the ban list");
+    console_add_command(con, "mutes", cmd_admin, sv, "the mute list");
+    console_add_command(con, "admins", cmd_admin, sv, "the admins (config/server/admins.cfg)");
     console_add_command(con, "addbot", cmd_addbot, sv, "add a bot: addbot [name]");
     console_add_command(con, "addbot1", cmd_addbot, sv, "add a bot to alpha: addbot1 [name]");
     console_add_command(con, "addbot2", cmd_addbot, sv, "add a bot to bravo: addbot2 [name]");
@@ -281,6 +312,7 @@ static HostSettings settings_from_cvars(const Server *sv)
     snprintf(s.map, sizeof s.map, "%s", sv->map->value);
     snprintf(s.maps, sizeof s.maps, "%s", sv->maps->value);
     snprintf(s.hostname, sizeof s.hostname, "%s", sv->hostname->value);
+    snprintf(s.lists_dir, sizeof s.lists_dir, "%s", CONFIG_LISTS); // the bans, mutes and admins, kept
     return s;
 }
 
