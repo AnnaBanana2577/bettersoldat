@@ -50,7 +50,9 @@ Linux: it checks for updates, then starts the game.
 
 From the main menu, **Servers** lists the games being played, **Join by Address**
 connects to one you know, and **Local Play** hosts a game here, against bots or for
-friends on your network.
+friends on your network: it starts the dedicated server beside the game, so it plays by
+the same files in `config/` (the settings, the weapons mod, the rotation it ticks into
+`maplist.txt`) as a server from this install would.
 
 Some keys, all rebindable on the Controls page: A/D to move, W to jump, S to crouch,
 X to go prone, the right mouse button for the jets, Space to throw a grenade, Q to
@@ -103,7 +105,7 @@ and mutes it writes:
 | file | holds |
 |---|---|
 | `weapons.ini` | a weapons mod, as Soldat's weapons.ini has it (a Soldat or OpenSoldat mod works as it is): a section for each weapon, each number it changes; sent to every player who joins |
-| `maplist.txt` | the rotation, a map to a line (`sv_maps`, when set, goes over it); a map the server hasn't got is passed over |
+| `maplist.txt` | the rotation, a map to a line, which Local Play's map list writes (`sv_maps` on the command line goes over it); a map the server hasn't got is passed over |
 | `admins.txt` | the addresses of the admins, who may `/kick`, `/ban`, `/mute` and `/map` from the chat (or set `sv_adminpassword` and `/login`) |
 | `banlist.txt`, `mutelist.txt` | the bans and mutes, which the server keeps as players are banned and muted |
 

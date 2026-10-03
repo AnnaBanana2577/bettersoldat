@@ -47,12 +47,11 @@
 // then the weapons mod (weapons.ini) and the rotation (maplist.txt). As it starts, before
 // the command line, the server writes server.cfg whole, every setting with the game's
 // value commented out where it holds it, and makes the files it reads where they are
-// missing. A server set up before config/ had one config.cfg: it is read once, as
-// config/ is made.
+// missing. The game's Local Play starts this same program, on these same files. A server
+// set up before config/ had one config.cfg: it is read once, as config/ is made.
 #define CONFIG_OLD "config.cfg"
 #define CONFIG_LISTS "config"                            // banlist.txt, mutelist.txt, admins.txt (lists.h)
 #define CONFIG_WEAPONS "config/weapons.ini"              // a weapons mod, as Soldat's (weapons_ini.h)
-#define CONFIG_MAPLIST "config/maplist.txt"              // the rotation, a map to a line
 #define MAIN_SCRIPT "scripts/main.lua"                            // sv_script's, made from main_lua.h where missing
 #define SLEEP_MS 1 // between passes of the loop, so it never spins flat out
 
@@ -123,42 +122,13 @@ static bool file_exists(const char *path)
 // what they are for, so they are found from the first start (lists.c makes the lists').
 static void config_make_missing(void)
 {
-    static const char MAPLIST[] =
-        "// The maps in rotation, one to a line, played in turn. sv_maps, when it is set (in\n"
-        "// server.cfg or on the command line), is the rotation instead; with neither, the map\n"
-        "// is played again. A map that isn't in data/maps/ is passed over.\n"
-        "//\n"
-        "// ctf_Ash\n"
-        "// ctf_Kampf\n";
-    if (!file_exists(CONFIG_MAPLIST) && files_make_parents(CONFIG_MAPLIST))
-        files_write(CONFIG_MAPLIST, MAPLIST, sizeof MAPLIST - 1);
+    maplist_make();
 
     // The script, unpacked from the server's own package, which has none (unpacking a
     // release over a server would put an owner's back as it came). A game's install has a
     // manifest.txt: its launcher makes it there, once, so one taken out stays out.
     if (!file_exists(MAIN_SCRIPT) && !file_exists("manifest.txt") && files_make_parents(MAIN_SCRIPT))
         files_write(MAIN_SCRIPT, MAIN_LUA, sizeof MAIN_LUA - 1);
-}
-
-// The rotation maplist.txt holds: its maps, a word each, space-separated into `out`.
-static void maplist_read(char *out, size_t size)
-{
-    out[0] = '\0';
-    char *text = files_read(CONFIG_MAPLIST, NULL);
-    if (!text) return;
-    size_t n = 0;
-    for (char *line = strtok(text, "\r\n"); line; line = strtok(NULL, "\r\n")) {
-        char *comment = strstr(line, "//");
-        if (comment) *comment = '\0';
-        for (char *p = line; *p;) {
-            while (*p == ' ' || *p == '\t' || *p == ',') p++;
-            char *start = p;
-            while (*p && *p != ' ' && *p != '\t' && *p != ',') p++;
-            if (p > start && n + (size_t)(p - start) + 2 < size)
-                n += (size_t)snprintf(out + n, size - n, "%s%.*s", n ? " " : "", (int)(p - start), start);
-        }
-    }
-    free(text);
 }
 
 static void cmd_quit(Console *con, int argc, char **argv, void *user)
@@ -335,6 +305,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
         // A game's install shares it with the client, which moves it aside once it has read it
         // too; a server's own install has no client, so the server does.
         console_execute_file(con, CONFIG_OLD);
+        maplist_take_cvar(&sv->cvars, con);
         if (!file_exists("bin/client.exe") && !file_exists("bin/client")) {
             remove(CONFIG_OLD ".old");
             rename(CONFIG_OLD, CONFIG_OLD ".old");

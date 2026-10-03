@@ -80,7 +80,7 @@ players are known by on the wire; a slot is reused once its player has left.
 | `server.pause()`, `server.unpause()` | the game stands still, nobody moving and the clock stopped, or goes on; `true` if that changed anything |
 | `server.paused()` | whether it stands |
 | `server.next_map([map])` | the round ends now; on `map` if given, else the rotation's next: `true`, or `false` (and nothing changes) for a map the server hasn't got, which it couldn't load |
-| `server.maps()` | the server's list of maps, the one its votes and map window pick from: the rotation (`sv_maps`), or every map it has when there is none |
+| `server.maps()` | the server's list of maps, the one its votes and map window pick from: the rotation (`maplist.txt`, or `sv_maps` given on the command line), or every map it has when there is none |
 | `server.map()`, `server.round()`, `server.mode()` | the map, the round from 1, `"ctf"` or `"dm"` |
 | `server.tick()`, `server.time_left()` | the world's tick; the seconds left in the round |
 | `server.scores()` | `{alpha = n, bravo = n}` |

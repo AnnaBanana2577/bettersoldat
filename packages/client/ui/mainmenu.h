@@ -82,6 +82,8 @@ typedef struct MainMenu {
     int wheel;                          // the wheel's notches since the last draw, up positive
     int map_scroll;                     // the map list's first row shown
     int map_cursor;                     // the map list's row with the keys
+    char rotation[CONSOLE_VALUE_SIZE];  // config/maplist.txt's maps, space-separated, as the Local Play page ticks them
+    bool rotation_read;                 // read from the file since the page was opened
     int server_scroll;                  // the server list's first row shown
     QueryAddress server_selected;       // the server picked in the list; port 0 for none
     double server_clicked_at;           // when it was picked, so a second click soon after joins it

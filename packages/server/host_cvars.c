@@ -1,5 +1,9 @@
 #include "host_cvars.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "files.h" // the launcher's
 #include "network/query.h"
 
@@ -10,8 +14,9 @@ void host_cvars_register(Console *con, HostCvars *c)
     const uint32_t SAVED = CVAR_ARCHIVE;
     // not saved: the map on now as well, which both set as the rounds go
     c->map = cvar_register(con, "map", "ctf_Ash", 0, "the map played first, if set; else the rotation's first");
-    c->maps = cvar_register(con, "sv_maps", "", SAVED,
-                            "the maps in rotation, space-separated, over config/maplist.txt; with neither the map plays again");
+    // not saved: config/maplist.txt is the rotation, this a run's own over it
+    c->maps = cvar_register(con, "sv_maps", "", 0,
+                            "the maps in rotation for this run, space-separated, over config/maplist.txt");
     c->port = cvar_register(con, "sv_port", "23073", SAVED, "the UDP port to listen on");
     c->ip = cvar_register(con, "sv_ip", "", SAVED, "the address to listen on; empty for every one");
     c->hostname = cvar_register(con, "sv_hostname", "Soldat Reloaded server", SAVED, "the game's name, on the scoreboard");
@@ -48,8 +53,65 @@ const ConsoleFile HOST_CONFIG_FILE = {
     "// Written by the game as it closes and by a server as it starts, every setting with\n"
     "// what it is, commented out while it holds its default: take a line's // off to set\n"
     "// it otherwise. The command line (+sv_hostname \"...\") goes over it, and is kept by the\n"
-    "// game, not by a server. The rotation may be config/maplist.txt instead, a map to a\n"
-    "// line; a weapons mod is config/weapons.ini.\n\n",
+    "// game, not by a server. The rotation is config/maplist.txt, a map to a line; a\n"
+    "// weapons mod is config/weapons.ini.\n\n",
     HOST_CVAR_PREFIXES,
     false,
 };
+
+static const char MAPLIST_HEADER[] =
+    "// The maps in rotation, one to a line, played in turn; with none, the map is played\n"
+    "// again. The game's Local Play page writes it as you tick maps, and a server beside it\n"
+    "// reads it as it starts (sv_maps on the command line goes over it, for that run). A map\n"
+    "// that isn't in data/maps/ is passed over.\n"
+    "\n";
+
+void maplist_read(char *out, size_t size)
+{
+    out[0] = '\0';
+    char *text = files_read(CONFIG_MAPLIST, NULL);
+    if (!text) return;
+    size_t n = 0;
+    for (char *line = strtok(text, "\r\n"); line; line = strtok(NULL, "\r\n")) {
+        char *comment = strstr(line, "//");
+        if (comment) *comment = '\0';
+        for (char *p = line; *p;) {
+            while (*p == ' ' || *p == '\t' || *p == ',') p++;
+            char *start = p;
+            while (*p && *p != ' ' && *p != '\t' && *p != ',') p++;
+            if (p > start && n + (size_t)(p - start) + 2 < size)
+                n += (size_t)snprintf(out + n, size - n, "%s%.*s", n ? " " : "", (int)(p - start), start);
+        }
+    }
+    free(text);
+}
+
+bool maplist_write(const char *maps)
+{
+    size_t cap = sizeof MAPLIST_HEADER + strlen(maps) + 2, n = 0;
+    char *text = malloc(cap);
+    if (!text) return false;
+    n += (size_t)snprintf(text, cap, "%s", MAPLIST_HEADER);
+    for (const char *p = maps; *p;) {
+        while (*p == ' ' || *p == '\t' || *p == ',') p++;
+        const char *start = p;
+        while (*p && *p != ' ' && *p != '\t' && *p != ',') p++;
+        if (p > start) n += (size_t)snprintf(text + n, cap - n, "%.*s\n", (int)(p - start), start);
+    }
+    bool ok = files_make_parents(CONFIG_MAPLIST) && files_write(CONFIG_MAPLIST, text, n);
+    free(text);
+    return ok;
+}
+
+void maplist_make(void)
+{
+    if (!files_exists(CONFIG_MAPLIST) && files_make_parents(CONFIG_MAPLIST))
+        files_write(CONFIG_MAPLIST, MAPLIST_HEADER, sizeof MAPLIST_HEADER - 1);
+}
+
+void maplist_take_cvar(HostCvars *c, Console *con)
+{
+    if (!c->maps->value[0]) return;
+    if (maplist_write(c->maps->value)) console_print(con, "sv_maps moved into %s\n", CONFIG_MAPLIST);
+    cvar_set(con, "sv_maps", "");
+}

@@ -11,6 +11,7 @@
 #include "gfx/font.h"
 #include "input/input.h"
 #include "network/network.h"
+#include "host_cvars.h"
 
 #ifndef SOLDATRELOADED_VERSION
 #define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
@@ -1395,7 +1396,7 @@ static void page_servers(Ui *ui, const Browser *b)
 
 // --- local play ---------------------------------------------------------------------
 
-// The rotation (sv_maps) as a list of names separated by spaces or commas: whether
+// The rotation as a list of names separated by spaces or commas: whether
 // `name` is in it, and its place from 0 (-1 if not).
 static int rotation_index(const char *list, const char *name)
 {
@@ -1424,11 +1425,21 @@ static int rotation_count(const char *list)
     return n;
 }
 
-// `name` into the rotation if it isn't there, out of it if it is.
-static void rotation_toggle(Console *con, const char *name)
+// The rotation, config/maplist.txt's (host_cvars.h): read when the page opens, so a file
+// changed by hand meanwhile is what it shows.
+static const char *rotation(MainMenu *m)
 {
-    const Cvar *cv = cvar_find(con, "sv_maps");
-    const char *list = cv ? cv->value : "";
+    if (!m->rotation_read) {
+        maplist_read(m->rotation, sizeof m->rotation);
+        m->rotation_read = true;
+    }
+    return m->rotation;
+}
+
+// `name` into the rotation if it isn't there, out of it if it is; the file written.
+static void rotation_toggle(MainMenu *m, const char *name)
+{
+    const char *list = rotation(m);
     char out[CONSOLE_VALUE_SIZE] = "";
     size_t n = 0;
     bool had = false;
@@ -1450,7 +1461,8 @@ static void rotation_toggle(Console *con, const char *name)
         int w = snprintf(out + n, sizeof out - n, n ? " %s" : "%s", name);
         if (w < 0 || n + (size_t)w >= sizeof out) return; // no room for another
     }
-    cvar_set(con, "sv_maps", out);
+    snprintf(m->rotation, sizeof m->rotation, "%s", out);
+    maplist_write(m->rotation);
 }
 
 #define MAP_ROW 18.0f
@@ -1476,7 +1488,7 @@ static void map_list(Ui *ui, float x, float y, float w, float h, const char (*ma
     m->map_cursor = clampi(m->map_cursor, 0, maxi(count - 1, 0));
     if (focused && ui->enter && count > 0) {
         ui->enter = false;
-        rotation_toggle(ui->con, maps[m->map_cursor]);
+        rotation_toggle(m, maps[m->map_cursor]);
     }
     if (over(ui, x, y, w, h) && m->wheel) {
         m->map_scroll -= m->wheel * 3;
@@ -1490,8 +1502,7 @@ static void map_list(Ui *ui, float x, float y, float w, float h, const char (*ma
     }
     focus_ring(ui, focused, x, y, w, h, RADIUS);
     box(x, y, w, h, WELL, LINE);
-    const Cvar *cv = cvar_find(ui->con, "sv_maps");
-    const char *list = cv ? cv->value : "";
+    const char *list = rotation(m);
     for (int row_at = 0; row_at < rows; row_at++) {
         int i = m->map_scroll + row_at;
         if (i >= count) break;
@@ -1516,7 +1527,7 @@ static void map_list(Ui *ui, float x, float y, float w, float h, const char (*ma
         }
         if (take(ui, id, x, ry, w, MAP_ROW)) {
             m->map_cursor = i;
-            rotation_toggle(ui->con, maps[i]);
+            rotation_toggle(m, maps[i]);
         }
     }
     if (count > rows) {
@@ -1554,8 +1565,7 @@ static void page_local(Ui *ui, const char *status, bool hosting, const char (*ma
     bool scrolling = ui->scrolling;
     ui->scrolling = false;
     float lx = x + w - list_w, ly = BODY_TOP;
-    const Cvar *cv = cvar_find(ui->con, "sv_maps");
-    const char *list = cv ? cv->value : "";
+    const char *list = rotation(m);
     int chosen = rotation_count(list);
     text_mid(F_SECTION, "MAP ROTATION", lx + 2, ly + SECTION_H - 10, MUTED);
     char counted[32];
@@ -2077,6 +2087,7 @@ static void unfocus(MainMenu *m)
 static void go_page(MainMenu *m, MainPage page)
 {
     if (page == MAIN_SERVERS && m->page != MAIN_SERVERS) snprintf(m->command, sizeof m->command, "browse"); // the list as it is now
+    if (page == MAIN_LOCAL && m->page != MAIN_LOCAL) m->rotation_read = false; // the file as it is now
     m->page = page;
     m->side = (int)page;
     m->nav = 0;

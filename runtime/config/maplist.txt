@@ -1,6 +1,6 @@
-// The maps in rotation, one to a line, played in turn. sv_maps, when it is set (in
-// server.cfg or on the command line), is the rotation instead; with neither, the map
-// is played again. A map that isn't in data/maps/ is passed over.
-//
-// ctf_Ash
-// ctf_Kampf
+// The maps in rotation, one to a line, played in turn; with none, the map is played
+// again. The game's Local Play page writes it as you tick maps, and a server beside it
+// reads it as it starts (sv_maps on the command line goes over it, for that run). A map
+// that isn't in data/maps/ is passed over.
+
+ctf_Blade
