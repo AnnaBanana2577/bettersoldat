@@ -21,11 +21,14 @@
 // order at startup is free: exec the config, run the command line, then open the
 // subsystems that register their cvars.
 //
-// The config file is the player's, and console_save writes back into it rather than
-// over it: a line setting a saved cvar or binding a key is updated in place when its
+// The defaults and the player's own are kept apart (config/): the default files run
+// first, console_mark_defaults notes where they left every cvar and bind, the player's
+// files run over them, and console_save_changes writes the player's files back as only
+// what differs from the defaults. So a new default reaches every player who hasn't set
+// that thing otherwise. console_save keeps the older way, one file written back into in
+// place: a line setting a saved cvar or binding a key is updated where it stands when its
 // value changed, a bind's line goes when the key was unbound, and what the file didn't
-// have goes after it. Comments and everything else stay as they were, and a file with
-// nothing to change isn't touched.
+// have goes after it, comments and all else kept.
 //
 // The built-in commands:
 //   set / seta name value    set (seta also marks it to be saved)
@@ -128,6 +131,20 @@ void console_execute_args(Console *con, int argc, char **argv);
 // with `unbindall` first so it holds the whole of the binds. False if it can't be
 // written.
 bool console_save(const Console *con, const char *path);
+
+// The defaults are in: every cvar's value and every bind as they stand now are what a
+// player's own files are told apart from (console_save_changes). Run after the default
+// config files, before the player's.
+void console_mark_defaults(Console *con);
+
+// The player's own files, written whole: into `settings_path` a `seta` for each saved
+// cvar whose value differs from the defaults (or, unmarked, from its registered
+// default); into `binds_path` a `bind` for each key bound otherwise than the defaults
+// bind it, or not at all by them, and an `unbind` for each the defaults bind and the
+// player has let go. Each after its header. A file whose text is already that isn't
+// touched. False if one can't be written.
+bool console_save_changes(const Console *con, const char *settings_path, const char *settings_header, const char *binds_path,
+                          const char *binds_header);
 
 // --- cvars ---------------------------------------------------------------------------
 

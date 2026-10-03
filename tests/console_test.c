@@ -190,6 +190,45 @@ static void colours(void)
     console_destroy(con);
 }
 
+// The player's own files, apart from the defaults: only what differs, and the defaults'
+// keys let go of as unbinds; read back over the defaults, the same console again.
+static void saving_changes(void)
+{
+    const char *settings = "build/console_test_settings.cfg", *binds = "build/console_test_binds.cfg";
+    Console *con = console_create(NULL, NULL);
+    Cvar *fov = cvar_register(con, "fov", "90", CVAR_ARCHIVE, NULL);
+    Cvar *volume = cvar_register(con, "volume", "50", CVAR_ARCHIVE, NULL);
+    cvar_register(con, "name", "x", 0, NULL);
+    console_execute(con, "seta fov 100; bind a +attack; bind b jump; bind c crouch"); // the defaults
+    console_mark_defaults(con);
+    console_execute(con, "seta volume 20; set name y; bind b fire; unbind c; bind d drop"); // the player's
+    CHECK(console_save_changes(con, settings, "// mine\n", binds, "// keys\n"), "the player's files are written");
+    size_t size = 0;
+    char *s = (char *)file_read_all(settings, &size);
+    CHECK(s && strcmp(s, "// mine\nseta volume \"20\"\n") == 0, "the settings hold only what differs from the defaults:\n%s", s ? s : "");
+    free(s);
+    char *k = (char *)file_read_all(binds, &size);
+    CHECK(k && strstr(k, "bind b \"fire\"\n") && strstr(k, "bind d \"drop\"\n") && strstr(k, "unbind c\n") && !strstr(k, "bind a"),
+          "the binds hold a key bound otherwise, a new one, and the default let go, not the default kept:\n%s", k ? k : "");
+    free(k);
+
+    Console *again = console_create(NULL, NULL);
+    cvar_register(again, "fov", "90", CVAR_ARCHIVE, NULL);
+    Cvar *volume2 = cvar_register(again, "volume", "50", CVAR_ARCHIVE, NULL);
+    console_execute(again, "seta fov 100; bind a +attack; bind b jump; bind c crouch");
+    console_mark_defaults(again);
+    console_execute_file(again, settings);
+    console_execute_file(again, binds);
+    CHECK(volume2->integer == 20 && fov->integer == 100 && strcmp(console_bind_get(again, "b"), "fire") == 0 &&
+              !console_bind_get(again, "c") && strcmp(console_bind_get(again, "a"), "+attack") == 0,
+          "read back over the defaults, they make the same console");
+    (void)volume;
+    remove(settings);
+    remove(binds);
+    console_destroy(again);
+    console_destroy(con);
+}
+
 void console_tests(void)
 {
     colours();
@@ -197,4 +236,5 @@ void console_tests(void)
     parser();
     binds_and_saving();
     saving_in_place();
+    saving_changes();
 }

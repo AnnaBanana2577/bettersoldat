@@ -25,6 +25,8 @@ bool manifest_safe_path(const char *path)
 
 bool manifest_top_level(const char *path) { return !strchr(path, '/'); }
 
+bool manifest_in_update(const char *path) { return manifest_top_level(path) || strncmp(path, "config/", 7) == 0; }
+
 // "<sha256> <bytes> <rest of the line>"
 static bool parse_entry(const char *s, ManifestFile *f)
 {

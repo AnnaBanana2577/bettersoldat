@@ -1,7 +1,7 @@
 // The client. Reads as what it is: each subsystem opened, the loop, each closed.
 //
 //   console the cvars, the commands and the binds (shared/console), run first: the
-//           default binds, then config.cfg, then the command line
+//           default binds, then the config (config/), then the command line
 //   game    the world (shared/game), for now ticked here with authority: a local
 //           sandbox with one soldier, until the connection to a server is ported
 //   input   the keys and mouse, through the binds (input/)
@@ -13,11 +13,11 @@
 // following me in it, and the world drawn from it. Everything the client is lives in
 // App; nothing else is global.
 //
-// The client runs from the directory that holds config.cfg and assets/: the project's
-// own in development (xmake run starts it there) and the game's own once shipped, so
-// both are found by the same relative paths. config.cfg lists every cvar with its
-// default and every bind, and on the way out the binds and the saved cvars are written
-// back into it, in place, with its comments kept (console_save).
+// The client runs from the directory that holds config/ and assets/: the project's own in
+// development (xmake run starts it there) and the game's own once shipped, so both are
+// found by the same relative paths. config/defaults/ holds every saved cvar at its default
+// and every bind, the game's and replaced by each update; config/client/ the player's own,
+// read over them and written on the way out as only what differs (console_save_changes).
 //
 //   client [+assets <dir>] [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 //
@@ -28,7 +28,7 @@
 // the cvars it reads: `+bots_random_noteam 3 +host`). The world stays the local sandbox
 // until the server's state comes down the line.
 //
-// The binds below are the fallback for a missing config.cfg; the file's are the ones
+// The binds below are the fallback for a missing config/defaults; its are the ones
 // that count. V is the radio menu (+radio), opened and shut by a press: a call by its
 // number, then a place by its, said to the team from the radio_* cvars. Alt with a
 // letter is a taunt in the config (say, say_team). The view's: Escape the menu, Tab the
@@ -53,6 +53,7 @@
 #include "input/input.h"
 #include "net/client_net.h"
 #include "net/demo.h"
+#include "files.h" // the launcher's, for the config's directories
 #include "http.h" // the launcher's HTTPS, for the browser's list
 #include "render/interface.h"
 #include "render/render.h"
@@ -74,7 +75,15 @@
 #define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
 #endif
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
-#define CONFIG "config.cfg"
+// The config (config/defaults/settings.client.cfg says it whole): the defaults the game
+// ships and replaces with every update, then the player's own, which the game writes as
+// it closes with only what differs from the defaults, then their autoexec.
+#define CONFIG_DEFAULT_SETTINGS "config/defaults/settings.client.cfg"
+#define CONFIG_DEFAULT_BINDS "config/defaults/binds.client.cfg"
+#define CONFIG_SETTINGS "config/client/settings.cfg"
+#define CONFIG_BINDS "config/client/binds.cfg"
+#define CONFIG_AUTOEXEC "config/client/autoexec.cfg"
+#define CONFIG_OLD "config.cfg" // before config/: the one file, read once and moved aside
 #define SCREENSHOT_FRAME 60
 #define RADIO_CALLS 3  // the radio menu's first choices, and each one's second choices
 #define RADIO_COOLDOWN (3 * TICK_RATE) // a radio call heard, the next stays quiet this long (RadioCooldown)
@@ -245,6 +254,21 @@ static bool file_exists(const char *path)
     FILE *f = fopen(path, "rb");
     if (f) fclose(f);
     return f != NULL;
+}
+
+// The player's own config files, written whole: what differs from the defaults.
+static bool config_save(const Console *con)
+{
+    static const char SETTINGS[] =
+        "// Your settings: what you have set otherwise than config/defaults/settings.client.cfg.\n"
+        "// The game writes this file as it closes, so it holds only settings; a line taken out\n"
+        "// goes back to the default. Commands of your own belong in autoexec.cfg, beside it.\n\n";
+    static const char BINDS[] =
+        "// Your keys: what you have bound otherwise than config/defaults/binds.client.cfg, and an\n"
+        "// `unbind` for each default you let go. The game writes this file as it closes; a line\n"
+        "// taken out goes back to the default.\n\n";
+    files_make_parents(CONFIG_SETTINGS);
+    return console_save_changes(con, CONFIG_SETTINGS, SETTINGS, CONFIG_BINDS, BINDS);
 }
 
 static void cmd_quit(Console *con, int argc, char **argv, void *user)
@@ -1051,7 +1075,8 @@ static void cmd_menu(Console *con, int argc, char **argv, void *user)
 }
 
 // The console and what the client keeps in it, then the binds and settings: the
-// built-in defaults, config.cfg over them, and the command line over both.
+// built-in defaults, the config's over them (config/defaults, then the player's own),
+// and the command line over all.
 static bool console_open(App *app, int argc, char *argv[])
 {
     Console *con = app->console = console_create(print_stdout, NULL);
@@ -1180,7 +1205,23 @@ static bool console_open(App *app, int argc, char *argv[])
 
     input_default_binds(con);
     console_execute(con, VIEW_BINDS);
-    if (file_exists(CONFIG)) console_execute_file(con, CONFIG);
+    // the defaults, then the player's own over them (config/)
+    if (file_exists(CONFIG_DEFAULT_SETTINGS)) console_execute_file(con, CONFIG_DEFAULT_SETTINGS);
+    if (file_exists(CONFIG_DEFAULT_BINDS)) console_execute_file(con, CONFIG_DEFAULT_BINDS);
+    console_mark_defaults(con);
+    if (file_exists(CONFIG_SETTINGS) || file_exists(CONFIG_BINDS)) {
+        if (file_exists(CONFIG_SETTINGS)) console_execute_file(con, CONFIG_SETTINGS);
+        if (file_exists(CONFIG_BINDS)) console_execute_file(con, CONFIG_BINDS);
+    } else if (file_exists(CONFIG_OLD)) {
+        // a config.cfg from before config/: read once, the player's part of it written out
+        // as their own files at once, and kept beside as config.cfg.old
+        console_execute_file(con, CONFIG_OLD);
+        if (config_save(con)) {
+            remove(CONFIG_OLD ".old");
+            if (rename(CONFIG_OLD, CONFIG_OLD ".old") == 0) console_print(con, "config.cfg moved into config/client/; the old one is config.cfg.old\n");
+        }
+    }
+    if (file_exists(CONFIG_AUTOEXEC)) console_execute_file(con, CONFIG_AUTOEXEC);
     console_execute_args(con, argc, argv);
     return true;
 }
@@ -1188,7 +1229,7 @@ static bool console_open(App *app, int argc, char *argv[])
 static void console_close(App *app)
 {
     if (!app->console) return;
-    if (!console_save(app->console, CONFIG)) fprintf(stderr, "could not save %s\n", CONFIG);
+    if (!config_save(app->console)) fprintf(stderr, "could not save %s\n", CONFIG_SETTINGS);
     console_destroy(app->console);
     app->console = NULL;
 }

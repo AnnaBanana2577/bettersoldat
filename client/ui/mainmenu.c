@@ -2493,7 +2493,7 @@ static const char *page_note(MainPage page)
     case MAIN_CONTROLS:
     case MAIN_PLAYER:
     case MAIN_OPTIONS:
-    case MAIN_GRAPHICS: return "Changes take effect at once, and are saved to config.cfg when the game closes.";
+    case MAIN_GRAPHICS: return "Changes take effect at once, and are saved to config/client/ when the game closes.";
     default: return "";
     }
 }

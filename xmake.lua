@@ -2,13 +2,13 @@
 -- keeps a player's copy up to date, and the tests.
 --
 --   xmake                the client, the server and the launcher
---   xmake run client     from the project directory, where config.cfg and assets/ are
+--   xmake run client     from the project directory, where config/ and assets/ are
 --   xmake run server
 --   xmake test           the headless checks in tests/
 --   xmake dist           the packages, in build/dist/: one for players, one for a server,
 --                        the launcher's update, and the manifest it reads (launcher/update.h)
 --
--- The game finds everything beside itself: config.cfg and assets/ in the directory it
+-- The game finds everything beside itself: config/ and assets/ in the directory it
 -- runs from. That is the project directory under xmake run (set_rundir) and the
 -- package's own directory once unpacked, so nothing is passed on the command line.
 
@@ -171,14 +171,14 @@ target("tests")
     add_tests("default")
 
 -- xmake dist: what a release holds for this platform, in build/dist/. Each package
--- unpacks to one directory holding the executables, version.txt, config.cfg, the
+-- unpacks to one directory holding the executables, version.txt, config/defaults/, the
 -- licence and assets/, flat, which is how the game expects to find them (docs/git.md,
 -- Releases). Windows gets zips; Linux tar.gzs, which keep the executable bit that a zip
 -- would lose.
 --
 --   <stem>               the game, a player's: everything, the launcher and the server among it,
 --                        so anyone can host; and manifest.txt, what it all is
---   <stem>-patch         the client's top-level files but config.cfg: the executables,
+--   <stem>-patch         the client's top-level files and config/defaults/: the executables,
 --                        version.txt, manifest.txt and the licence. What the launcher
 --                        downloads when nothing in assets/ or scripts/ changed
 --   <stem>-server        a headless server's: only what it reads of the assets, no art
@@ -222,7 +222,8 @@ task("dist")
             for _, target in ipairs(targets) do
                 os.cp(target:targetfile(), dir)
             end
-            os.cp("config.cfg", dir)
+            os.mkdir(path.join(dir, "config"))
+            os.cp("config/defaults", path.join(dir, "config", "defaults")) -- the game's; the player's own are made by the game
             os.cp("license.md", dir)
             io.writefile(path.join(dir, "version.txt"), version .. "\n")
             if os.isdir("scripts") then os.cp("scripts", dir) end -- the server's scripts, the example among them
@@ -255,13 +256,13 @@ task("dist")
             return ("%s %d %s"):format(hash.sha256(file), os.filesize(file), name)
         end
 
-        -- Every file of an install but config.cfg, which is the player's, and the
-        -- manifest itself, by path.
+        -- Every file of an install but the manifest itself, by path. The player's own config
+        -- (config/client/, config/server/) is in no package, so in no manifest either.
         local function manifest(dir)
             local paths = {}
             for _, file in ipairs(os.files(path.join(dir, "**"))) do
                 local name = path.relative(file, dir):gsub("\\", "/")
-                if name ~= "config.cfg" and name ~= "manifest.txt" then
+                if name ~= "manifest.txt" then
                     table.insert(paths, name)
                 end
             end
@@ -287,8 +288,10 @@ task("dist")
         os.tryrm(update)
         os.mkdir(update)
         for _, file in ipairs(os.files(path.join(full, "*"))) do
-            if path.filename(file) ~= "config.cfg" then os.cp(file, update) end
+            os.cp(file, update)
         end
+        os.cp(path.join(full, "config"), path.join(update, "config")) -- the defaults, which change with the code
+
         local update_archive = pack(stem .. "-patch")
 
         lay_out(stem .. "-server", {server}, server_needs)

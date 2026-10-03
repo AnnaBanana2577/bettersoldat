@@ -49,6 +49,8 @@ const ManifestFile *manifest_find(const Manifest *m, const char *path);
 // no "." or ".." among its parts, '/' between them and nothing that isn't printable.
 bool manifest_safe_path(const char *path);
 
-// Whether a path is at the top of the install, with no directory: what the update
-// package holds.
+// Whether a path is at the top of the install, with no directory.
 bool manifest_top_level(const char *path);
+// Whether the update package holds a path: the top-level files and config/ (the defaults
+// the game ships there, which change with the code, not with the art).
+bool manifest_in_update(const char *path);

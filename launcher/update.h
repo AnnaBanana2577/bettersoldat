@@ -12,14 +12,15 @@
 // The launcher fetches <releases>/latest/download/latest-<platform>.txt, which GitHub
 // redirects to the newest release's copy, and compares the install with it: a file
 // missing or of the wrong size, or whose hash isn't the manifest's, has to come down.
-// When all of those are at the top of the install the update package will do; when any
-// is in assets/ or scripts/ it takes the full one. The package is downloaded into
+// When all of those are at the top of the install or in config/ the update package will
+// do; when any is in assets/ or scripts/ it takes the full one. The package is downloaded into
 // .update/, checked against its hash, unpacked, each file checked again, and only then
 // moved into place, version.txt last, so an update cut off part way is finished on the
 // next start. A file already the release's is left where it is, so the launcher is
 // replaced only by a release that changes it. What the old manifest.txt listed and the
-// release doesn't is removed. config.cfg is the player's and never replaced: a full
-// package's copy is used only when there is none.
+// release doesn't is removed. The player's own files (config/client/, config/server/, a
+// config.cfg from before config/) are in no package and no manifest, so they are never
+// touched; config/defaults/ is the release's, and replaced with it.
 //
 // Hashing every asset on every start would take a second, so the install's
 // manifest.txt is trusted for what it vouches for: a file it lists with the release's

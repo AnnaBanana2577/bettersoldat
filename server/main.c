@@ -1,14 +1,14 @@
 // The server, headless: the console around a hosted game (host.c), and a loop that
-// pumps it until it is told to stop. It reads config.cfg and the command line, loads
+// pumps it until it is told to stop. It reads its config (config/) and the command line, loads
 // the map, listens on sv_port, gives everyone who says Hello a soldier, plays the bots
 // asked for, ticks the world with authority, and stops on `quit` or Ctrl-C.
 //
-//   console  the cvars and the commands (shared/console): config.cfg, then the
-//            command line over it
+//   console  the cvars and the commands (shared/console): config/defaults/settings.server.cfg,
+//            the admin's config/server/settings.cfg over it, then the command line
 //   host     the world, the line, the players, the bots and the rounds (host.c)
 //   lobby    the heartbeat that lists it with the lobby, while sv_public is on (lobby.c)
 //
-// It runs from the directory that holds config.cfg and assets/, as the client does.
+// It runs from the directory that holds config/ and assets/, as the client does.
 //
 //   server [+map <name>] [+sv_port <port>] [+<cvar> <value>] [+<command> <args>...]
 
@@ -36,7 +36,11 @@
 #ifndef SOLDATRELOADED_VERSION
 #define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
 #endif
-#define CONFIG "config.cfg"
+// The config: the defaults the game ships (replaced by each update), then the admin's
+// own, which the server never writes; or, from before config/, the one config.cfg.
+#define CONFIG_DEFAULT_SETTINGS "config/defaults/settings.server.cfg"
+#define CONFIG_SETTINGS "config/server/settings.cfg"
+#define CONFIG_OLD "config.cfg"
 #define SLEEP_MS 1 // between passes of the loop, so it never spins flat out
 
 typedef struct Server {
@@ -204,7 +208,7 @@ static void cmd_lua(Console *con, int argc, char **argv, void *user)
     script_run(&sv->script, code, "console");
 }
 
-// The console and what the server keeps in it, then config.cfg and the command line
+// The console and what the server keeps in it, then its config and the command line
 // over it. Nothing is saved on the way out: nothing here changes a setting.
 static bool console_open(Server *sv, int argc, char *argv[])
 {
@@ -247,7 +251,9 @@ static bool console_open(Server *sv, int argc, char *argv[])
     console_add_command(con, "script_reload", cmd_script_reload, sv, "read the script again, from the start");
     console_add_command(con, "lua", cmd_lua, sv, "run a line of Lua in the script: lua <code>");
 
-    if (file_exists(CONFIG)) console_execute_file(con, CONFIG);
+    if (file_exists(CONFIG_DEFAULT_SETTINGS)) console_execute_file(con, CONFIG_DEFAULT_SETTINGS);
+    if (file_exists(CONFIG_SETTINGS)) console_execute_file(con, CONFIG_SETTINGS);
+    else if (file_exists(CONFIG_OLD)) console_execute_file(con, CONFIG_OLD); // a server set up before config/
     console_execute_args(con, argc, argv);
     return true;
 }

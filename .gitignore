@@ -2,3 +2,7 @@ build/
 .xmake
 *.exe
 demos/
+/config.cfg
+/config.cfg.old
+/config/client/
+/config/server/

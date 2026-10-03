@@ -47,10 +47,10 @@ static bool matches(const char *path, const ManifestFile *f, bool hash)
     return files_sha256(path, digest, NULL, NULL) && same_hash(digest, f->sha256);
 }
 
-// The package holds a file: the update package the top-level ones, the full one all.
+// The package holds a file: the update package the top-level ones and config/, the full one all.
 static bool in_package(UpdateNeed need, const ManifestFile *f)
 {
-    return need == UPDATE_FULL || manifest_top_level(f->path);
+    return need == UPDATE_FULL || manifest_in_update(f->path);
 }
 
 UpdateNeed update_plan(const Manifest *installed, const Manifest *latest, bool thorough, const UpdateReport *report,
@@ -60,7 +60,7 @@ UpdateNeed update_plan(const Manifest *installed, const Manifest *latest, bool t
     if (changed && changed_size) changed[0] = '\0';
     for (int i = 0; i < latest->count; i++) {
         const ManifestFile *f = &latest->files[i];
-        bool top = manifest_top_level(f->path);
+        bool top = manifest_in_update(f->path); // the update package's to bring
         // What manifest.txt vouches for, as the release has it, is taken on its word.
         // Anything else is hashed: a file it lists with another hash may already be the
         // new one, moved into place by an update cut off before manifest.txt was written.
@@ -157,10 +157,6 @@ bool update_apply(const Manifest *latest, UpdateNeed need, const char *releases,
                 return fail(error, error_size, "%s can't be replaced: is the game or a server still running?", f->path);
         }
     }
-    // the player's config, only where there is none
-    if (need == UPDATE_FULL && !files_exists("config.cfg") && files_exists(UPDATE_FILES "/config.cfg"))
-        files_replace(UPDATE_FILES "/config.cfg", "config.cfg");
-
     files_remove_tree(UPDATE_STAGING);
     return true;
 }

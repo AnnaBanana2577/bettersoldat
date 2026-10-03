@@ -37,6 +37,14 @@ struct Console {
     void *print_user;
 
     int depth; // text running text: exec, vstr, binds
+
+    // What the defaults set (console_mark_defaults): each cvar's value then and the
+    // binds, so console_save_changes writes only what differs from them.
+    bool marked;
+    char baseline[CONSOLE_MAX_CVARS][CONSOLE_VALUE_SIZE];
+    bool has_baseline[CONSOLE_MAX_CVARS];
+    Bind baseline_binds[CONSOLE_MAX_BINDS];
+    int baseline_bind_count;
 };
 
 // --- names ---------------------------------------------------------------------------
@@ -650,6 +658,60 @@ bool console_save(const Console *con, const char *path)
     free(old);
     free(out.data);
     free(add.data);
+    return ok;
+}
+
+void console_mark_defaults(Console *con)
+{
+    con->marked = true;
+    for (int i = 0; i < con->cvar_count; i++) {
+        copy(con->baseline[i], sizeof con->baseline[i], con->cvars[i].value);
+        con->has_baseline[i] = true;
+    }
+    memcpy(con->baseline_binds, con->binds, sizeof con->binds);
+    con->baseline_bind_count = con->bind_count;
+}
+
+// `text` into `path` whole, if it differs from what the file holds.
+static bool write_text(const char *path, const Text *text)
+{
+    if (text->failed) return false;
+    size_t old_size = 0;
+    char *old = (char *)file_read_all(path, &old_size);
+    bool same = old && old_size == text->len && memcmp(old, text->data, text->len) == 0;
+    free(old);
+    if (same) return true;
+    FILE *f = fopen(path, "wb");
+    bool ok = f && fwrite(text->data, 1, text->len, f) == text->len;
+    if (f && fclose(f) != 0) ok = false;
+    return ok;
+}
+
+bool console_save_changes(const Console *con, const char *settings_path, const char *settings_header, const char *binds_path,
+                          const char *binds_header)
+{
+    Text settings = {0}, binds = {0};
+    text_append(&settings, settings_header, strlen(settings_header));
+    for (int i = 0; i < con->cvar_count; i++) {
+        const Cvar *cv = &con->cvars[i];
+        if (!cvar_saved(cv)) continue;
+        const char *was = con->marked && con->has_baseline[i] ? con->baseline[i] : cv->default_value;
+        if (strcmp(cv->value, was) != 0) text_printf(&settings, "seta %s \"%s\"\n", cv->name, cv->value);
+    }
+    text_append(&binds, binds_header, strlen(binds_header));
+    for (int i = 0; i < con->bind_count; i++) { // bound otherwise, or anew
+        const Bind *b = &con->binds[i];
+        const Bind *was = NULL;
+        for (int k = 0; k < con->baseline_bind_count && !was; k++)
+            if (name_eq(con->baseline_binds[k].key, b->key)) was = &con->baseline_binds[k];
+        if (!was || strcmp(was->text, b->text) != 0) text_printf(&binds, "bind %s \"%s\"\n", b->key, b->text);
+    }
+    for (int k = 0; k < con->baseline_bind_count; k++) // bound by the defaults, and since let go
+        if (!bind_find(con, con->baseline_binds[k].key)) text_printf(&binds, "unbind %s\n", con->baseline_binds[k].key);
+    bool ok = write_text(settings_path, &settings);
+    ok = write_text(binds_path, &binds) && ok;
+    free(settings.data);
+    free(binds.data);
     return ok;
 }
 
