@@ -2,8 +2,9 @@
 
 // The main menu: joining a server, a game hosted here (Local Play: the mode, the limits,
 // the bots, the maps in rotation), the demos recorded here, the player's name and look
-// with the gostek shown as it will be, the keys, the options, and what is drawn of the
-// world (Graphics). OpenSoldat
+// with the gostek shown as it will be, the keys, the taunts (what a key says: a message
+// to everyone or the team, or your own words as a radio call), the options, and what is
+// drawn of the world (Graphics). OpenSoldat
 // has none of this in the game (its launcher does it); this one is drawn in the HUD's
 // units over the world, which goes on behind it.
 //
@@ -24,10 +25,14 @@
 #include "net/demo.h"
 #include "render/gostek.h"
 #include "render/interface.h"
+#include "ui/taunts.h"
 
-typedef enum MainPage { MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_DEMOS, MAIN_PLAYER, MAIN_CONTROLS, MAIN_OPTIONS, MAIN_GRAPHICS, MAIN_PAGE_COUNT } MainPage;
+typedef enum MainPage {
+    MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_DEMOS, MAIN_PLAYER, MAIN_CONTROLS, MAIN_TAUNTS, MAIN_OPTIONS, MAIN_GRAPHICS,
+    MAIN_PAGE_COUNT
+} MainPage;
 
-#define MAINMENU_EDIT 128
+#define MAINMENU_EDIT 256 // a field's text, up to a cvar value's (the taunts' messages are that long)
 #define MAINMENU_POPUP_ITEMS 16
 #define MAINMENU_SEARCH 32
 
@@ -76,6 +81,9 @@ typedef struct MainMenu {
     char focus_cvar[CONSOLE_NAME_SIZE]; // the text field with the keyboard: the cvar it edits, empty for none
     char edit[MAINMENU_EDIT];           // its text while typed
     int edit_max;                       // how much of it the field takes
+    bool edit_select_all;               // its text is all selected: the next key, or Backspace, replaces it
+    double field_click_at;              // when a text field was last clicked, for a double click on it
+    char field_clicked[CONSOLE_NAME_SIZE]; // and which one, so both clicks must be the same box
     int capturing;                      // the controls row waiting for a key, -1 for none
     char capture_mod[16];               // a modifier pressed while it waits: alone when let go, else with the next key
     bool clicked;                       // a left click since the last draw, at the cursor
@@ -89,6 +97,11 @@ typedef struct MainMenu {
     bool server_sort_up;                // ascending, against the column's natural order
     bool hide_empty, hide_full, only_compatible;
     char search[MAINMENU_SEARCH];       // the server list's filter, by name or map
+    int taunt_slot;                     // the taunt the editor has loaded, -1 for none
+    int taunt_mod;                      // its modifier: alt, ctrl or shift, as taunts.h names them
+    TauntMode taunt_mode;               // who hears the message: everyone or the team (a radio call's goes to the team)
+    int taunt_radio;                    // the radio call attached, 0 for none, else 1 to 9
+    char taunt_text[CONSOLE_VALUE_SIZE]; // the message being edited, a radio call's own words
     int demo_scroll;                    // the demo list's first row shown
     char demo_selected[64];             // the demo picked in the list; empty for none
     double demo_clicked_at;             // when it was picked, so a second click soon after plays it

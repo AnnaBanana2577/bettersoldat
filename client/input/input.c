@@ -36,7 +36,7 @@ static const struct {
 
 static const char *DEFAULT_BINDS = "bind a +left; bind d +right; bind w +jump; bind s +crouch; bind x +prone;"
                                    "bind space +jet; bind mouse1 +fire; bind mouse2 +throw; bind e +throw;"
-                                   "bind r +reload; bind q +change; bind f +drop";
+                                   "bind r +reload; bind q +change; bind f +drop; bind k \"say /kill\"";
 
 // "+name" presses a button, "-name" releases it.
 static void button_command(Console *con, int argc, char **argv, void *user)

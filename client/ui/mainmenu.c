@@ -11,6 +11,7 @@
 #include "gfx/font.h"
 #include "input/input.h"
 #include "network/network.h"
+#include "ui/taunts.h"
 
 #ifndef SOLDATRELOADED_VERSION
 #define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
@@ -92,8 +93,12 @@ static void font_use(Font f)
 }
 
 // The rail: the pages under their groups, play first.
-static const char *const PAGE_NAMES[MAIN_PAGE_COUNT] = {"Servers", "Join by address", "Local play", "Demos", "Player", "Controls", "Options", "Graphics"};
-static const char *const PAGE_TITLES[MAIN_PAGE_COUNT] = {"Servers", "Join by address", "Local play", "Demos", "Player", "Controls", "Options", "Graphics"};
+static const char *const PAGE_NAMES[MAIN_PAGE_COUNT] = {
+    "Servers", "Join by address", "Local play", "Demos", "Player", "Controls", "Taunts", "Options", "Graphics",
+};
+static const char *const PAGE_TITLES[MAIN_PAGE_COUNT] = {
+    "Servers", "Join by address", "Local play", "Demos", "Player", "Controls", "Taunts", "Options", "Graphics",
+};
 static const char *const PAGE_LINES[MAIN_PAGE_COUNT] = {
     "The games being played now, from the lobby.",
     "Connect to a server you know the address of.",
@@ -101,6 +106,7 @@ static const char *const PAGE_LINES[MAIN_PAGE_COUNT] = {
     "Games recorded here, to watch again.",
     "Your name, and how your soldier looks and what it carries.",
     "The keys. Click a binding, then press the new key; Escape cancels.",
+    "What a key says: a message to everyone or the team, or your own words as a radio call.",
     "Sound, the mouse, the interface and the connection.",
     "The window, and what is drawn of the world.",
 };
@@ -909,9 +915,13 @@ static void cvar_select(Ui *ui, const char *label, const char *cvar, const int *
     if (picked >= 0 && picked < count && !(locked && locked[picked])) set_int(ui->con, cvar, values[picked]);
 }
 
-// What a field edits: a cvar's value, or the menu's own search ("#search").
+#define SERVER_DOUBLE_CLICK 0.4 // seconds between the clicks that join a row, or select a text box's text
+
+// What a field edits: a cvar's value, or the menu's own (the taunt being edited,
+// "#taunt", and the server list's search, "#search").
 static const char *field_value(const Ui *ui, const char *key)
 {
+    if (strcmp(key, "#taunt") == 0) return ui->m->taunt_text;
     if (key[0] == '#') return ui->m->search;
     const Cvar *cv = cvar_find(ui->con, key);
     return cv ? cv->value : "";
@@ -923,6 +933,7 @@ static void begin_edit(Ui *ui, const char *key, int max)
     snprintf(m->focus_cvar, sizeof m->focus_cvar, "%s", key);
     snprintf(m->edit, sizeof m->edit, "%s", field_value(ui, key));
     m->edit_max = max;
+    m->edit_select_all = false; // the new edit starts unselected (the double click sets it after)
     SDL_StartTextInput();
 }
 
@@ -935,9 +946,16 @@ static void field_box(Ui *ui, int id, bool focused, float x, float y, float w, c
     MainMenu *m = ui->m;
     bool typing = strcmp(m->focus_cvar, key) == 0;
     bool hot = over(ui, x, y, w, CTRL_H);
-    if (take(ui, id, x, y, w, CTRL_H) || take_enter(ui, focused)) {
+    bool clicked = take(ui, id, x, y, w, CTRL_H);
+    bool entered = take_enter(ui, focused);
+    if (clicked || entered) {
         begin_edit(ui, key, max);
         typing = true;
+    }
+    if (clicked) { // two clicks on the same box, close together: its text all selected
+        if (strcmp(m->field_clicked, key) == 0 && m->time - m->field_click_at < SERVER_DOUBLE_CLICK) m->edit_select_all = true;
+        snprintf(m->field_clicked, sizeof m->field_clicked, "%s", key);
+        m->field_click_at = m->time;
     }
     box(x, y, w, CTRL_H, typing ? TYPING : hot ? CONTROL_HOT : CONTROL, typing ? with_alpha(ACCENT, 220) : BORDER);
     const char *value = typing ? m->edit : field_value(ui, key);
@@ -958,6 +976,10 @@ static void field_box(Ui *ui, int id, bool focused, float x, float y, float w, c
     const char *from = shown; // the end that fits, while typing; the start, cut, otherwise
     if (typing) {
         while (*from && width_of(F_BODY, from) > room - 4) from++;
+        if (m->edit_select_all && from[0]) { // the whole text highlighted: a key, or Backspace, replaces it
+            float lh = line_height(F_BODY);
+            rect(x + 8, cy - lh / 2, x + 8 + width_of(F_BODY, from), cy + lh / 2, with_alpha(ACCENT, 90));
+        }
         text_mid(F_BODY, from, x + 8, cy, TEXT);
         if (fmod(m->time, 1.0) < 0.55) {
             float cx = x + 8 + width_of(F_BODY, from) + 1, lh = line_height(F_BODY);
@@ -1074,6 +1096,7 @@ static bool big_button(Ui *ui, float right, const char *caption, bool primary, b
 }
 
 static void go_page(MainMenu *m, MainPage page);
+static void unfocus(MainMenu *m);
 
 // --- direct connect -----------------------------------------------------------------
 
@@ -1108,7 +1131,6 @@ static void page_join(Ui *ui, const char *status, bool joined)
 // --- the servers --------------------------------------------------------------------
 
 #define SERVER_ROW 20.0f
-#define SERVER_DOUBLE_CLICK 0.4 // seconds between the clicks on a row that join it
 
 static bool same_address(const QueryAddress *a, const QueryAddress *b)
 {
@@ -1855,7 +1877,7 @@ static const Control CONTROLS[] = {
     {"Left", "+left"},           {"Right", "+right"},          {"Jump", "+jump"},           {"Crouch", "+crouch"},
     {"Prone", "+prone"},         {"Jet", "+jet"},              {"Fire", "+fire"},           {"Throw grenade", "+throw"},
     {"Reload", "+reload"},       {"Change weapon", "+change"}, {"Throw weapon", "+drop"},   {"Throw flag", "+flagthrow"},
-    {"Chat", "chat"},            {"Team chat", "teamchat"},    {"Command", "cmd"},
+    {"Suicide", "say /kill"},    {"Chat", "chat"},             {"Team chat", "teamchat"},   {"Command", "cmd"},
     {"Radio", "+radio"},         {"Weapons menu", "weaponsmenu"}, {"Team menu", "teammenu"}, {"Scoreboard", "fragsmenu"},
     {"Weapon stats", "statsmenu"}, {"Minimap", "toggle ui_minimap"},
 };
@@ -1870,9 +1892,9 @@ typedef struct ControlGroup {
 
 static const ControlGroup CONTROL_GROUPS[] = {
     {"MOVEMENT", 0, 6, 0},
-    {"COMBAT", 6, 6, 0},
-    {"TALK", 12, 4, 1},
-    {"MENUS", 16, 5, 1},
+    {"COMBAT", 6, 7, 0},
+    {"TALK", 13, 4, 1},
+    {"MENUS", 17, 5, 1},
 };
 
 // The key bound to `command`, the first if several; "" if none.
@@ -1957,6 +1979,202 @@ static void page_controls(Ui *ui)
     ui->x = x;
     ui->w = w;
     ui->y = maxf(ends[0], ends[1]);
+}
+
+// --- the taunts ---------------------------------------------------------------------
+
+// The editor's loaded taunt: the slot's bind, as taunt_at reads it, or a new taunt
+// on `slot` (chat, on alt) when nothing is bound there.
+static void taunt_load(MainMenu *m, const Console *con, int slot)
+{
+    unfocus(m);
+    m->taunt_slot = slot;
+    Taunt t;
+    if (taunt_at(con, slot, &t)) {
+        m->taunt_mod = t.mod;
+        m->taunt_mode = t.mode;
+        m->taunt_radio = t.radio;
+        snprintf(m->taunt_text, sizeof m->taunt_text, "%s", t.text);
+    } else {
+        m->taunt_mod = 0;
+        m->taunt_mode = TAUNT_CHAT;
+        m->taunt_radio = 0;
+        m->taunt_text[0] = '\0';
+    }
+}
+
+// A taunt as its list row reads: the combo, as Alt+Q, what the text is — a radio
+// call, or said to everyone or the team — and the text. A click, or Enter, loads it
+// into the editor.
+static void taunt_row(Ui *ui, const Console *con, int slot, const Taunt *t)
+{
+    MainMenu *m = ui->m;
+    Row r = row(ui, ROW_H, true);
+    if ((r.shown && take(ui, r.id, r.x, r.y, r.w, r.h)) || take_enter(ui, r.focused)) taunt_load(m, con, slot);
+    if (!r.shown) return;
+    char combo[24];
+    snprintf(combo, sizeof combo, "%c%s+%c", (char)toupper((unsigned char)TAUNT_MOD_KEYS[t->mod][0]),
+             TAUNT_MOD_KEYS[t->mod] + 1, (char)toupper((unsigned char)TAUNT_SLOT_KEYS[slot][0]));
+    const char *what = t->radio ? "Radio" : t->mode == TAUNT_TEAM ? "Team" : "Chat";
+    float cy = r.y + r.h / 2, cx = r.x + 10;
+    float cw = minf(width_of(F_BOLD, combo), 88);
+    text_fit(F_BOLD, combo, cx, cy, cw, TEXT);
+    cx += cw + 12;
+    float ww = minf(width_of(F_BODY, what), 110);
+    text_fit(F_BODY, what, cx, cy, ww, t->radio ? ACCENT : MUTED);
+    cx += ww + 12;
+    text_fit(F_BODY, t->text, cx, cy, r.w - 10 - cx + r.x, MUTED);
+}
+
+// The loaded taunt written back: the message as its bind (taunt_compose), the slot
+// unbound when it is empty. The config is saved, so it survives the game. The
+// Update button and Enter in the message both run this.
+static void taunt_update(MainMenu *m, Console *con)
+{
+    if (m->taunt_slot < 0) return;
+    char text[CONSOLE_VALUE_SIZE];
+    if (m->taunt_text[0]) {
+        taunt_compose(text, sizeof text, m->taunt_mode, m->taunt_text, m->taunt_radio);
+        taunt_set(con, m->taunt_slot, m->taunt_mod, text);
+    } else {
+        taunt_set(con, m->taunt_slot, m->taunt_mod, ""); // empty: the slot unbound
+    }
+    console_save(con, "config.cfg");
+}
+
+// The loaded taunt unbound, and the editor emptied: the Clear button and Delete.
+static void taunt_clear(MainMenu *m, Console *con)
+{
+    if (m->taunt_slot < 0) return;
+    taunt_set(con, m->taunt_slot, m->taunt_mod, "");
+    taunt_load(m, con, m->taunt_slot);
+    console_save(con, "config.cfg");
+}
+
+// The editor: on the left, the taunts there are, in the slots' order; on the right,
+// the message and what it is, then the keyboard, whose key the combo is bound on.
+// Update writes the loaded taunt into the config, Clear unbinds it (Delete too).
+static void page_taunts(Ui *ui)
+{
+    Console *con = ui->con;
+    MainMenu *m = ui->m;
+    float x = ui->x, w = ui->w, top_y = ui->y;
+    bool two = w >= 560; // below that the two columns would be too narrow for the modes and the keyboard
+    float col_w = two ? (w - 20) / 2 : w;
+    float ends[2] = {top_y, top_y};
+
+    ui->w = col_w;
+    section(ui, "TAUNTS");
+    bool any = false;
+    for (int slot = 0; slot < TAUNT_SLOTS; slot++) {
+        Taunt t;
+        if (taunt_at(con, slot, &t)) {
+            any = true;
+            taunt_row(ui, con, slot, &t);
+        }
+    }
+    if (!any) {
+        Row r = row(ui, ROW_H, false);
+        if (r.shown)
+            text_fit(F_BODY, "None yet: pick a key on the keyboard and type what it says.", r.x + 10, r.y + r.h / 2, r.w - 20, MUTED);
+    }
+    gap(ui, 6);
+    ends[0] = ui->y;
+
+    ui->x = two ? x + col_w + 20 : x;
+    ui->y = two ? top_y : ends[0];
+    section(ui, "EDIT");
+    { // the message, typed; what makes it a console line (quotes, semicolons) is left out
+        Row r = row(ui, ROW_H, true);
+        field_box(ui, r.id, r.focused, r.x + 10, ctrl_y(&r), r.w - 20, "#taunt", CONSOLE_VALUE_SIZE - 1, "What the key says",
+                  false);
+    }
+    if (m->taunt_radio) {
+        // the call says the message to the team itself, so there is nothing to pick here
+        Row r = row(ui, ROW_H, false);
+        if (r.shown)
+            text_fit(F_BODY, "The call says the message to the team, with its sound.", r.x + 10, r.y + r.h / 2, r.w - 20, MUTED);
+    } else { // the two modes, one of them always on
+        static const char *const MODE_NAMES[] = {"Chat", "Team chat"};
+        Row r = row(ui, ROW_H, false);
+        float cx = r.x;
+        for (int mode = 0; mode < 2; mode++) {
+            float cw = width_of(F_BODY, MODE_NAMES[mode]) + 30;
+            if (chip(ui, cx, r.y + (r.h - CTRL_H) / 2, MODE_NAMES[mode], (int)m->taunt_mode == mode))
+                m->taunt_mode = (TauntMode)mode;
+            cx += cw + 8;
+        }
+    }
+    { // the radio call the key sends, named from the radio_* cvars as the menu reads them
+        char labels[10][40];
+        const char *names[10];
+        names[0] = "None";
+        for (int i = 1; i <= 9; i++) {
+            int call = (i - 1) / 3 + 1, place = (i - 1) % 3 + 1;
+            char name[CONSOLE_NAME_SIZE];
+            snprintf(name, sizeof name, "radio_%d", call);
+            const Cvar *c = cvar_find(con, name);
+            snprintf(name, sizeof name, "radio_%d_%d", call, place);
+            const Cvar *p = cvar_find(con, name);
+            // cut to the box's room: the words' own lines in the game show them whole
+            snprintf(labels[i], sizeof labels[i], "%.*s - %.*s", 20, c ? c->value : "?", 12, p ? p->value : "?");
+            names[i] = labels[i];
+        }
+        int picked = select_box(ui, "Radio", names, NULL, 10, m->taunt_radio);
+        if (picked >= 0) m->taunt_radio = picked;
+    }
+    {
+        static const char *const MOD_NAMES[] = {"Alt", "Ctrl", "Shift"};
+        int picked = select_box(ui, "Modifier", MOD_NAMES, NULL, TAUNT_MODS, m->taunt_mod);
+        if (picked >= 0) m->taunt_mod = picked;
+    }
+    section(ui, "KEY");
+    { // the 36 keys, as the number row and the qwerty rows; a taunt's key is tinted
+        static const int ROW_FIRST[4] = {0, 10, 20, 29};
+        static const int ROW_COUNT[4] = {10, 10, 9, 7};
+        const float key_gap = 5, kh = 24;
+        float kw = minf(28, (col_w - 9 * key_gap) / 10);
+        for (int row_i = 0; row_i < 4; row_i++) {
+            Row r = row(ui, kh + 6, false);
+            float row_w = ROW_COUNT[row_i] * kw + (ROW_COUNT[row_i] - 1) * key_gap;
+            float kx = r.x + (r.w - row_w) / 2;
+            for (int k = 0; k < ROW_COUNT[row_i]; k++) {
+                int slot = ROW_FIRST[row_i] + k;
+                Taunt t;
+                bool bound = taunt_at(con, slot, &t);
+                bool selected = m->taunt_slot == slot;
+                int id = nav_next(ui);
+                bool focused = nav_focused(ui, id, r.y, kh);
+                bool hot = over(ui, kx, r.y, kw, kh);
+                if ((r.shown && take(ui, id, kx, r.y, kw, kh)) || take_enter(ui, focused)) taunt_load(m, con, slot);
+                if (!r.shown) {
+                    kx += kw + key_gap;
+                    continue;
+                }
+                focus_ring(ui, focused, kx, r.y, kw, kh, RADIUS);
+                Rgba fill = selected ? ACCENT_SOFT : bound ? (Rgba){232, 80, 30, 22} : hot ? CONTROL_HOT : CONTROL;
+                Rgba edge = selected ? ACCENT : bound ? with_alpha(ACCENT, 140) : BORDER;
+                box(kx, r.y, kw, kh, fill, edge);
+                char label[2] = {(char)toupper((unsigned char)TAUNT_SLOT_KEYS[slot][0]), '\0'};
+                text_mid(F_BOLD, label, kx + kw / 2, r.y + kh / 2, bound || selected ? TEXT : MUTED);
+                kx += kw + key_gap;
+            }
+        }
+    }
+    gap(ui, 6);
+    ends[1] = ui->y;
+
+    ui->x = x;
+    ui->w = w;
+    ui->y = maxf(ends[0], ends[1]);
+    ui->scrolling = false;
+    float bx;
+    bool none = m->taunt_slot < 0;
+    if (big_button(ui, x + w, "UPDATE", true, none, &bx)) {
+        taunt_update(m, con);
+    } else if (big_button(ui, bx - 12, "CLEAR", false, none, NULL)) {
+        taunt_clear(m, con);
+    }
 }
 
 // --- options and graphics -----------------------------------------------------------
@@ -2072,6 +2290,7 @@ static void unfocus(MainMenu *m)
 {
     if (m->focus_cvar[0]) SDL_StopTextInput();
     m->focus_cvar[0] = '\0';
+    m->edit_select_all = false; // the field gone, its selection with it
 }
 
 static void go_page(MainMenu *m, MainPage page)
@@ -2103,6 +2322,14 @@ void mainmenu_show(MainMenu *m, bool shown)
     m->clicked = m->mouse_down = false;
     m->key_move = m->key_side = m->key_page = 0;
     m->key_enter = m->key_back = false;
+    m->taunt_slot = -1;
+    m->taunt_mod = 0;
+    m->taunt_mode = TAUNT_CHAT;
+    m->taunt_radio = 0;
+    m->taunt_text[0] = '\0';
+    m->edit_select_all = false;
+    m->field_click_at = 0;
+    m->field_clicked[0] = '\0';
     popup_close(m);
     unfocus(m);
 }
@@ -2110,7 +2337,8 @@ void mainmenu_show(MainMenu *m, bool shown)
 // The edit into what the focused field edits.
 static void edit_commit(MainMenu *m, Console *con)
 {
-    if (m->focus_cvar[0] == '#') snprintf(m->search, sizeof m->search, "%s", m->edit);
+    if (strcmp(m->focus_cvar, "#taunt") == 0) snprintf(m->taunt_text, sizeof m->taunt_text, "%s", m->edit);
+    else if (m->focus_cvar[0] == '#') snprintf(m->search, sizeof m->search, "%s", m->edit);
     else cvar_set(con, m->focus_cvar, m->edit);
 }
 
@@ -2118,6 +2346,10 @@ static void edit_commit(MainMenu *m, Console *con)
 // line's end among them) left out; the cvar follows.
 static void edit_insert(MainMenu *m, Console *con, const char *text)
 {
+    if (m->edit_select_all) { // all of it selected: the first key, or paste, replaces it
+        m->edit[0] = '\0';
+        m->edit_select_all = false;
+    }
     size_t len = strlen(m->edit);
     for (const char *s = text; *s && (int)len < m->edit_max && len + 1 < sizeof m->edit; s++) {
         if ((unsigned char)*s < 32) continue;
@@ -2181,6 +2413,10 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
             return true;
         }
         if (e->type == SDL_KEYDOWN) {
+            if ((e->key.keysym.mod & KMOD_CTRL) && e->key.keysym.scancode == SDL_SCANCODE_A) {
+                m->edit_select_all = true; // Ctrl+A, as the double click: all of the text selected
+                return true;
+            }
             if ((e->key.keysym.mod & KMOD_CTRL) && e->key.keysym.scancode == SDL_SCANCODE_V) {
                 char *clip = SDL_GetClipboardText();
                 if (clip) {
@@ -2191,8 +2427,13 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
             }
             switch (e->key.keysym.scancode) {
             case SDL_SCANCODE_BACKSPACE: {
-                size_t len = strlen(m->edit);
-                if (len) m->edit[len - 1] = '\0';
+                if (m->edit_select_all) {
+                    m->edit[0] = '\0'; // the whole selection, gone at once
+                    m->edit_select_all = false;
+                } else {
+                    size_t len = strlen(m->edit);
+                    if (len) m->edit[len - 1] = '\0';
+                }
                 edit_commit(m, con);
                 break;
             }
@@ -2201,7 +2442,10 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
                 key_nav(m, (e->key.keysym.mod & KMOD_SHIFT) ? -1 : 1, 0, false, false);
                 break;
             case SDL_SCANCODE_RETURN:
-            case SDL_SCANCODE_KP_ENTER:
+            case SDL_SCANCODE_KP_ENTER: // the taunt's message: Enter is the Update button
+                if (strcmp(m->focus_cvar, "#taunt") == 0) taunt_update(m, con);
+                unfocus(m);
+                break;
             case SDL_SCANCODE_ESCAPE: unfocus(m); break;
             default: break;
             }
@@ -2232,6 +2476,9 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
         case SDL_SCANCODE_ESCAPE: key_nav(m, 0, 0, false, true); break;
         case SDL_SCANCODE_Q: m->key_page--, m->keys_used = true; break;
         case SDL_SCANCODE_E: m->key_page++, m->keys_used = true; break;
+        case SDL_SCANCODE_DELETE: // on the taunts page, Delete clears the loaded taunt
+            if (m->page == MAIN_TAUNTS) taunt_clear(m, con);
+            break;
         default: break;
         }
         return true;
@@ -2490,6 +2737,7 @@ static void background(float W, double time)
 static const char *page_note(MainPage page)
 {
     switch (page) {
+    case MAIN_TAUNTS: return "Update writes the taunt into config.cfg; Clear, or Delete, takes the key's away.";
     case MAIN_CONTROLS:
     case MAIN_PLAYER:
     case MAIN_OPTIONS:
@@ -2569,6 +2817,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     case MAIN_DEMOS: page_demos(&ui, demos, demo_count); break;
     case MAIN_PLAYER: page_player(&ui, gostek, ctx); break;
     case MAIN_CONTROLS: page_controls(&ui); break;
+    case MAIN_TAUNTS: page_taunts(&ui); break;
     case MAIN_OPTIONS: ui.w = minf(w, 520); page_options(&ui); break;
     case MAIN_GRAPHICS: ui.w = minf(w, 520); page_graphics(&ui); break;
     default: break;

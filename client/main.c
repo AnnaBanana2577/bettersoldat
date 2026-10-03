@@ -998,6 +998,38 @@ static void radio_choose(App *app, int digit)
     d->radio_state = 0;
 }
 
+// radio <call> <place> [words]: the radio menu's two digits at once. With words after
+// them, those are said to the team as the call, with its sound — one message, a
+// taunt's with a radio call attached (chat_heard plays the sound for the '*', the
+// digits and the words after them). Without, the menu's own words, as its choices
+// would be (radio_choose).
+static void cmd_radio_call(Console *con, int argc, char **argv, void *user)
+{
+    App *app = user;
+    if (argc < 3 || strlen(argv[1]) != 1 || strlen(argv[2]) != 1 || argv[1][0] < '1' || argv[1][0] > '0' + RADIO_CALLS ||
+        argv[2][0] < '1' || argv[2][0] > '0' + RADIO_CALLS) {
+        console_print(con, "usage: %s <call> <place> [words], 1 to %d each\n", argv[0], RADIO_CALLS);
+        return;
+    }
+    const Soldier *me = &app->game->world.soldiers[app->me];
+    if (app->hud_data.chat_type != HUD_CHAT_NONE || !me->active || me->team == TEAM_SPECTATOR) return;
+    app->hud_data.radio_menu = false; // the menu open, its choice starts over
+    app->hud_data.radio_state = 0;
+    if (argc > 3) {
+        char line[CONSOLE_TEXT_SIZE];
+        snprintf(line, sizeof line, "say_team \"*%s%s", argv[1], argv[2]);
+        for (int i = 3; i < argc; i++) { // the words, joined with single spaces as cmd_say does
+            size_t used = strlen(line);
+            snprintf(line + used, sizeof line - used, "%s%s", i > 3 ? " " : "", argv[i]);
+        }
+        snprintf(line + strlen(line), sizeof line - strlen(line), "\"");
+        console_execute(con, line);
+        return;
+    }
+    radio_choose(app, argv[1][0] - '0');
+    radio_choose(app, argv[2][0] - '0');
+}
+
 static void cmd_freecam(Console *con, int argc, char **argv, void *user);
 
 static HudGameMode hud_mode(const App *app);
@@ -1126,7 +1158,7 @@ static bool console_open(App *app, int argc, char *argv[])
         }
     }
     app->hud_demo = cvar_register(con, "hud_demo", "0", 0, "fill the HUD with sample data: page 1, 2 or 3");
-    app->menu_page = cvar_register(con, "ui_menupage", "0", 0, "the main menu's page at start, 0 servers to 7 graphics (for screenshots)");
+    app->menu_page = cvar_register(con, "ui_menupage", "0", 0, "the main menu's page at start, 0 servers to 8 graphics (for screenshots)");
     // the server's, for Local Play; saved, as the menu sets them
     app->sv_port = cvar_register(con, "sv_port", "23073", CVAR_ARCHIVE, "the UDP port a game hosted here listens on");
     app->sv_maps = cvar_register(con, "sv_maps", "", CVAR_ARCHIVE, "the maps in rotation, space-separated; the first plays first");
@@ -1162,6 +1194,7 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "statsmenu", cmd_menu, app, "the weapon stats");
     console_add_command(con, "say", cmd_say, app, "say something to everyone");
     console_add_command(con, "say_team", cmd_say, app, "say something to the team");
+    console_add_command(con, "radio", cmd_radio_call, app, "say a radio call: radio <call> <place>, 1 to 3 each");
     console_add_command(con, "chat", cmd_chat, app, "type a line to everyone");
     console_add_command(con, "teamchat", cmd_chat, app, "type a line to the team");
     console_add_command(con, "cmd", cmd_chat, app, "type a command: a cvar or command here, or a word for the server");
