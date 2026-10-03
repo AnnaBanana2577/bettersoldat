@@ -260,7 +260,8 @@ static void entry_line(char *line, size_t size, const char *kind, const char *fi
 }
 
 // A release of `files` as `xmake dist` makes one: the two zips under download/v<version>/
-// and the manifest under latest/download/.
+// (the update package the top-level files and config/, the full one all) and the
+// manifest under latest/download/.
 static void release(const char *root, const char *version, const Source *files, int count)
 {
     char path[512], line[512];
@@ -273,7 +274,7 @@ static void release(const char *root, const char *version, const Source *files, 
         snprintf(path, sizeof path, "pkg/%s", files[i].path);
         size_t n = strlen(files[i].text);
         mz_zip_add_mem_to_archive_file_in_place(full, path, files[i].text, n, NULL, 0, MZ_DEFAULT_LEVEL);
-        if (manifest_top_level(files[i].path) && strcmp(files[i].path, "config.cfg"))
+        if (manifest_in_update(files[i].path))
             mz_zip_add_mem_to_archive_file_in_place(update, path, files[i].text, n, NULL, 0, MZ_DEFAULT_LEVEL);
     }
 
@@ -284,7 +285,6 @@ static void release(const char *root, const char *version, const Source *files, 
     entry_line(line, sizeof line, "package update", update, "pkg-update.zip");
     at += (size_t)snprintf(text + at, sizeof text - at, "%s", line);
     for (int i = 0; i < count; i++) {
-        if (!strcmp(files[i].path, "config.cfg")) continue;
         snprintf(path, sizeof path, "%s/source/%s", root, files[i].path);
         files_write(path, files[i].text, strlen(files[i].text));
         entry_line(line, sizeof line, "file", path, files[i].path);
@@ -305,18 +305,21 @@ static void update_tests(void)
     snprintf(releases, sizeof releases, "file://%s%s/" SCRATCH "/releases", here[0] == '/' ? "" : "/", here);
     UpdateOptions options = {.releases = releases, .platform = "test"};
 
-    // version 1, installed by hand with the player's own config
+    // version 1, installed by hand: the game's defaults, and beside them the player's own
+    // config, the server owner's lists and a config.cfg from before config/
     const Source v1[] = {{"version.txt", "1\n"}, {"game.exe", "old game"}, {"assets/a.txt", "art"},
-                         {"assets/b.txt", "more art"}, {"config.cfg", "theirs"}};
+                         {"assets/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "defaults"}};
     release(SCRATCH "/releases", "1", v1, 5);
     files_remove_tree(SCRATCH "/install");
     files_make_directory(SCRATCH "/install");
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         char path[256];
         snprintf(path, sizeof path, SCRATCH "/install/%s", v1[i].path);
         files_write(path, v1[i].text, strlen(v1[i].text));
     }
     files_write(SCRATCH "/install/config.cfg", "mine", 4);
+    files_write(SCRATCH "/install/config/client/settings.cfg", "my settings", 11);
+    files_write(SCRATCH "/install/config/server/banlist.cfg", "my bans", 7);
     files_write(SCRATCH "/install/scripts/server.lua", "a player's script", 17);
 
     if (change_directory(SCRATCH "/install") != 0) {
@@ -328,9 +331,9 @@ static void update_tests(void)
           "an install with no manifest.txt that matches the release is current (%d: %s)", outcome, error);
     CHECK(files_exists(UPDATE_MANIFEST), "and is given its manifest.txt");
 
-    // version 2 changes the game only: the update package
+    // version 2 changes the game and a default: the update package
     const Source v2[] = {{"version.txt", "2\n"}, {"game.exe", "new game"}, {"assets/a.txt", "art"},
-                         {"assets/b.txt", "more art"}, {"config.cfg", "theirs"}};
+                         {"assets/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "new defaults"}};
     enter(here);
     release(SCRATCH "/releases", "2", v2, 5);
     remove(SCRATCH "/releases/download/v2/pkg-full.zip"); // so only the update package can serve
@@ -339,15 +342,18 @@ static void update_tests(void)
     CHECK(outcome == UPDATE_UPDATED && !strcmp(version, "2"), "a new game comes in the update package (%d: %s)",
           outcome, error);
     CHECK(holds("game.exe", "new game") && holds("version.txt", "2\n"), "the new game, and its version");
-    CHECK(holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
-          "the player's config and script are left alone");
+    CHECK(holds("config/defaults/settings.client.cfg", "new defaults"), "and the new defaults with it");
+    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.cfg", "my bans") &&
+              holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
+          "the player's config, the server's lists and a script are left alone");
     CHECK(!files_exists(UPDATE_STAGING), "nothing is left in .update");
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_CURRENT, "then it is current (%d: %s)", outcome, error);
 
     // version 3 changes an asset: the full package
     const Source v3[] = {{"version.txt", "3\n"}, {"game.exe", "new game"}, {"assets/a.txt", "new art"},
-                         {"assets/b.txt", "more art"}, {"assets/c.txt", "a new map"}, {"config.cfg", "theirs"}};
+                         {"assets/b.txt", "more art"}, {"assets/c.txt", "a new map"},
+                         {"config/defaults/settings.client.cfg", "new defaults"}};
     enter(here);
     release(SCRATCH "/releases", "3", v3, 6);
     enter(SCRATCH "/install");
@@ -355,7 +361,8 @@ static void update_tests(void)
     CHECK(outcome == UPDATE_UPDATED && holds("assets/a.txt", "new art") && holds("assets/c.txt", "a new map") &&
               holds("version.txt", "3\n"),
           "changed and new assets come in the full package (%d: %s)", outcome, error);
-    CHECK(holds("config.cfg", "mine"), "whose config doesn't replace the player's");
+    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config.cfg", "mine"),
+          "which doesn't replace the player's config");
 
     // damage: an asset cut short is found by its size, one changed in place only by --verify
     files_write("assets/b.txt", "more", 4);
@@ -395,7 +402,8 @@ static void update_tests(void)
     files_write("soldatreloaded.exe", "older game", 10);
     files_write("soldatreloaded.exe.old", "oldest game", 11);
     const Source v4[] = {{"version.txt", "4\n"}, {"client.exe", "new game"}, {"assets/a.txt", "new art"},
-                         {"assets/b.txt", "more art"}, {"assets/c.txt", "a new map"}, {"config.cfg", "theirs"}};
+                         {"assets/b.txt", "more art"}, {"assets/c.txt", "a new map"},
+                         {"config/defaults/settings.client.cfg", "new defaults"}};
     enter(here);
     release(SCRATCH "/releases", "4", v4, 6);
     enter(SCRATCH "/install");
@@ -404,7 +412,8 @@ static void update_tests(void)
           error);
     CHECK(!files_exists("game.exe") && !files_exists("soldatreloaded.exe") && !files_exists("soldatreloaded.exe.old"),
           "and the names it had are gone, with what they were moved aside to");
-    CHECK(holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
+    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.cfg", "my bans") &&
+              holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
           "but not the player's own files");
 
     enter(here);
