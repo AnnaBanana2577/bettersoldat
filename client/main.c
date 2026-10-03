@@ -1348,7 +1348,7 @@ static bool window_open(App *app)
     // a controller works the main menu; without the subsystem the game goes on without one
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) fprintf(stderr, "no controllers: %s\n", SDL_GetError());
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    app->window = SDL_CreateWindow("SoldatReloaded", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, app->width->integer,
+    app->window = SDL_CreateWindow("Soldat Reloaded", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, app->width->integer,
                                    app->height->integer, SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!app->window) {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
