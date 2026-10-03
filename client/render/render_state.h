@@ -71,9 +71,9 @@ void tick_snapshot_capture(TickSnapshot *snap, const World *w);
 // The team's shirt, worn over the player's own in a team game, and the roster's colour.
 Rgba team_shirt(Team team);
 
-// The frame `alpha` of the way from `from` to `to`. Positions blend between the two;
-// animation poses blend between ticks while their animation state stays the same;
-// weapons, health, and animation transitions are the latest tick's. A
+// The frame `alpha` of the way from `from` to `to`. Positions and poses blend between the
+// two, the pose across a change of animation too, as the original's skeleton does;
+// everything discrete (animation frames, weapons, health) is the latest tick's. A
 // soldier placed anew between the two (spawned, respawned, corrected) is drawn where
 // it now is rather than slid there. `me` is the soldier the camera follows. In a
 // `team_game` the shirt drawn is the team's. `offsets`, if given, moves each soldier's

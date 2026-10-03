@@ -64,12 +64,14 @@ static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, cons
     // a dead soldier is drawn as its body, once the ragdoll has started; until then it
     // holds its last pose
     out.corpse = to->dead && body_to->active;
-    bool same_pose_animation = continuous(from, to) && from->dead == to->dead &&
-                               from->body.id == to->body.id && from->legs.id == to->legs.id &&
-                               from->direction == to->direction && from->stance == to->stance;
+    // The pose blends between the ticks too, whatever the animations did between them (a
+    // roll begun, a turn, a stance taken), as the original lerps every skeleton point
+    // from its OldPos each frame (GameRendering.pas): only a new life, or the step from
+    // living to dead, shows the latest tick's alone.
+    bool blend = continuous(from, to) && from->dead == to->dead;
     out.pose = out.corpse ? corpse_pose(body_from, body_to, alpha)
-                          : same_pose_animation ? soldier_pose_between(ctx, from, to, out.pos, alpha)
-                                                : soldier_pose(ctx->anims, to, out.pos);
+                          : blend ? soldier_pose_between(ctx, from, to, out.pos, alpha)
+                                  : soldier_pose(ctx->anims, to, out.pos);
     // the chain's and the hair's points: the ragdoll's own on a body, the soldier's swing alive
     for (int k = 0; k < 4; k++) {
         if (out.corpse) out.swing[k] = body_from->active ? lerp(body_from->pos[20 + k], body_to->pos[20 + k], alpha) : body_to->pos[20 + k];
