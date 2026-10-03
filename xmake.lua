@@ -1,4 +1,4 @@
--- SoldatReloaded: the client, the server, the simulation they share, the launcher that
+-- Soldat Reloaded: the client, the server, the simulation they share, the launcher that
 -- keeps a player's copy up to date, and the tests.
 --
 --   xmake                the client, the server and the launcher
@@ -325,7 +325,7 @@ task("dist")
         table.insert(lines, 2, entry("update", stem .. "-patch" .. extension))
         table.insert(lines, 3, entry("full", stem .. extension))
         local latest = path.join(outputdir, ("latest-%s-%s.txt"):format(plat, arch))
-        io.writefile(latest, ("// SoldatReloaded %s for %s %s, for the launcher (launcher/update.h).\n"):format(version, plat, arch)
+        io.writefile(latest, ("// Soldat Reloaded %s for %s %s, for the launcher (launcher/update.h).\n"):format(version, plat, arch)
                              .. table.concat(lines, "\n") .. "\n")
         print("listed " .. path.absolute(latest))
     end)

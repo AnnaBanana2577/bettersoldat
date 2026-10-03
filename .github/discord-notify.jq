@@ -31,10 +31,10 @@ def downloads:
 # so neither GitHub's raw cache nor Discord's can hand back an older icon
 | ($ENV.REPO_RAW // "https://raw.githubusercontent.com/soldatreloaded/soldatreloaded/\($r.tagName)") as $raw
 | {
-    username: "SoldatReloaded",
+    username: "Soldat Reloaded",
     avatar_url: "\($raw)/runtime/data/icon.png",
     embeds: [{
-      title: "SoldatReloaded \($r.tagName)\(if $r.isPrerelease then " (pre-release)" else "" end) is out",
+      title: "Soldat Reloaded \($r.tagName)\(if $r.isPrerelease then " (pre-release)" else "" end) is out",
       url: $r.url,
       color: 15224862,
       description: ($r.body | notes | cut($r.url)),

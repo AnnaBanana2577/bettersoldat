@@ -1,4 +1,4 @@
-# SoldatReloaded
+# Soldat Reloaded
 
 A work-in-progress port of [Soldat](https://soldat.pl) to C, with improvements to the
 game and the tooling around it built in.
@@ -6,7 +6,7 @@ game and the tooling around it built in.
 Soldat is a fast 2D multiplayer shooter: side-scrolling, physics-driven, with jets,
 ragdolls and a few dozen players a server. Its open-source successor,
 [OpenSoldat](https://github.com/opensoldat/opensoldat), is written in Object Pascal.
-SoldatReloaded rewrites it in C11, system by system, keeping how the game plays as it
+Soldat Reloaded rewrites it in C11, system by system, keeping how the game plays as it
 plays there (the physics, the weapons, the movement, the maps and art), and changes
 what is around it: the netcode, the menus, how you find a game, how a server is run
 and extended, and how the game stays up to date.

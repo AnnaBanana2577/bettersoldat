@@ -1162,7 +1162,7 @@ static bool console_open(App *app, int argc, char *argv[])
     // the server's, for Local Play; saved, as the menu sets them
     app->sv_port = cvar_register(con, "sv_port", "23073", CVAR_ARCHIVE, "the UDP port a game hosted here listens on");
     app->sv_maps = cvar_register(con, "sv_maps", "", CVAR_ARCHIVE, "the maps in rotation, space-separated; the first plays first");
-    app->sv_hostname = cvar_register(con, "sv_hostname", "SoldatReloaded server", CVAR_ARCHIVE, "the hosted game's name, on the scoreboard");
+    app->sv_hostname = cvar_register(con, "sv_hostname", "Soldat Reloaded server", CVAR_ARCHIVE, "the hosted game's name, on the scoreboard");
     cvar_register(con, "sv_password", "", CVAR_ARCHIVE, "the hosted game's password; empty for none");
     app->sv_gamemode = cvar_register(con, "sv_gamemode", "0", CVAR_ARCHIVE, "0 the map's own, 1 deathmatch, 2 capture the flag");
     app->sv_timelimit = cvar_register(con, "sv_timelimit", "15", CVAR_ARCHIVE, "minutes a round lasts");
@@ -1878,7 +1878,7 @@ static void hud_data_build(App *app)
     snprintf(d->vote_target, sizeof d->vote_target, "%s", v->target);
     snprintf(d->vote_starter, sizeof d->vote_starter, "%s", v->starter);
     snprintf(d->vote_reason, sizeof d->vote_reason, "%s", v->reason);
-    snprintf(d->hostname, sizeof(d->hostname), "%s", client_net_joined(&app->net) ? app->net.hostname : "SoldatReloaded");
+    snprintf(d->hostname, sizeof(d->hostname), "%s", client_net_joined(&app->net) ? app->net.hostname : "Soldat Reloaded");
     // the map window's offer: the server's last answer (GameMenus.pas shows VoteMapName,
     // whichever map it was asked for), paged within the count it gave; the maps here
     // only with no server to ask
@@ -2017,7 +2017,7 @@ static void hud_data_demo(HudData *d, int page)
     d->frags_menu = true;
     d->show_info = true;
 
-    const char *console[] = {"Crow joined the game.", "Mabuse joined the game.", "Welcome to SoldatReloaded"};
+    const char *console[] = {"Crow joined the game.", "Mabuse joined the game.", "Welcome to Soldat Reloaded"};
     const Rgba console_colors[] = {{0xC3, 0xC3, 0xC3, 0xF1}, {0xC3, 0xC3, 0xC3, 0xF1}, {0x71, 0xF9, 0x81, 0xEE}};
     d->console_count = 3;
     for (int i = 0; i < 3; i++) {

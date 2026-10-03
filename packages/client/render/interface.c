@@ -1386,7 +1386,7 @@ static void draw_esc_menu_texts(const Interface *hud, const Frame *f, const Game
     text_draw("ESC - return to game", menu->x + dx + 20, menu->y + menu->h + dy - 45);
     text_color((Rgba){230, 235, 255, 190});
     text_align(TEXT_BOTTOM);
-    const char *version = "SoldatReloaded " SOLDATRELOADED_VERSION;
+    const char *version = "Soldat Reloaded " SOLDATRELOADED_VERSION;
     text_draw(version, menu->x + menu->w + dx - 2 - text_width(version), menu->y + menu->h + dy);
     text_align(TEXT_TOP);
 

@@ -253,7 +253,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->maps = cvar_register(con, "sv_maps", "", 0, "the maps in rotation, space-separated; empty plays the map again");
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
     sv->ip = cvar_register(con, "sv_ip", "", 0, "the address to listen on; empty for every one");
-    sv->hostname = cvar_register(con, "sv_hostname", "SoldatReloaded server", 0, "the server's name, on the scoreboard");
+    sv->hostname = cvar_register(con, "sv_hostname", "Soldat Reloaded server", 0, "the server's name, on the scoreboard");
     sv->password = cvar_register(con, "sv_password", "", 0, "the password to join; empty for none. Read live, so a script may set it");
     cvar_register(con, "sv_adminpassword", "", 0, "the password a player says with /login to become an admin until they leave; empty for none");
     sv->gamemode = cvar_register(con, "sv_gamemode", "0", 0, "0 the map's own, 1 deathmatch, 2 capture the flag");
