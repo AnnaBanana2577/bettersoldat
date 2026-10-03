@@ -2023,6 +2023,33 @@ static void page_graphics(Ui *ui)
         }
     }
     toggle(ui, "VSync", "r_swapeffect");
+    {
+        // the frame rate's limit (r_fpslimit, r_maxfps): none, a preset, or the one set by hand
+        static const int RATES[] = {30, 60, 75, 120, 144, 165, 240, 360, 500};
+        enum { RATE_COUNT = sizeof RATES / sizeof RATES[0] };
+        int limit = cvar_int(con, "r_fpslimit", 0, 1) ? cvar_int(con, "r_maxfps", 10, 1000) : 0;
+        char labels[RATE_COUNT + 2][16];
+        const char *names[RATE_COUNT + 2];
+        int values[RATE_COUNT + 2], count = 0, current = 0;
+        snprintf(labels[count], sizeof labels[count], "None");
+        values[count++] = 0;
+        for (int i = 0; i < RATE_COUNT; i++) {
+            if (RATES[i] == limit) current = count;
+            snprintf(labels[count], sizeof labels[count], "%d FPS", RATES[i]);
+            values[count++] = RATES[i];
+        }
+        if (limit && current == 0) { // set by hand: shown as it is
+            current = count;
+            snprintf(labels[count], sizeof labels[count], "%d FPS", limit);
+            values[count++] = limit;
+        }
+        for (int i = 0; i < count; i++) names[i] = labels[i];
+        int picked = select_box(ui, "Frame rate limit", names, NULL, count, current);
+        if (picked >= 0 && picked < count && picked != current) {
+            set_int(con, "r_fpslimit", values[picked] != 0);
+            if (values[picked]) set_int(con, "r_maxfps", values[picked]);
+        }
+    }
     section(ui, "WORLD");
     toggle(ui, "Background scenery", "r_scenery");
     toggle(ui, "Weather", "r_weathereffects");

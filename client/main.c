@@ -82,9 +82,10 @@
 #define SPECTATORAIMDIST 30.0f      // the original's: the free camera's speed, by the cursor's offset
 
 // The original's frame pacing, its defaults: vsync off (r_swapeffect 0), frames no closer
-// than 1/500 s (r_fpslimit, r_maxfps), and a millisecond's sleep after each so the loop
-// never spins flat out (r_sleeptime).
-#define MIN_FRAME_SECONDS (1.0 / 500.0)
+// than 1/r_maxfps s while r_fpslimit is on (500 a second), and a millisecond's sleep
+// after each so the loop never spins flat out (r_sleeptime).
+#define MAXFPS_MIN 10
+#define MAXFPS_MAX 1000
 #define SLEEP_AFTER_FRAME_MS 1
 
 // The view's keys, bound to the cvars and commands below: the config's defaults.
@@ -101,6 +102,7 @@ typedef struct App {
     Cvar *map;
     Cvar *width, *height; // the window
     Cvar *swapeffect;     // vsync
+    Cvar *fpslimit, *maxfps; // r_fpslimit: frames no closer than 1/r_maxfps s; off, as fast as they come
     Cvar *fullscreen;     // 0 windowed, 1 fullscreen, 2 borderless
     int fullscreen_left;  // the fullscreen mode togglewindow left, to go back to
     Cvar *server;         // the address the main menu joins
@@ -1060,6 +1062,8 @@ static bool console_open(App *app, int argc, char *argv[])
     app->width = cvar_register(con, "r_screenwidth", "1280", CVAR_ARCHIVE, "the window's width");
     app->height = cvar_register(con, "r_screenheight", "960", CVAR_ARCHIVE, "the window's height");
     app->swapeffect = cvar_register(con, "r_swapeffect", "0", CVAR_ARCHIVE, "wait for the display's refresh (vsync)");
+    app->fpslimit = cvar_register(con, "r_fpslimit", "1", CVAR_ARCHIVE, "1: frames are drawn at most r_maxfps a second; 0: as fast as they come");
+    app->maxfps = cvar_register(con, "r_maxfps", "500", CVAR_ARCHIVE, "the frames drawn a second at most, while r_fpslimit is on");
     app->fullscreen = cvar_register(con, "r_fullscreen", "0", CVAR_ARCHIVE, "0 windowed, 1 fullscreen, 2 borderless window");
     app->server = cvar_register(con, "cl_server", "127.0.0.1:23073", CVAR_ARCHIVE, "the server the main menu joins, host:port");
     app->password = cvar_register(con, "cl_password", "", CVAR_ARCHIVE, "the password the main menu joins with; empty for none");
@@ -2282,7 +2286,8 @@ int main(int argc, char *argv[])
 
         // the world ticks every pass; a frame is drawn only once the last is old enough
         since_frame += dt;
-        if (since_frame >= MIN_FRAME_SECONDS) {
+        double frame_min = app.fpslimit->integer ? 1.0 / clampi(app.maxfps->integer, MAXFPS_MIN, MAXFPS_MAX) : 0.0;
+        if (since_frame >= frame_min) {
             float alpha = (float)(app.accumulator / TICK_SECONDS); // how far into the next tick this frame is
             bool online = client_net_joined(&app.net);
             if (online) client_stream_smooth(&app.net.stream, (float)since_frame, app.smooth->number / 1000.0f);
