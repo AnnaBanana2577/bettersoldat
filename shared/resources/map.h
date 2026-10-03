@@ -164,7 +164,7 @@ typedef enum MapError {
 // Parses .pms bytes into an empty map. On error the map is left empty.
 MapError map_load(Map *m, const uint8_t *data, size_t size);
 
-// A map from the base assets folder by name, <base_dir>/maps/<name>.pms. Reports
+// A map from the data folder by name, <base_dir>/maps/<name>.pms. Reports
 // failures on stderr.
 bool map_load_file(Map *m, const char *base_dir, const char *map_name);
 

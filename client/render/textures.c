@@ -51,11 +51,10 @@ bool find_image(const char *dir, const char *name, char *path, int path_size)
     return true;
 }
 
-GfxTexture map_texture_load(const char *base, const char *name)
+GfxTexture map_texture_load(const Mod *mod, const char *name)
 {
-    char dir[512], path[512];
-    snprintf(dir, sizeof(dir), "%s/textures", base);
-    if (!find_image(dir, name, path, sizeof(path))) {
+    char path[512];
+    if (!mod_image(mod, "textures", name, path, sizeof(path))) {
         fprintf(stderr, "map texture '%s' not found; drawing the polygons untextured\n", name);
         return (GfxTexture){0};
     }
@@ -68,10 +67,8 @@ GfxTexture map_texture_load(const char *base, const char *name)
     return tex;
 }
 
-GfxTexture *scenery_load(const char *base, const Map *map)
+GfxTexture *scenery_load(const Mod *mod, const Map *map)
 {
-    char dir[512];
-    snprintf(dir, sizeof(dir), "%s/scenery-gfx", base);
     GfxTexture *out = calloc((size_t)(map->scenery_count ? map->scenery_count : 1), sizeof(GfxTexture));
     if (!out) return NULL;
 
@@ -80,13 +77,13 @@ GfxTexture *scenery_load(const char *base, const Map *map)
     int missing = 0;
     for (int i = 0; i < map->scenery_count; i++) {
         char path[512];
-        if (!find_image(dir, map->scenery[i], path, sizeof(path))) {
-            missing++; // map authors ship custom scenery that is not in the base assets
+        if (!mod_image(mod, "scenery-gfx", map->scenery[i], path, sizeof(path))) {
+            missing++; // map authors ship custom scenery that is not in the default mod
             continue;
         }
         gfx_texture_load(&out[i], path, &green);
     }
-    if (missing > 0) fprintf(stderr, "%d of %d scenery images not found in %s\n", missing, map->scenery_count, dir);
+    if (missing > 0) fprintf(stderr, "%d of %d scenery images not found in scenery-gfx\n", missing, map->scenery_count);
     return out;
 }
 

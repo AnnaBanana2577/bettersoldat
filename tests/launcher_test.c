@@ -72,7 +72,7 @@ static void manifest_tests(void)
         "\n"
         "package update e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 10 pkg-update.zip\n"
         "file e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 Soldat Reloaded.exe\n"
-        "file ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad 3 assets/maps/ctf_Ash.pms";
+        "file ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad 3 data/maps/ctf_Ash.pms";
     Manifest m;
     char error[128];
     bool ok = manifest_parse(&m, text, strlen(text), error, sizeof error);
@@ -82,14 +82,14 @@ static void manifest_tests(void)
           "the update package, and no full one");
     const ManifestFile *f = ok ? manifest_find(&m, "Soldat Reloaded.exe") : NULL;
     CHECK(f && f->size == 0 && f->sha256[0] == 0xe3, "a path with a space is the rest of the line");
-    CHECK(ok && manifest_find(&m, "assets/maps/ctf_Ash.pms") && !manifest_find(&m, "ctf_Ash.pms"),
+    CHECK(ok && manifest_find(&m, "data/maps/ctf_Ash.pms") && !manifest_find(&m, "ctf_Ash.pms"),
           "files are found by their whole path");
     manifest_free(&m);
 
     const char *unsafe[] = {"../x", "a/../b", "/etc/passwd", "C:/x", "a\\b", "a//b", "./a", "a/", ""};
     for (size_t i = 0; i < sizeof unsafe / sizeof unsafe[0]; i++)
         CHECK(!manifest_safe_path(unsafe[i]), "'%s' would reach outside the install", unsafe[i]);
-    CHECK(manifest_safe_path("assets/maps/ctf_Ash.pms") && manifest_safe_path("a..b/c"), "ordinary paths are fine");
+    CHECK(manifest_safe_path("data/maps/ctf_Ash.pms") && manifest_safe_path("a..b/c"), "ordinary paths are fine");
 
     const char *bad[] = {
         "file e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 x\n", // no version
@@ -190,8 +190,8 @@ static void archive_tests(void)
     // Names of every kind tar writes: a short one, one split over the prefix, one in a
     // GNU long-name entry and one in a pax header, longer than a header holds.
     char long_name[300], pax_name[300], pax_record[400];
-    snprintf(long_name, sizeof long_name, "pkg/assets/%0180d/gnu.txt", 0);
-    snprintf(pax_name, sizeof pax_name, "pkg/assets/%0170d/pax.txt", 1);
+    snprintf(long_name, sizeof long_name, "pkg/data/%0180d/gnu.txt", 0);
+    snprintf(pax_name, sizeof pax_name, "pkg/data/%0170d/pax.txt", 1);
     int record = (int)strlen(" path=\n") + (int)strlen(pax_name);
     record += snprintf(NULL, 0, "%d", record + 3); // the length counts its own digits
     snprintf(pax_record, sizeof pax_record, "%d path=%s\n", record, pax_name);
@@ -199,7 +199,7 @@ static void archive_tests(void)
     Bytes tar = {0};
     tar_entry(&tar, "pkg/", NULL, '5', "", 0);
     tar_entry(&tar, "pkg/game", NULL, '0', "the game", 8);
-    tar_entry(&tar, "maps/ctf_Ash.pms", "pkg/assets", '0', "a map", 5);
+    tar_entry(&tar, "maps/ctf_Ash.pms", "pkg/data", '0', "a map", 5);
     tar_entry(&tar, "././@LongLink", NULL, 'L', long_name, strlen(long_name) + 1);
     tar_entry(&tar, "truncated", NULL, '0', "long", 4);
     tar_entry(&tar, "PaxHeaders/x", NULL, 'x', pax_record, strlen(pax_record));
@@ -211,7 +211,7 @@ static void archive_tests(void)
     bool ok = archive_extract(SCRATCH "/pkg.tar.gz", SCRATCH "/tar", NULL, NULL, error, sizeof error);
     CHECK(ok, "a tar.gz of several gzip members, an empty one first as xmake writes it, unpacks: %s", ok ? "" : error);
     CHECK(holds(SCRATCH "/tar/game", "the game"), "a file at the top, without the package's directory");
-    CHECK(holds(SCRATCH "/tar/assets/maps/ctf_Ash.pms", "a map"), "a name split over the ustar prefix");
+    CHECK(holds(SCRATCH "/tar/data/maps/ctf_Ash.pms", "a map"), "a name split over the ustar prefix");
     char path[512];
     snprintf(path, sizeof path, SCRATCH "/tar/%s", long_name + 4);
     CHECK(holds(path, "long"), "a GNU long name");
@@ -235,10 +235,10 @@ static void archive_tests(void)
 
     remove(SCRATCH "/pkg.zip");
     mz_zip_add_mem_to_archive_file_in_place(SCRATCH "/pkg.zip", "pkg/game.exe", "zipped", 6, NULL, 0, MZ_DEFAULT_LEVEL);
-    mz_zip_add_mem_to_archive_file_in_place(SCRATCH "/pkg.zip", "pkg/assets/a.txt", "deep", 4, NULL, 0, MZ_DEFAULT_LEVEL);
+    mz_zip_add_mem_to_archive_file_in_place(SCRATCH "/pkg.zip", "pkg/data/a.txt", "deep", 4, NULL, 0, MZ_DEFAULT_LEVEL);
     ok = archive_extract(SCRATCH "/pkg.zip", SCRATCH "/zip", NULL, NULL, error, sizeof error);
     CHECK(ok, "a zip unpacks: %s", ok ? "" : error);
-    CHECK(holds(SCRATCH "/zip/game.exe", "zipped") && holds(SCRATCH "/zip/assets/a.txt", "deep"),
+    CHECK(holds(SCRATCH "/zip/game.exe", "zipped") && holds(SCRATCH "/zip/data/a.txt", "deep"),
           "its files, without the package's directory");
 }
 
@@ -307,8 +307,8 @@ static void update_tests(void)
 
     // version 1, installed by hand: the game's defaults, and beside them the player's own
     // config, the server owner's lists and a config.cfg from before config/
-    const Source v1[] = {{"version.txt", "1\n"}, {"game.exe", "old game"}, {"assets/a.txt", "art"},
-                         {"assets/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "defaults"}};
+    const Source v1[] = {{"version.txt", "1\n"}, {"game.exe", "old game"}, {"data/a.txt", "art"},
+                         {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "defaults"}};
     release(SCRATCH "/releases", "1", v1, 5);
     files_remove_tree(SCRATCH "/install");
     files_make_directory(SCRATCH "/install");
@@ -320,6 +320,7 @@ static void update_tests(void)
     files_write(SCRATCH "/install/config.cfg", "mine", 4);
     files_write(SCRATCH "/install/config/client/settings.cfg", "my settings", 11);
     files_write(SCRATCH "/install/config/server/banlist.cfg", "my bans", 7);
+    files_write(SCRATCH "/install/mods/mine/sfx/ak74-fire.wav", "my gun", 6);
     files_write(SCRATCH "/install/scripts/server.lua", "a player's script", 17);
 
     if (change_directory(SCRATCH "/install") != 0) {
@@ -332,8 +333,8 @@ static void update_tests(void)
     CHECK(files_exists(UPDATE_MANIFEST), "and is given its manifest.txt");
 
     // version 2 changes the game and a default: the update package
-    const Source v2[] = {{"version.txt", "2\n"}, {"game.exe", "new game"}, {"assets/a.txt", "art"},
-                         {"assets/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "new defaults"}};
+    const Source v2[] = {{"version.txt", "2\n"}, {"game.exe", "new game"}, {"data/a.txt", "art"},
+                         {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "new defaults"}};
     enter(here);
     release(SCRATCH "/releases", "2", v2, 5);
     remove(SCRATCH "/releases/download/v2/pkg-full.zip"); // so only the update package can serve
@@ -344,37 +345,38 @@ static void update_tests(void)
     CHECK(holds("game.exe", "new game") && holds("version.txt", "2\n"), "the new game, and its version");
     CHECK(holds("config/defaults/settings.client.cfg", "new defaults"), "and the new defaults with it");
     CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.cfg", "my bans") &&
+              holds("mods/mine/sfx/ak74-fire.wav", "my gun") &&
               holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
-          "the player's config, the server's lists and a script are left alone");
+          "the player's config and mod, the server's lists and a script are left alone");
     CHECK(!files_exists(UPDATE_STAGING), "nothing is left in .update");
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_CURRENT, "then it is current (%d: %s)", outcome, error);
 
     // version 3 changes an asset: the full package
-    const Source v3[] = {{"version.txt", "3\n"}, {"game.exe", "new game"}, {"assets/a.txt", "new art"},
-                         {"assets/b.txt", "more art"}, {"assets/c.txt", "a new map"},
+    const Source v3[] = {{"version.txt", "3\n"}, {"game.exe", "new game"}, {"data/a.txt", "new art"},
+                         {"data/b.txt", "more art"}, {"data/c.txt", "a new map"},
                          {"config/defaults/settings.client.cfg", "new defaults"}};
     enter(here);
     release(SCRATCH "/releases", "3", v3, 6);
     enter(SCRATCH "/install");
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
-    CHECK(outcome == UPDATE_UPDATED && holds("assets/a.txt", "new art") && holds("assets/c.txt", "a new map") &&
+    CHECK(outcome == UPDATE_UPDATED && holds("data/a.txt", "new art") && holds("data/c.txt", "a new map") &&
               holds("version.txt", "3\n"),
-          "changed and new assets come in the full package (%d: %s)", outcome, error);
+          "changed and new data come in the full package (%d: %s)", outcome, error);
     CHECK(holds("config/client/settings.cfg", "my settings") && holds("config.cfg", "mine"),
           "which doesn't replace the player's config");
 
     // damage: an asset cut short is found by its size, one changed in place only by --verify
-    files_write("assets/b.txt", "more", 4);
+    files_write("data/b.txt", "more", 4);
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
-    CHECK(outcome == UPDATE_REPAIRED && holds("assets/b.txt", "more art"), "a damaged asset is repaired (%d: %s)",
+    CHECK(outcome == UPDATE_REPAIRED && holds("data/b.txt", "more art"), "a damaged asset is repaired (%d: %s)",
           outcome, error);
-    files_write("assets/b.txt", "MORE ART", 8);
+    files_write("data/b.txt", "MORE ART", 8);
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_CURRENT, "an asset of the right size is trusted to manifest.txt");
     options.thorough = true;
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
-    CHECK(outcome == UPDATE_REPAIRED && holds("assets/b.txt", "more art"), "and hashed with --verify");
+    CHECK(outcome == UPDATE_REPAIRED && holds("data/b.txt", "more art"), "and hashed with --verify");
     options.thorough = false;
     files_write("game.exe", "NEW GAME", 8);
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
@@ -401,8 +403,8 @@ static void update_tests(void)
     options.releases = releases;
     files_write("soldatreloaded.exe", "older game", 10);
     files_write("soldatreloaded.exe.old", "oldest game", 11);
-    const Source v4[] = {{"version.txt", "4\n"}, {"client.exe", "new game"}, {"assets/a.txt", "new art"},
-                         {"assets/b.txt", "more art"}, {"assets/c.txt", "a new map"},
+    const Source v4[] = {{"version.txt", "4\n"}, {"client.exe", "new game"}, {"data/a.txt", "new art"},
+                         {"data/b.txt", "more art"}, {"data/c.txt", "a new map"},
                          {"config/defaults/settings.client.cfg", "new defaults"}};
     enter(here);
     release(SCRATCH "/releases", "4", v4, 6);
@@ -413,6 +415,7 @@ static void update_tests(void)
     CHECK(!files_exists("game.exe") && !files_exists("soldatreloaded.exe") && !files_exists("soldatreloaded.exe.old"),
           "and the names it had are gone, with what they were moved aside to");
     CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.cfg", "my bans") &&
+              holds("mods/mine/sfx/ak74-fire.wav", "my gun") &&
               holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
           "but not the player's own files");
 
@@ -427,13 +430,13 @@ static void desktop_tests(void)
     CHECK(desktop_entry_text("/home/p/games/sr/soldatreloaded-launcher", text, sizeof text) &&
               !strcmp(text, "[Desktop Entry]\nType=Application\nName=Soldat Reloaded\n"
                             "Exec=\"/home/p/games/sr/soldatreloaded-launcher\"\n"
-                            "Icon=/home/p/games/sr/assets/icon.png\n"
+                            "Icon=/home/p/games/sr/data/icon.png\n"
                             "Terminal=false\nCategories=Game;ActionGame;\nStartupWMClass=soldatreloaded\n"),
           "a menu entry names the launcher and the icon beside it");
     // the path /home/p/my "games" $5 50% a\b/l, and the entry's lines for it
     CHECK(desktop_entry_text("/home/p/my \"games\" $5 50% a\\b/l", text, sizeof text) &&
               strstr(text, "\nExec=\"/home/p/my \\\\\"games\\\\\" \\\\$5 50%% a\\\\\\\\b/l\"\n") &&
-              strstr(text, "\nIcon=/home/p/my \"games\" $5 50% a\\\\b/assets/icon.png\n"),
+              strstr(text, "\nIcon=/home/p/my \"games\" $5 50% a\\\\b/data/icon.png\n"),
           "and escapes what a path holds: in Exec quotes, dollars, percents and backslashes; in Icon backslashes");
     CHECK(!desktop_entry_text("/home/p/new\nline/l", text, sizeof text), "a path with a control character has no entry");
     CHECK(!desktop_entry_text("/home/p/l", text, 40), "nor one too long for the space given");

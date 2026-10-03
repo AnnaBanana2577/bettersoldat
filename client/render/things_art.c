@@ -32,47 +32,45 @@ static const Rgba BRAVO_TINT[3] = {{5, 15, 173, 255}, {5, 15, 181, 255}, {5, 15,
 
 static const Rgba GREEN = {0, 255, 0, 255};
 
-static void load_at(Sprite *s, const char *base, const char *rel)
+static void load_at(Sprite *s, const Mod *mod, const char *rel)
 {
     char path[512];
-    snprintf(path, sizeof path, "%s/%s", base, rel);
+    mod_file(mod, path, sizeof path, "%s", rel);
     if (!sprite_load(s, path, &GREEN)) *s = (Sprite){0};
 }
 
-static void load_found(Sprite *s, const char *dir, const char *stem, const char *suffix)
+static void load_found(Sprite *s, const Mod *mod, const char *stem, const char *suffix)
 {
     char name[128], path[512];
     *s = (Sprite){0};
     snprintf(name, sizeof name, "%s%s.png", stem, suffix);
-    if (find_image(dir, name, path, sizeof path)) sprite_load(s, path, &GREEN);
+    if (mod_image(mod, "weapons-gfx", name, path, sizeof path)) sprite_load(s, path, &GREEN);
 }
 
-void things_art_load(ThingsArt *a, const char *base)
+void things_art_load(ThingsArt *a, const Mod *mod)
 {
-    char dir[512];
-    load_at(&a->cloth, base, "textures/objects/flag.bmp");
+    load_at(&a->cloth, mod, "textures/objects/flag.bmp");
     for (int style = 0; style < THING_STYLE_COUNT; style++) {
         a->kits[style] = (Sprite){0};
         if (!KIT_STEMS[style]) continue;
         char rel[128];
         snprintf(rel, sizeof rel, "textures/objects/%s.png", KIT_STEMS[style]);
-        load_at(&a->kits[style], base, rel);
+        load_at(&a->kits[style], mod, rel);
     }
-    load_at(&a->handle, base, "objects-gfx/flag.png");
-    load_at(&a->glow, base, "objects-gfx/ilum.png");
-    snprintf(dir, sizeof dir, "%s/weapons-gfx", base);
+    load_at(&a->handle, mod, "objects-gfx/flag.png");
+    load_at(&a->glow, mod, "objects-gfx/ilum.png");
     for (int id = 0; id < WEAPON_COUNT; id++) {
         a->guns[id][0] = a->guns[id][1] = (Sprite){0};
         if (!GUN_STEMS[id]) continue;
-        load_found(&a->guns[id][0], dir, GUN_STEMS[id], "");
-        load_found(&a->guns[id][1], dir, GUN_STEMS[id], "-2");
+        load_found(&a->guns[id][0], mod, GUN_STEMS[id], "");
+        load_found(&a->guns[id][1], mod, GUN_STEMS[id], "-2");
     }
-    load_at(&a->para[0], base, "gostek-gfx/para.png");
-    load_at(&a->para[1], base, "gostek-gfx/para2.png");
-    load_at(&a->rope, base, "gostek-gfx/para-rope.png");
-    load_at(&a->m2_base, base, "weapons-gfx/m2-stat.png");
-    load_at(&a->m2[0], base, "weapons-gfx/m2.png");
-    load_at(&a->m2[1], base, "weapons-gfx/m2-2.png");
+    load_at(&a->para[0], mod, "gostek-gfx/para.png");
+    load_at(&a->para[1], mod, "gostek-gfx/para2.png");
+    load_at(&a->rope, mod, "gostek-gfx/para-rope.png");
+    load_at(&a->m2_base, mod, "weapons-gfx/m2-stat.png");
+    load_at(&a->m2[0], mod, "weapons-gfx/m2.png");
+    load_at(&a->m2[1], mod, "weapons-gfx/m2-2.png");
     a->loaded = true;
 }
 

@@ -8,6 +8,7 @@
 #include "gfx/gfx.h"
 #include "render/camera.h"
 #include "resources/map.h"
+#include "mod.h"
 
 // The map's polygons uploaded once, as the original's MapGraphics: the background polys
 // first, drawn before everything, then the solid terrain, drawn after the players so it
@@ -52,7 +53,7 @@ typedef enum MapPart {
 #define MAP_PARTS_ALL (MAP_PART_BACKGROUND | MAP_PART_POLYGONS | MAP_PART_SCENERY)
 
 // Read a map's art and upload its polygons.
-void map_view_load(MapView *v, const char *base, const Map *map);
+void map_view_load(MapView *v, const Mod *mod, const Map *map);
 void map_view_unload(MapView *v);
 
 // The sky's colours as the player wants them: the map's own, or with `force` the two

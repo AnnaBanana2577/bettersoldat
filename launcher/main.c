@@ -18,7 +18,7 @@
 // The work runs on a thread of its own and the window draws what it last said. The
 // window opens only if the work takes longer than a glance, so a start with nothing to
 // do goes straight to the game. The window is drawn in the main menu's look, with the
-// game's own fonts from assets/; stb_easy_font stands in when they can't be read.
+// game's own fonts from mods/default/; stb_easy_font stands in when they can't be read.
 
 #include <SDL.h>
 #if defined(__GNUC__)
@@ -50,7 +50,7 @@
 #else
 #include <unistd.h>
 #define CLIENT_FILE "client"
-// the window's icon, which on Windows is the executable's own (assets/icon.ico)
+// the window's icon, which on Windows is the executable's own (data/icon.ico)
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
 #include <stb_image.h>
@@ -117,13 +117,15 @@ static int work(void *user)
 
 // --- text --------------------------------------------------------------------------------
 
-// The game's faces, from assets/ beside the launcher, as the main menu sets them: Play
+// The game's faces, from mods/default/ beside the launcher (never a player's mod, which
+// may be broken), as the main menu sets them: Play
 // for what is read, its Bold for emphasis, Black Ops One for the name. Each style is one
 // face at one pixel size, its ASCII glyphs baked into a texture the first time it is
 // used. A face that can't be read (an install the launcher is about to repair) leaves
 // its styles to stb_easy_font, so the window still says what is going on.
 typedef enum FaceId { FACE_PLAY, FACE_PLAY_BOLD, FACE_LOGO, FACE_COUNT } FaceId;
-static const char *const FACE_FILES[FACE_COUNT] = {"assets/play-regular.ttf", "assets/play-bold.ttf", "assets/black-ops-one.ttf"};
+static const char *const FACE_FILES[FACE_COUNT] = {"mods/default/play-regular.ttf", "mods/default/play-bold.ttf",
+                                                    "mods/default/black-ops-one.ttf"};
 
 typedef struct Face {
     unsigned char *data;
@@ -422,11 +424,11 @@ static bool start_game(int argc, char **argv)
 }
 
 #ifndef _WIN32
-// assets/icon.png, the badge, as the window's icon.
+// data/icon.png, the badge, as the window's icon.
 static void set_icon(SDL_Window *window)
 {
     int width, height, channels;
-    unsigned char *rgba = stbi_load("assets/icon.png", &width, &height, &channels, 4);
+    unsigned char *rgba = stbi_load("data/icon.png", &width, &height, &channels, 4);
     if (!rgba) return;
     SDL_Surface *icon = SDL_CreateRGBSurfaceWithFormatFrom(rgba, width, height, 32, width * 4, SDL_PIXELFORMAT_RGBA32);
     if (icon) {

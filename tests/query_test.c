@@ -71,7 +71,7 @@ static void a_host_answers(void)
 {
     Host host;
     HostSettings settings = {.port = PORT, .mode = MATCH_CTF, .hostname = "query test"};
-    snprintf(settings.assets, sizeof settings.assets, "%s", TEST_ASSETS);
+    snprintf(settings.data, sizeof settings.data, "%s", TEST_DATA);
     snprintf(settings.map, sizeof settings.map, "ctf_Ash");
     if (!host_open(&host, NULL, &settings)) {
         CHECK(false, "a host on port %d to query", PORT);

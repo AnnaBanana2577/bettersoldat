@@ -24,8 +24,8 @@ void check_that(bool ok, const char *file, int line, const char *fmt, ...)
 Game *scene(const char *map, float gap, WeaponId a_weapon, WeaponId b_weapon)
 {
     Game *g = calloc(1, sizeof(Game));
-    if (!g || !context_load(&g->ctx, TEST_ASSETS, map)) {
-        printf("could not load map '%s' from assets/: the tests run from the project directory\n", map);
+    if (!g || !context_load(&g->ctx, TEST_DATA, map)) {
+        printf("could not load map '%s' from runtime/data/: the tests run from the project directory\n", map);
         exit(2);
     }
     game_init(g, 1, match_settings_for_map(g->ctx.map));

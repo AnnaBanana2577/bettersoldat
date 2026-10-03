@@ -123,7 +123,7 @@ typedef struct Game {
 
 // --- Context -----------------------------------------------------------------------
 
-// The map, animations, skeletons and default weapons from a base assets folder
+// The map, animations, skeletons and default weapons from a data folder
 // (the layout of opensoldat's base: maps/, anims/, objects/). Reports failures on stderr.
 bool context_load(Context *ctx, const char *base_dir, const char *map_name);
 void context_destroy(Context *ctx);

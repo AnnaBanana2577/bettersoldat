@@ -34,14 +34,14 @@ const char *rounds_next_map(const char *list, const char *current, char *out, si
     return out;
 }
 
-bool round_start(Game *g, Connections *c, const char *assets, const char *map, MatchMode wanted)
+bool round_start(Game *g, Connections *c, const char *data, const char *map, MatchMode wanted)
 {
     History *history = g->world.history;
     MatchSettings settings = g->match.settings;
     WeaponStats weapons[WEAPON_COUNT]; // a weapons mod outlives the map: the context is made anew
     weapons_stats(&g->ctx.weapons, weapons);
     context_destroy(&g->ctx);
-    if (!context_load(&g->ctx, assets, map)) {
+    if (!context_load(&g->ctx, data, map)) {
         g->world.history = history;
         return false;
     }

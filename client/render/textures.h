@@ -5,14 +5,15 @@
 
 #include "gfx/gfx.h"
 #include "resources/map.h"
+#include "mod.h"
 
 // <base>/textures/<name>, tiling (Soldat's polygon UVs run past 0..1) and mipmapped.
 // A texture with handle 0 when it can't be found: the polygons then draw untextured.
-GfxTexture map_texture_load(const char *base, const char *name);
+GfxTexture map_texture_load(const Mod *mod, const char *name);
 
 // One texture per scenery name, from <base>/scenery-gfx, handle 0 where one failed to
 // load. Pure green is the transparent colour. Free with scenery_unload.
-GfxTexture *scenery_load(const char *base, const Map *map);
+GfxTexture *scenery_load(const Mod *mod, const Map *map);
 void scenery_unload(GfxTexture *scenery, int count);
 
 // Resolves an image name the way the original's FindImagePath does: case-insensitively,

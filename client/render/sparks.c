@@ -102,36 +102,35 @@ static bool lands(SparkStyle style)
     return style == SPARK_SHELL || style == SPARK_CLIP || style == SPARK_SPIT || style == SPARK_MATCH || style == SPARK_CIGAR;
 }
 
-void sparks_load(Sparks *s, const char *base)
+void sparks_load(Sparks *s, const Mod *mod)
 {
-    char path[512], dir[512];
+    char path[512];
     for (int k = 0; k < SPARK_ART_COUNT; k++) {
-        snprintf(path, sizeof path, "%s/sparks-gfx/%s", base, ART_FILES[k]);
+        mod_file(mod, path, sizeof path, "sparks-gfx/%s", ART_FILES[k]);
         if (!sprite_load(&s->art[k], path, &GREEN)) s->art[k] = (Sprite){0};
     }
     for (int i = 0; i < EXPLOSION_FRAMES; i++) {
-        snprintf(path, sizeof path, "%s/sparks-gfx/explosion/explode%d.png", base, i + 1);
+        mod_file(mod, path, sizeof path, "sparks-gfx/explosion/explode%d.png", i + 1);
         if (!sprite_load(&s->explode[i], path, &GREEN)) s->explode[i] = (Sprite){0};
     }
     for (int i = 0; i < SMOKE_FRAMES; i++) {
-        snprintf(path, sizeof path, "%s/sparks-gfx/explosion/smoke%d.png", base, i + 1);
+        mod_file(mod, path, sizeof path, "sparks-gfx/explosion/smoke%d.png", i + 1);
         if (!sprite_load(&s->smoke[i], path, &GREEN)) s->smoke[i] = (Sprite){0};
     }
-    snprintf(dir, sizeof dir, "%s/weapons-gfx", base);
     for (int id = 0; id < WEAPON_COUNT; id++) {
         s->shells[id] = (Sprite){0};
         if (!SHELL_STEMS[id]) continue;
         char name[128];
         snprintf(name, sizeof name, "%s.png", SHELL_STEMS[id]);
-        if (find_image(dir, name, path, sizeof path)) sprite_load(&s->shells[id], path, NULL);
+        if (mod_image(mod, "weapons-gfx", name, path, sizeof path)) sprite_load(&s->shells[id], path, NULL);
     }
-    if (find_image(dir, "shell.png", path, sizeof path)) sprite_load(&s->shell, path, NULL);
+    if (mod_image(mod, "weapons-gfx", "shell.png", path, sizeof path)) sprite_load(&s->shell, path, NULL);
     for (int id = 0; id < WEAPON_COUNT; id++) {
         s->clips[id] = (Sprite){0};
         if (!CLIP_STEMS[id]) continue;
         char name[128];
         snprintf(name, sizeof name, "%s.png", CLIP_STEMS[id]);
-        if (find_image(dir, name, path, sizeof path)) sprite_load(&s->clips[id], path, NULL);
+        if (mod_image(mod, "weapons-gfx", name, path, sizeof path)) sprite_load(&s->clips[id], path, NULL);
     }
     s->rng = 0x853C49E6748FEA9Bull;
     s->loaded = true;

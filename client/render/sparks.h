@@ -14,6 +14,7 @@
 
 #include "game/game.h"
 #include "render/sprite.h"
+#include "mod.h"
 
 #define MAX_SPARKS 558
 #define EXPLOSION_FRAMES 16
@@ -115,7 +116,7 @@ typedef struct Sparks {
     bool loaded;
 } Sparks;
 
-void sparks_load(Sparks *s, const char *base);
+void sparks_load(Sparks *s, const Mod *mod);
 void sparks_unload(Sparks *s);
 void sparks_clear(Sparks *s); // a new map: the old one's sparks go with it
 

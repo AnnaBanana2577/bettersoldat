@@ -59,10 +59,9 @@ static void mix(void *user, Uint8 *stream, int len)
     for (int i = 0; i < 2 * frames; i++) out[i] = clampf(out[i], -1.0f, 1.0f);
 }
 
-bool audio_init(Audio *a, const char *base)
+bool audio_init(Audio *a, const Mod *mod)
 {
-    *a = (Audio){.rng = 0x9E3779B1ull, .volume = 0.12f};
-    snprintf(a->dir, sizeof a->dir, "%s/sfx", base);
+    *a = (Audio){.rng = 0x9E3779B1ull, .volume = 0.12f, .mod = *mod};
     if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "no audio: %s\n", SDL_GetError());
         return false;
@@ -98,7 +97,7 @@ static const Sample *sample(Audio *a, const char *name)
     snprintf(s->name, sizeof s->name, "%s", name);
 
     char path[600];
-    snprintf(path, sizeof path, "%s/%s", a->dir, name);
+    mod_file(&a->mod, path, sizeof path, "sfx/%s", name);
     SDL_AudioSpec spec;
     Uint8 *data;
     Uint32 size;

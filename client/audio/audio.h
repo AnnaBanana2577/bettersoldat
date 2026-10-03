@@ -30,6 +30,7 @@
 #include <SDL.h>
 
 #include "game/game.h"
+#include "mod.h"
 
 typedef struct Sparks Sparks; // render/sparks.h: the sparks that make a sound
 
@@ -67,7 +68,7 @@ typedef struct Reserved {
 
 typedef struct Audio {
     SDL_AudioDeviceID device;
-    char dir[512]; // the sfx directory
+    Mod mod; // where the sounds are: sfx/, the mod's, else the default's
     Sample samples[AUDIO_SAMPLES];
     int sample_count;
     Voice voices[AUDIO_VOICES];
@@ -88,7 +89,7 @@ typedef struct Audio {
 
 // Opens the device; false, with the reason on stderr, when there is none. The game
 // runs without sound then.
-bool audio_init(Audio *a, const char *base);
+bool audio_init(Audio *a, const Mod *mod);
 void audio_shutdown(Audio *a);
 
 // The master volume, 0 to 1 (snd_volume, through the original's curve).

@@ -29,34 +29,32 @@ static const char *const SHARED_STEMS[BULLET_ART_SHARED_COUNT] = {
     [BULLET_ART_KNIFE] = "knife",            [BULLET_ART_KNIFE_LEFT] = "knife2", [BULLET_ART_SMUDGE] = "smudge",
 };
 
-static bool load_stem(Sprite *s, const char *dir, const char *stem, const Rgba *key, bool colorizable)
+static bool load_stem(Sprite *s, const Mod *mod, const char *stem, const Rgba *key, bool colorizable)
 {
     char name[128], path[512];
     *s = (Sprite){0};
     if (!stem) return true;
     snprintf(name, sizeof name, "%s.png", stem);
-    if (!find_image(dir, name, path, sizeof path)) return false;
+    if (!mod_image(mod, "weapons-gfx", name, path, sizeof path)) return false;
     if (colorizable) return sprite_load_colorizable(s, path);
     return sprite_load(s, path, key);
 }
 
-void bullet_art_load(BulletArt *b, const char *base)
+void bullet_art_load(BulletArt *b, const Mod *mod)
 {
-    char dir[512];
-    snprintf(dir, sizeof dir, "%s/weapons-gfx", base);
     int missing = 0;
-    for (int id = 0; id < WEAPON_COUNT; id++) missing += !load_stem(&b->weapons[id], dir, BULLET_STEMS[id], NULL, false);
+    for (int id = 0; id < WEAPON_COUNT; id++) missing += !load_stem(&b->weapons[id], mod, BULLET_STEMS[id], NULL, false);
     for (int k = 0; k < BULLET_ART_SHARED_COUNT; k++) {
         bool colorizable = k == BULLET_ART_FRAG_GRENADE || k == BULLET_ART_CLUSTER_GRENADE || k == BULLET_ART_CLUSTER;
-        missing += !load_stem(&b->shared[k], dir, SHARED_STEMS[k], NULL, colorizable);
+        missing += !load_stem(&b->shared[k], mod, SHARED_STEMS[k], NULL, colorizable);
     }
     const Rgba green = {0, 255, 0, 255};
     for (int i = 0; i < FLAME_FRAMES; i++) {
         char path[512];
-        snprintf(path, sizeof path, "%s/sparks-gfx/flames/explode%d.png", base, i + 1);
+        mod_file(mod, path, sizeof path, "sparks-gfx/flames/explode%d.png", i + 1);
         missing += !sprite_load(&b->flames[i], path, &green);
     }
-    if (missing > 0) fprintf(stderr, "%d bullet sprites not found under %s\n", missing, base);
+    if (missing > 0) fprintf(stderr, "%d bullet sprites not found under %s\n", missing, mod->fallback);
     b->loaded = true;
 }
 

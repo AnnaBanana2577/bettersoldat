@@ -6,7 +6,7 @@
 //   version 0.5.0
 //   package update <sha256> <bytes> soldatreloaded-0.5.0-windows-x64-patch.zip
 //   package full <sha256> <bytes> soldatreloaded-0.5.0-windows-x64.zip
-//   file <sha256> <bytes> assets/maps/ctf_Ash.pms
+//   file <sha256> <bytes> data/maps/ctf_Ash.pms
 //
 // The path or name is the rest of the line, so it may hold spaces ("Soldat
 // Reloaded.exe"); blank lines and // comments are skipped. The installed copy

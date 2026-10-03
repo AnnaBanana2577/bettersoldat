@@ -107,7 +107,7 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e);
 // The menu over the frame, in the HUD's units (the view is 480 tall, `game_width` wide;
 // `pixel` is one window pixel in units). `cursor` is the input's, in those units.
 // `status` is a line for the join and local pages (the console's last), `joined` whether
-// a server has us, `hosting` whether it is our own, `maps` the maps under assets for the
+// a server has us, `hosting` whether it is our own, `maps` the maps under data/ for the
 // rotation, `weapons` names the loadout, the gostek and anims draw the preview,
 // `browser` is the server list (the `browse` command asks for it anew), and `demos` the
 // demos kept in demos/, newest first.

@@ -13,13 +13,15 @@
 // following me in it, and the world drawn from it. Everything the client is lives in
 // App; nothing else is global.
 //
-// The client runs from the directory that holds config/ and assets/: the project's own in
-// development (xmake run starts it there) and the game's own once shipped, so both are
-// found by the same relative paths. config/defaults/ holds every saved cvar at its default
-// and every bind, the game's and replaced by each update; config/client/ the player's own,
-// read over them and written on the way out as only what differs (console_save_changes).
+// The client runs from the directory that holds config/, data/ and mods/: the project's
+// runtime/ in development (xmake run starts it there) and the game's own once shipped, so
+// both are found by the same relative paths. data/ is what the game plays by, the same for
+// everyone in a game; mods/ what it looks and sounds like, mods/default/ and over it the
+// player's pick (mod.h). config/defaults/ holds every saved cvar at its default and every
+// bind, the game's and replaced by each update; config/client/ the player's own, read over
+// them and written on the way out as only what differs (console_save_changes).
 //
-//   client [+assets <dir>] [+map <name>] [+<cvar> <value>] [+<command> <args>...]
+//   client [+data <dir>] [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 //
 // so `client +map ctf_Ash +r_screenwidth 1920 +r_screenheight 1080`, or `+hud_demo 2`
 // for the HUD full of sample data, or `+screenshot out.png` for a PNG of the 60th frame,
@@ -51,6 +53,7 @@
 #include "gfx/font.h"
 #include "gfx/gfx.h"
 #include "input/input.h"
+#include "mod.h"
 #include "net/client_net.h"
 #include "net/demo.h"
 #include "files.h" // the launcher's, for the config's directories
@@ -107,7 +110,9 @@ static const char *VIEW_BINDS =
 
 typedef struct App {
     Console *console; // large; on the heap
-    Cvar *assets;     // the opensoldat base assets: maps/, anims/, objects/, textures/...
+    Cvar *data;       // what the game plays by: maps/, anims/, objects/, bots/ (data/)
+    Cvar *mod_name;   // cl_mod: the mod in mods/ it looks and sounds like
+    Mod mod;          // that mod over mods/default/, from the start
     Cvar *map;
     Cvar *width, *height; // the window
     Cvar *swapeffect;     // vsync
@@ -198,7 +203,7 @@ typedef struct App {
     bool vote_hidden;         // the box put away: I answered, or it is my own kick vote
     int map_query_index;      // the map window's question last asked of the server, -1 for none
     bool map_window_open;     // as of the last frame
-    char maps[128][64];       // the maps under assets, for the map window
+    char maps[128][64];       // the maps under data/, for the map window
     int map_count;
     bool was_dead;         // my soldier as of the last tick, for the weapons menu at death
     bool was_watching;     // dead or a spectator as of the last tick, for the camera's first target
@@ -739,7 +744,7 @@ static void demo_start_playback(App *app)
     const DemoHeader *h = &app->player.header;
     char file[NET_MAP_SIZE + 8], map[512];
     snprintf(file, sizeof file, "%s.pms", h->map);
-    path_join(map, sizeof map, app->assets->value, "maps", file);
+    path_join(map, sizeof map, app->data->value, "maps", file);
     if (!file_exists(map)) { // its world couldn't be made: it isn't played
         console_print_color(app->console, HUD_COLOR_WARNING, "the demo's map %s is not here\n", h->map);
         demo_play_close(&app->player);
@@ -958,7 +963,7 @@ static void cmd_host(Console *con, int argc, char **argv, void *user)
         .quiet = true, // the client's own console says what happens, as online
         .rope = app->rope->integer != 0,
     };
-    snprintf(s.assets, sizeof s.assets, "%s", app->assets->value);
+    snprintf(s.data, sizeof s.data, "%s", app->data->value);
     snprintf(s.maps, sizeof s.maps, "%s", app->sv_maps->value);
     snprintf(s.hostname, sizeof s.hostname, "%s", app->sv_hostname->value);
     rounds_next_map(s.maps, "", s.map, sizeof s.map); // the rotation's first, or the map cvar's
@@ -1082,7 +1087,9 @@ static bool console_open(App *app, int argc, char *argv[])
     Console *con = app->console = console_create(print_stdout, NULL);
     if (!con) return false;
 
-    app->assets = cvar_register(con, "assets", "./assets", 0, "the base assets directory: maps/, anims/, objects/...");
+    app->data = cvar_register(con, "data", "./data", 0, "what the game plays by: maps/, anims/, objects/, bots/");
+    app->mod_name = cvar_register(con, "cl_mod", "", CVAR_ARCHIVE,
+                                  "the mod in mods/ the game looks and sounds like, over mods/default/; empty for none. From the next start");
     app->map = cvar_register(con, "map", "Arena", 0, "the map to load");
     app->width = cvar_register(con, "r_screenwidth", "1280", CVAR_ARCHIVE, "the window's width");
     app->height = cvar_register(con, "r_screenheight", "960", CVAR_ARCHIVE, "the window's height");
@@ -1343,7 +1350,7 @@ static void apply_cvars(App *app)
 static bool game_open(App *app, bool local)
 {
     app->game = calloc(1, sizeof(Game));
-    if (!app->game || !context_load(&app->game->ctx, app->assets->value, app->map->value)) return false;
+    if (!app->game || !context_load(&app->game->ctx, app->data->value, app->map->value)) return false;
 
     Game *g = app->game;
     MatchSettings settings = match_settings_for_map(g->ctx.map);
@@ -1398,7 +1405,7 @@ static bool window_open(App *app)
 #ifndef _WIN32
     // the badge as the window's icon; on Windows SDL gives it the executable's own
     GfxImage icon;
-    if (gfx_image_load(&icon, "assets/icon.png")) {
+    if (gfx_image_load(&icon, "data/icon.png")) {
         SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormatFrom(icon.rgba, icon.width, icon.height, 32, icon.width * 4,
                                                                   SDL_PIXELFORMAT_RGBA32);
         if (surface) {
@@ -2114,7 +2121,7 @@ static void count_frame(App *app, double dt)
 static void interface_open(App *app)
 {
     Rect r = window_rect(app);
-    if (!fonts_load(app->assets->value, r.height)) fprintf(stderr, "no fonts: the HUD draws without text\n");
+    if (!fonts_load(&app->mod, r.height)) fprintf(stderr, "no fonts: the HUD draws without text\n");
     map_view_build_minimap(&app->render.map_view, r.height);
     menus_init(&app->menus, GAME_HEIGHT * r.width / r.height, &app->game->ctx.weapons);
     menus_mouse_move(&app->menus, app->input.cursor); // the cursor stays where it was
@@ -2130,7 +2137,7 @@ static bool world_reload(App *app, const char *map)
     game_close(app);
     if (!game_open(app, false)) return false;
     client_net_weapons(&app->net, app->game); // the server's weapons mod, over the game's own
-    render_init(&app->render, app->assets->value, &app->game->ctx);
+    render_init(&app->render, &app->mod, &app->game->ctx);
     interface_open(app);
     app->previous = app->latest = (TickSnapshot){0};
     app->limbo_lock = false;
@@ -2198,17 +2205,18 @@ int main(int argc, char *argv[])
     http_init();
     http_set_agent("soldatreloaded/" SOLDATRELOADED_VERSION);
     if (!console_open(&app, argc, argv)) return 1;
+    mod_init(&app.mod, MOD_ROOT, app.mod_name->value); // what it looks and sounds like, as the config says
     consoles_init(&app.consoles, app.console_length->integer);
     app.seen_life = -1;
     app.camera_follow = -1;
     {
         char dir[512];
-        snprintf(dir, sizeof dir, "%s/maps", app.assets->value);
+        snprintf(dir, sizeof dir, "%s/maps", app.data->value);
         app.map_count = list_files(dir, ".pms", app.maps, (int)(sizeof app.maps / sizeof app.maps[0]));
     }
     if (!game_open(&app, true)) {
-        fprintf(stderr, "could not load map '%s' from '%s'\nusage: client +assets <dir> +map <name>\n",
-                app.map->value, app.assets->value);
+        fprintf(stderr, "could not load map '%s' from '%s'\nusage: client +data <dir> +map <name>\n",
+                app.map->value, app.data->value);
         game_close(&app);
         console_destroy(app.console);
         return 1;
@@ -2220,10 +2228,10 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    scale_data_load(&app.scales, app.assets->value); // the scales the interface loads with
-    render_init(&app.render, app.assets->value, &app.game->ctx);
-    audio_init(&app.audio, app.assets->value);
-    interface_load(&app.hud, app.assets->value, &app.scales);
+    scale_data_load(&app.scales, &app.mod); // the scales the interface loads with
+    render_init(&app.render, &app.mod, &app.game->ctx);
+    audio_init(&app.audio, &app.mod);
+    interface_load(&app.hud, &app.mod, &app.scales);
     interface_open(&app);
     if (app.hud_demo->integer == 2) {
         app.menus.gear = app.game->world.soldiers[app.me].gear;

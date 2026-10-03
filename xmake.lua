@@ -2,17 +2,19 @@
 -- keeps a player's copy up to date, and the tests.
 --
 --   xmake                the client, the server and the launcher
---   xmake run client     in runtime/, where config/, assets/ and scripts/ are
+--   xmake run client     in runtime/, where data/, mods/, config/ and scripts/ are
 --   xmake run server
 --   xmake test           the headless checks in tests/
 --   xmake dist           the packages, in build/packages/: one for players, one for a server,
 --                        the launcher's update, and the manifest it reads (launcher/update.h)
 --
--- The game finds everything beside itself: config/, assets/ and scripts/ in the
--- directory it runs from. runtime/ holds them as an install lays them out, so that is runtime/
--- under xmake run (set_rundir) and the package's own directory once unpacked, and
--- nothing is passed on the command line. What the game writes there as it plays
--- (config/client/, config/server/, demos/) is the player's, and not the project's.
+-- The game finds everything beside itself, in the directory it runs from: data/, what it
+-- plays by (maps, animations, skeletons, bots); mods/, what it looks and sounds like
+-- (mods/default/ and a player's own beside it); config/ and scripts/. runtime/ holds them
+-- as an install lays them out, so that is runtime/ under xmake run (set_rundir) and the
+-- package's own directory once unpacked, and nothing is passed on the command line. What
+-- the game writes there as it plays (config/client/, config/server/, demos/) and a
+-- player's mods are the player's, and not the project's.
 
 set_project("soldatreloaded")
 set_version("0.7.2")
@@ -45,13 +47,13 @@ add_requires("libcurl", {configs = {shared = false, mbedtls = not is_plat("windo
 -- on Windows, and the deflate inside a Linux tar.gz.
 add_requires("miniz")
 
--- The game's icon, runtime/assets/icon.ico, built into an executable on Windows: the one
+-- The game's icon, runtime/data/icon.ico, built into an executable on Windows: the one
 -- Explorer, the taskbar and the window show, as SDL takes a window's icon from the first
 -- in its executable. The resource script that names it is written here, at build time.
 rule("icon")
     on_load(function (target)
         if not target:is_plat("windows") then return end
-        local ico = path.join(os.projectdir(), "runtime", "assets", "icon.ico"):gsub("\\", "/")
+        local ico = path.join(os.projectdir(), "runtime", "data", "icon.ico"):gsub("\\", "/")
         local rc = path.join(target:autogendir(), "icon.rc")
         io.writefile(rc, ("1 ICON \"%s\"\n"):format(ico))
         target:add("files", rc)
@@ -174,17 +176,16 @@ target("tests")
 
 -- xmake dist: what a release holds for this platform, in build/packages/. Each package
 -- unpacks to one directory holding the executables, version.txt, the licence and runtime/'s
--- assets/, config/defaults/ and scripts/, flat, which is how the game expects to find them (docs/git.md,
--- Releases). Windows gets zips; Linux tar.gzs, which keep the executable bit that a zip
--- would lose.
+-- data/, mods/default/, config/defaults/ and scripts/, flat, which is how the game expects
+-- to find them (docs/git.md, Releases). Windows gets zips; Linux tar.gzs, which keep the
+-- executable bit that a zip would lose.
 --
 --   <stem>               the game, a player's: everything, the launcher and the server among it,
 --                        so anyone can host; and manifest.txt, what it all is
 --   <stem>-patch         the client's top-level files and config/defaults/: the executables,
 --                        version.txt, manifest.txt and the licence. What the launcher
---                        downloads when nothing in assets/ or scripts/ changed
---   <stem>-server        a headless server's: only what it reads of the assets, no art
---                        and no sound
+--                        downloads when nothing in data/, mods/default/ or scripts/ changed
+--   <stem>-server        a headless server's: data/ and no mods/, no art and no sound
 --   latest-<plat>-<arch>.txt  the manifest the launcher reads: the version, the two
 --                        packages and every file of the client's, with their hashes
 --
@@ -208,33 +209,29 @@ task("dist")
         local extension = (plat == "windows" or plat == "mingw") and ".zip" or ".tar.gz"
         local client, server, launcher = project.target("client"), project.target("server"), project.target("launcher")
 
-        -- the art and the sound: the client's alone
-        local function server_needs(name)
-            return not (name:endswith("-gfx") or name == "textures" or name == "custom-interfaces" or name == "sfx"
-                        or name == "icon.png" or name == "icon.ico" or name == "play-regular.ttf" or name == "play-bold.ttf"
-                        or name == "russo-one.ttf" or name == "black-ops-one.ttf" or name == "OFL.txt"
-                        or name == "mod.ini")
-        end
-
-        -- the package's directory, laid out as an install
-        local function lay_out(name, targets, needs)
+        -- the package's directory, laid out as an install: the game's own of runtime/, and
+        -- mods/default/, the art and the sound, only where there is a client to draw it
+        local function lay_out(name, targets, with_mods)
             local dir = path.join(distdir, name)
             os.tryrm(dir)
-            os.mkdir(path.join(dir, "assets"))
+            os.mkdir(dir)
             for _, target in ipairs(targets) do
                 os.cp(target:targetfile(), dir)
+            end
+            os.cp("runtime/data", path.join(dir, "data"))
+            -- the icon: the .ico only builds the executables, which hold it on Windows; the
+            -- .png is the window's and the menu entry's elsewhere, and a server has neither
+            os.rm(path.join(dir, "data", "icon.ico"))
+            if plat == "windows" or not with_mods then os.rm(path.join(dir, "data", "icon.png")) end
+            if with_mods then
+                os.mkdir(path.join(dir, "mods"))
+                os.cp("runtime/mods/default", path.join(dir, "mods", "default")) -- the game's; a player's mods beside it are theirs
             end
             os.mkdir(path.join(dir, "config"))
             os.cp("runtime/config/defaults", path.join(dir, "config", "defaults")) -- the game's; the player's own are made by the game
             os.cp("license.md", dir)
             io.writefile(path.join(dir, "version.txt"), version .. "\n")
             if os.isdir("runtime/scripts") then os.cp("runtime/scripts", dir) end -- the server's scripts, the example among them
-            for _, entry in ipairs(os.filedirs("runtime/assets/*")) do
-                local base = path.filename(entry)
-                if needs(base) then
-                    os.cp(entry, path.join(dir, "assets", base))
-                end
-            end
             return dir
         end
 
@@ -278,9 +275,7 @@ task("dist")
 
         -- everything but the icons that aren't read: icon.ico is in the Windows
         -- executables, and icon.png is for Linux's windows and menu entry (launcher/desktop.h)
-        local full = lay_out(stem, {client, server, launcher}, function (name)
-            return name ~= "icon.ico" and not (plat == "windows" and name == "icon.png")
-        end)
+        local full = lay_out(stem, {client, server, launcher}, true)
         local files = manifest(full)
         io.writefile(path.join(full, "manifest.txt"),
                      "// What this install holds, which the launcher checks it against.\n" .. table.concat(files, "\n") .. "\n")
@@ -296,7 +291,7 @@ task("dist")
 
         local update_archive = pack(stem .. "-patch")
 
-        lay_out(stem .. "-server", {server}, server_needs)
+        lay_out(stem .. "-server", {server}, false)
         pack(stem .. "-server")
 
         local latest = path.join(distdir, ("latest-%s-%s.txt"):format(plat, arch))

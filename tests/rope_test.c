@@ -15,8 +15,8 @@
 static Game *rope_scene(void)
 {
     Game *g = calloc(1, sizeof(Game));
-    if (!g || !context_load(&g->ctx, TEST_ASSETS, "Arena")) {
-        printf("could not load map 'Arena' from assets/: the tests run from the project directory\n");
+    if (!g || !context_load(&g->ctx, TEST_DATA, "Arena")) {
+        printf("could not load map 'Arena' from runtime/data/: the tests run from the project directory\n");
         exit(2);
     }
     MatchSettings settings = match_settings_for_map(g->ctx.map);

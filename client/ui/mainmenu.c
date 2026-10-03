@@ -1455,7 +1455,7 @@ static void rotation_toggle(Console *con, const char *name)
 
 #define MAP_ROW 18.0f
 
-// The maps under assets, each a row with a box to tick it into the rotation or out of
+// The maps under data/, each a row with a box to tick it into the rotation or out of
 // it, numbered in the order the rounds will go; the wheel pages through them, and with
 // the focus on the list the arrows move along it and Enter ticks.
 static void map_list(Ui *ui, float x, float y, float w, float h, const char (*maps)[64], int count)

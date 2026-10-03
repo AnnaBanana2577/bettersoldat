@@ -24,6 +24,7 @@
 
 #include "render/render_state.h"
 #include "render/sprite.h"
+#include "mod.h"
 
 #define GOSTEK_PART_COUNT 59
 
@@ -40,7 +41,7 @@ typedef struct Gostek {
 // Every style's art from <base>/gostek-gfx/<style>, the hair and the headgear from the
 // shared hair/ and headgear/ folders, and the weapons' from <base>/weapons-gfx, all at
 // the one gostek scale. A style with no art loads empty and draws nothing.
-void gostek_load(Gostek *g, const char *base);
+void gostek_load(Gostek *g, const Mod *mod);
 void gostek_unload(Gostek *g);
 
 // The soldier's sprites on its pose, in the style its look gives. For a corpse (once ragdolls exist) the face hangs

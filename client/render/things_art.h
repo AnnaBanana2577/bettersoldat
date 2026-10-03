@@ -10,6 +10,7 @@
 #include "game/game.h"
 #include "render/render_state.h"
 #include "render/sprite.h"
+#include "mod.h"
 
 typedef struct ThingsArt {
     Sprite cloth; // textures/objects/flag.bmp, grey, tinted per team
@@ -24,7 +25,7 @@ typedef struct ThingsArt {
     bool loaded;
 } ThingsArt;
 
-void things_art_load(ThingsArt *a, const char *base);
+void things_art_load(ThingsArt *a, const Mod *mod);
 void things_art_unload(ThingsArt *a);
 
 // The things are drawn in two passes at two depths, as the original's TThing.Render and

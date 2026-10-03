@@ -14,6 +14,7 @@
 // same Play, its Bold, Russo One for the titles and Black Ops One for the name.
 
 #include "gfx/gfx.h"
+#include "mod.h"
 
 typedef enum FontStyleId {
     FONT_SMALL,        // the console, the status: face 2, 9pt
@@ -37,7 +38,7 @@ typedef enum TextAlign { TEXT_TOP, TEXT_BOTTOM, TEXT_BASELINE } TextAlign;
 // Play when missing),
 // sized for a window `render_height` pixels tall; the interface's 480-unit view scales
 // to it. Call again when the window's height changes. False when Play is missing.
-bool fonts_load(const char *base, float render_height);
+bool fonts_load(const Mod *mod, float render_height);
 void fonts_unload(void);
 
 // What the next text draws with: the original's SetFontStyle (with its size scale),

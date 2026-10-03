@@ -21,7 +21,7 @@ The types:
 
 The scope is the part of the tree the change lands in, named as the tree names it:
 `geom`, `polymap`, `anim`, `weapons`, `game`, `net`, `pms`, `cvar`, `timer`, `client`,
-`server`, `editor`, `hud`, `shared`, `assets`, `readme`, `docs`, `dev`. Leave it out
+`server`, `editor`, `hud`, `shared`, `data`, `mods`, `readme`, `docs`, `dev`. Leave it out
 when the change is the whole repo's.
 
 ### The body
@@ -69,7 +69,7 @@ does not match is refused, so any release that changes the protocol will not tal
 the one before it. Say so in the tag's message, every time.
 
 A tag is the version; what ships beside it is the client, the server, the launcher and
-the contents of `runtime/` (`assets/`, `config/defaults/` and `scripts/`), unpacked flat so that the config and the
+the contents of `runtime/` (`data/`, `mods/default/`, `config/defaults/` and `scripts/`), unpacked flat so that the config and the
 art sit beside the executable: the packages `xmake dist` makes (see xmake.lua). The tag
 alone is not a release until those exist.
 
@@ -80,8 +80,8 @@ platform, the game (`soldatreloaded-<version>-<platform>`, what a player downloa
 and a manifest naming every file of an install by its hash; the launcher compares the
 install with it and downloads the small update package (`-patch`, the executables and
 `config/defaults/`) when only those differ, and the full package when anything in
-`assets/` or `scripts/` does. `config/defaults/` is the release's and replaced with it;
-`config/client/` and `config/server/` are the player's and the server owner's, in no
+`data/`, `mods/default/` or `scripts/` does. `config/defaults/` and `mods/default/` are the release's and replaced with it;
+`config/client/`, `config/server/` and any other mod in `mods/` are the player's and the server owner's, in no
 package, and never touched. So:
 
 - A release that adds a cvar registers it in code with its default (`cvar_register`), and

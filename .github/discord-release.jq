@@ -32,7 +32,7 @@ def downloads:
 | ($ENV.REPO_RAW // "https://raw.githubusercontent.com/soldatreloaded/soldatreloaded/\($r.tagName)") as $raw
 | {
     username: "SoldatReloaded",
-    avatar_url: "\($raw)/assets/icon.png",
+    avatar_url: "\($raw)/runtime/data/icon.png",
     embeds: [{
       title: "SoldatReloaded \($r.tagName)\(if $r.isPrerelease then " (pre-release)" else "" end) is out",
       url: $r.url,

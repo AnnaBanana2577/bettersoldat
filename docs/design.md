@@ -376,7 +376,7 @@ from more than net_floodingpackets times in a second is warned, and past sv_warn
 warnings kicked and barred for a quarter of an hour; one who chats faster than a line a
 second for long is kicked for five minutes (the original's FloodWarnings and ChatWarnings). The escape
 menu's map window pages the server's own list (MsgMapQuery, MsgMapReply), the
-rotation or, with none, every map under assets.
+rotation or, with none, every map under data/.
 
 **A round** (server/rounds.c): the context reloaded, the world and match made anew
 with the history ring cleared, everyone placed, everyone told (MsgMap, reliable, with
@@ -386,7 +386,7 @@ the same way it hears of every other: joining and a new round are one path.
 
 ## Tests
 
-The simulation is tested as scenes (tests/test.c): a map loaded from runtime/assets/, two
+The simulation is tested as scenes (tests/test.c): a map loaded from runtime/data/, two
 soldiers placed, `game_tick` run with authority on scripted buttons, and the events
 tallied. Combat, corpses and things have their scenes; the passes' mail has
 events_test; the wire has its classification, round-trip and refusal tests; the join

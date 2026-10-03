@@ -167,7 +167,7 @@ static bool part_shared(const GostekPart *part)
     return part->dir || part->hair || part->head;
 }
 
-void gostek_load(Gostek *g, const char *base)
+void gostek_load(Gostek *g, const Mod *mod)
 {
     char path[512];
     *g = (Gostek){0};
@@ -176,11 +176,11 @@ void gostek_load(Gostek *g, const char *base)
         const WeaponArt *art = &WEAPON_ART[id];
         if (!art->stem) continue;
         for (int mirrored = 0; mirrored < 2; mirrored++) {
-            snprintf(path, sizeof(path), "%s/weapons-gfx/%s%s", base, art->stem, mirrored ? "-2.png" : ".png");
+            mod_file(mod, path, sizeof(path), "weapons-gfx/%s%s", art->stem, mirrored ? "-2.png" : ".png");
             sprite_load(&g->weapons[id][mirrored], path, NULL);
         }
         if (art->fire) {
-            snprintf(path, sizeof(path), "%s/weapons-gfx/%s.png", base, art->fire);
+            mod_file(mod, path, sizeof(path), "weapons-gfx/%s.png", art->fire);
             sprite_load(&g->flashes[id], path, NULL);
         }
     }
@@ -193,13 +193,13 @@ void gostek_load(Gostek *g, const char *base)
                 for (int mirrored = 0; mirrored < 2; mirrored++) {
                     if (mirrored && !part->flip) continue; // no mirrored image: the quad flips instead
                     if (part->dir) {
-                        snprintf(path, sizeof(path), "%s/%s/%s%s.png", base, part->dir, part->file, mirrored ? "2" : "");
+                        mod_file(mod, path, sizeof(path), "%s/%s%s.png", part->dir, part->file, mirrored ? "2" : "");
                     } else {
                         // the part's style folder; team 2's under it, as the original's — except
                         // the hair and the headgear, which come from their own shared folders
                         // (hair/ and headgear/), one file per style
                         const char *dir = part->hair ? "hair" : part->head ? "headgear" : STYLE_DIRS[style];
-                        snprintf(path, sizeof(path), "%s/gostek-gfx/%s%s/%s%s.png", base, dir, team == 1 ? "/team2" : "",
+                        mod_file(mod, path, sizeof(path), "gostek-gfx/%s%s/%s%s.png", dir, team == 1 ? "/team2" : "",
                                  part->file, mirrored ? "2" : "");
                     }
                     if (part->nade > 0)

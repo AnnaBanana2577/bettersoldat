@@ -46,10 +46,10 @@ int host_add_bot(Host *h, Team team, const char *name)
     if (name && name[0]) {
         for (int i = 0; i < h->profile_count; i++)
             if (strcmp(h->profiles[i].name, name) == 0) profile = &h->profiles[i];
-        if (!profile && h->console) console_print(h->console, "no bot named %s in %s/bots\n", name, h->settings.assets);
+        if (!profile && h->console) console_print(h->console, "no bot named %s in %s/bots\n", name, h->settings.data);
     } else {
         profile = bot_profile_random(h->profiles, h->profile_count, &h->rng);
-        if (!profile && h->console) console_print(h->console, "no bots in %s/bots\n", h->settings.assets);
+        if (!profile && h->console) console_print(h->console, "no bots in %s/bots\n", h->settings.data);
     }
     if (!profile) return -1;
     int slot = connections_add_bot(&h->connections, h->game, profile->name, profile->look, profile->favourite, profile->secondary, team);
@@ -78,8 +78,8 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
     h->password = console ? cvar_find(console, "sv_password") : NULL;
     h->game = calloc(1, sizeof(Game));
     if (!h->game) return false;
-    if (!context_load(&h->game->ctx, settings->assets, settings->map)) {
-        fprintf(stderr, "could not load map '%s' from '%s'\n", settings->map, settings->assets);
+    if (!context_load(&h->game->ctx, settings->data, settings->map)) {
+        fprintf(stderr, "could not load map '%s' from '%s'\n", settings->map, settings->data);
         free(h->game);
         h->game = NULL;
         return false;
@@ -103,7 +103,7 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
     }
     h->connections.hooks = &h->line_hooks;
     lists_load(&h->connections.lists, settings->lists_dir, console);
-    snprintf(h->connections.maps_dir, sizeof h->connections.maps_dir, "%s/maps", settings->assets);
+    snprintf(h->connections.maps_dir, sizeof h->connections.maps_dir, "%s/maps", settings->data);
     snprintf(h->connections.hostname, sizeof h->connections.hostname, "%s", settings->hostname);
     if (settings->vote_percent > 0) h->connections.vote_percent = settings->vote_percent;
     if (settings->flood_packets > 0) h->connections.flood_packets = settings->flood_packets;
@@ -111,7 +111,7 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
     net_answer_queries(&h->link, answer_query, h);
 
     // the server's list of maps (the original's MapsList): the rotation as given, or
-    // every map under assets when there is none; the map window pages it, a vote picks from it
+    // every map under data/ when there is none; the map window pages it, a vote picks from it
     h->maps = calloc(HOST_MAX_MAPS, sizeof *h->maps);
     if (h->maps) {
         const char *p = settings->maps;
@@ -130,7 +130,7 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
 
     bots_init(&h->bots, (BotSettings){.difficulty = settings->bots_difficulty, .chat = settings->bots_chat}, bot_say, h);
     h->profiles = calloc(BOT_PROFILES, sizeof *h->profiles);
-    if (h->profiles) h->profile_count = bot_profiles_load(settings->assets, &h->game->ctx.weapons, h->profiles, BOT_PROFILES);
+    if (h->profiles) h->profile_count = bot_profiles_load(settings->data, &h->game->ctx.weapons, h->profiles, BOT_PROFILES);
     add_bots(h);
 
     if (console) {
@@ -177,8 +177,8 @@ void host_say(Host *h, const char *text) { connections_say(&h->connections, text
 // The next round, on the map the countdown led to.
 static bool next_round(Host *h)
 {
-    if (!round_start(h->game, &h->connections, h->settings.assets, h->pending_map, h->settings.mode)) {
-        fprintf(stderr, "could not load map '%s' from '%s'\n", h->pending_map, h->settings.assets);
+    if (!round_start(h->game, &h->connections, h->settings.data, h->pending_map, h->settings.mode)) {
+        fprintf(stderr, "could not load map '%s' from '%s'\n", h->pending_map, h->settings.data);
         return false;
     }
     bots_new_round(&h->bots);

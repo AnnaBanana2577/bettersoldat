@@ -2,7 +2,7 @@
 
 // The tests: headless checks of the simulation on real maps, and of the console. Each
 // suite is a function of checks; a check that fails says where and why, and the run
-// ends with how many failed. They read the maps and animations from runtime/assets/, so they
+// ends with how many failed. They read the maps and animations from runtime/data/, so they
 // run from the project directory:
 //
 //   xmake test
@@ -14,8 +14,8 @@
 #include "game/game.h"
 #include "game/systems/systems.h"
 
-// The game's assets, as the tests find them from the project directory.
-#define TEST_ASSETS "runtime/assets"
+// What the game plays by (data/), as the tests find it from the project directory.
+#define TEST_DATA "runtime/data"
 
 // --- checks ------------------------------------------------------------------------
 
@@ -26,7 +26,7 @@ void check_that(bool ok, const char *file, int line, const char *fmt, ...);
 
 // --- scenes ------------------------------------------------------------------------
 
-// A game on `map` from assets/, with alpha's soldier 0 on an alpha spawn point holding
+// A game on `map` from data/, with alpha's soldier 0 on an alpha spawn point holding
 // `a_weapon` and bravo's soldier 1 `gap` to its right holding `b_weapon`; the world
 // has authority, as the server's does.
 Game *scene(const char *map, float gap, WeaponId a_weapon, WeaponId b_weapon);

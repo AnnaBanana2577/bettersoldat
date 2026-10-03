@@ -40,8 +40,8 @@ void bot_tests(void)
 
     // the profiles
     BotProfile profiles[BOT_PROFILES];
-    int count = bot_profiles_load(TEST_ASSETS, &g->ctx.weapons, profiles, BOT_PROFILES);
-    CHECK(count >= 10, "the bot files under assets/bots are read (%d)", count);
+    int count = bot_profiles_load(TEST_DATA, &g->ctx.weapons, profiles, BOT_PROFILES);
+    CHECK(count >= 10, "the bot files under data/bots are read (%d)", count);
     const BotProfile *admiral = NULL;
     for (int i = 0; i < count; i++)
         if (strcmp(profiles[i].name, "Admiral") == 0) admiral = &profiles[i];

@@ -92,15 +92,15 @@ typedef struct Frame {
 
 // --- loading -----------------------------------------------------------------------
 
-static void hud_sprite_load(HudSprite *s, const char *base, const ScaleData *scales, const char *name)
+static void hud_sprite_load(HudSprite *s, const Mod *mod, const ScaleData *scales, const char *name)
 {
     *s = (HudSprite){0};
-    char dir[512], path[512], rel[256], file[128];
+    char dir[256], path[512], rel[256], file[128];
     snprintf(rel, sizeof(rel), "interface-gfx/%s", name);
     const char *slash = strrchr(name, '/');
-    snprintf(dir, sizeof(dir), "%s/interface-gfx%s%.*s", base, slash ? "/" : "", slash ? (int)(slash - name) : 0, name);
+    snprintf(dir, sizeof(dir), "interface-gfx%s%.*s", slash ? "/" : "", slash ? (int)(slash - name) : 0, name);
     snprintf(file, sizeof(file), "%s", slash ? slash + 1 : name);
-    if (!find_image(dir, file, path, sizeof(path))) {
+    if (!mod_image(mod, dir, file, path, sizeof(path))) {
         fprintf(stderr, "interface image '%s' not found in %s\n", file, dir);
         return;
     }
@@ -125,36 +125,36 @@ static const char *GUN_ICONS[WEAPON_COUNT] = {
     [WEAPON_FRAG] = "nade.png",            [WEAPON_CLUSTER_NADE] = "cluster-nade.png", [WEAPON_CLUSTER] = "cluster-nade.png",
 };
 
-void interface_load(Interface *hud, const char *base, const ScaleData *scales)
+void interface_load(Interface *hud, const Mod *mod, const ScaleData *scales)
 {
     *hud = (Interface){0};
-    hud_sprite_load(&hud->health, base, scales, "health.png");
-    hud_sprite_load(&hud->ammo, base, scales, "ammo.png");
-    hud_sprite_load(&hud->jet, base, scales, "jet.png");
-    hud_sprite_load(&hud->health_bar, base, scales, "health-bar.png");
-    hud_sprite_load(&hud->jet_bar, base, scales, "jet-bar.png");
-    hud_sprite_load(&hud->reload_bar, base, scales, "reload-bar.png");
-    hud_sprite_load(&hud->vest_bar, base, scales, "vest-bar.png");
-    hud_sprite_load(&hud->fire_bar, base, scales, "fire-bar.png");
-    hud_sprite_load(&hud->fire_bar_r, base, scales, "fire-bar-r.png");
-    hud_sprite_load(&hud->nade, base, scales, "nade.png");
-    hud_sprite_load(&hud->cluster_nade, base, scales, "cluster-nade.png");
-    hud_sprite_load(&hud->dot, base, scales, "dot.png");
-    hud_sprite_load(&hud->cursor, base, scales, "cursor.png");
-    hud_sprite_load(&hud->back, base, scales, "back.png");
-    hud_sprite_load(&hud->noflag, base, scales, "noflag.png");
-    hud_sprite_load(&hud->arrow, base, scales, "arrow.png");
-    hud_sprite_load(&hud->scroll, base, scales, "scroll.png");
-    hud_sprite_load(&hud->menucursor, base, scales, "menucursor.png");
-    hud_sprite_load(&hud->smalldot, base, scales, "smalldot.png");
-    hud_sprite_load(&hud->overlay, base, scales, "overlay.png");
-    hud_sprite_load(&hud->sight, base, scales, "sight.png");
-    hud_sprite_load(&hud->deaddot, base, scales, "deaddot.png");
-    hud_sprite_load(&hud->flag, base, scales, "flag.png");
-    hud_sprite_load(&hud->bot, base, scales, "bot.png");
-    hud_sprite_load(&hud->connection, base, scales, "connection.png");
+    hud_sprite_load(&hud->health, mod, scales, "health.png");
+    hud_sprite_load(&hud->ammo, mod, scales, "ammo.png");
+    hud_sprite_load(&hud->jet, mod, scales, "jet.png");
+    hud_sprite_load(&hud->health_bar, mod, scales, "health-bar.png");
+    hud_sprite_load(&hud->jet_bar, mod, scales, "jet-bar.png");
+    hud_sprite_load(&hud->reload_bar, mod, scales, "reload-bar.png");
+    hud_sprite_load(&hud->vest_bar, mod, scales, "vest-bar.png");
+    hud_sprite_load(&hud->fire_bar, mod, scales, "fire-bar.png");
+    hud_sprite_load(&hud->fire_bar_r, mod, scales, "fire-bar-r.png");
+    hud_sprite_load(&hud->nade, mod, scales, "nade.png");
+    hud_sprite_load(&hud->cluster_nade, mod, scales, "cluster-nade.png");
+    hud_sprite_load(&hud->dot, mod, scales, "dot.png");
+    hud_sprite_load(&hud->cursor, mod, scales, "cursor.png");
+    hud_sprite_load(&hud->back, mod, scales, "back.png");
+    hud_sprite_load(&hud->noflag, mod, scales, "noflag.png");
+    hud_sprite_load(&hud->arrow, mod, scales, "arrow.png");
+    hud_sprite_load(&hud->scroll, mod, scales, "scroll.png");
+    hud_sprite_load(&hud->menucursor, mod, scales, "menucursor.png");
+    hud_sprite_load(&hud->smalldot, mod, scales, "smalldot.png");
+    hud_sprite_load(&hud->overlay, mod, scales, "overlay.png");
+    hud_sprite_load(&hud->sight, mod, scales, "sight.png");
+    hud_sprite_load(&hud->deaddot, mod, scales, "deaddot.png");
+    hud_sprite_load(&hud->flag, mod, scales, "flag.png");
+    hud_sprite_load(&hud->bot, mod, scales, "bot.png");
+    hud_sprite_load(&hud->connection, mod, scales, "connection.png");
     for (int i = 0; i < WEAPON_COUNT; i++) {
-        if (GUN_ICONS[i]) hud_sprite_load(&hud->guns[i], base, scales, GUN_ICONS[i]);
+        if (GUN_ICONS[i]) hud_sprite_load(&hud->guns[i], mod, scales, GUN_ICONS[i]);
     }
 }
 

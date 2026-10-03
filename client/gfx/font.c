@@ -69,7 +69,7 @@ static const struct {
     [FONT_DISPLAY] = {3, 12, true, 1.0f},      [FONT_LOGO] = {4, 12, true, 1.0f},
 };
 
-// Each face's file under the assets. After the first two come the menu's, which may be
+// Each face's file in the mod. After the first two come the menu's, which may be
 // missing, in which case the first stands in for them.
 static const char *const FACE_FILES[FACE_COUNT] = {"play-regular.ttf", "play-regular.ttf", "play-bold.ttf", "russo-one.ttf",
                                                    "black-ops-one.ttf"};
@@ -153,14 +153,14 @@ static Table *table_find(int face, float pixels, float stretch)
     return t;
 }
 
-bool fonts_load(const char *base, float render_height)
+bool fonts_load(const Mod *mod, float render_height)
 {
     fonts_unload();
 
     // the defaults: font_1_filename and font_2_filename are both play-regular.ttf
     for (int i = 0; i < FACE_COUNT; i++) {
         char path[512];
-        snprintf(path, sizeof(path), "%s/%s", base, FACE_FILES[i]);
+        mod_file(mod, path, sizeof path, "%s", FACE_FILES[i]);
         if (face_load(&text.faces[i], path)) continue;
         fprintf(stderr, "font not found: %s\n", path);
         if (i < 2) {

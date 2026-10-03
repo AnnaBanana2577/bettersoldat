@@ -172,7 +172,7 @@ void join_tests(void)
     // players on, and 60% of them is both. A map vote's starter has not voted by
     // starting it: one yes of two is half, short; the starter's own passes it, and the
     // server is handed the map.
-    snprintf(conns.maps_dir, sizeof conns.maps_dir, "%s", TEST_ASSETS "/maps");
+    snprintf(conns.maps_dir, sizeof conns.maps_dir, "%s", TEST_DATA "/maps");
     MsgChat cmd = {.slot = 0, .text = "/votemap ctf_Ash"};
     client_send(&a, MSG_CHAT, route_chat, &cmd);
     want_votes = 1;

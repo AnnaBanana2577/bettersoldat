@@ -12,7 +12,7 @@
 // draws it off the path (GoToThing); a grenade near it is run from; stuck, it jumps,
 // and after too long on one waypoint it forgets the path and finds another. It is
 // pissed off at who last hit it and looks for them first. A bot is told by a .bot file
-// (assets/bots, the original's format): its name, look, favourite weapon, accuracy,
+// (data/bots, the original's format): its name, look, favourite weapon, accuracy,
 // how often it throws grenades, whether it camps, and what it says.
 //
 // The bots are a source of commands, as the players' clients are: before the tick
@@ -47,8 +47,8 @@ typedef struct BotProfile {
 
 // A .bot file; false (and says so on stderr) if it can't be read or names no weapon.
 bool bot_profile_load(const char *path, const Weapons *weapons, BotProfile *out);
-// Every .bot under <assets>/bots, sorted by file name: how many were read.
-int bot_profiles_load(const char *assets, const Weapons *weapons, BotProfile *out, int max);
+// Every .bot under <data>/bots, sorted by file name: how many were read.
+int bot_profiles_load(const char *data, const Weapons *weapons, BotProfile *out, int max);
 // One of them at random, for a bot nobody named: the original's RandomBot, which never
 // picks "Boogie Man" (it takes "Sniper" instead). NULL with none.
 const BotProfile *bot_profile_random(const BotProfile *profiles, int count, uint64_t *rng);

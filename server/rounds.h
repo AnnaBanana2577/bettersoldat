@@ -13,9 +13,9 @@
 // if the list is empty. Into `out`.
 const char *rounds_next_map(const char *list, const char *current, char *out, size_t size);
 
-// A round on `map` from `assets`: the context reloaded, the world and match made anew
+// A round on `map` from `data`: the context reloaded, the world and match made anew
 // with the history ring kept and cleared, everyone joined placed on their team, and
 // the Map told. The limits stay; the mode is `wanted` as the map allows it
 // (match_mode_choose; MATCH_MODE_COUNT for the map's own). False, with the game
 // destroyed, if the map can't be loaded.
-bool round_start(Game *g, Connections *c, const char *assets, const char *map, MatchMode wanted);
+bool round_start(Game *g, Connections *c, const char *data, const char *map, MatchMode wanted);

@@ -56,7 +56,7 @@ bool desktop_entry_text(const char *launcher, char *out, size_t size)
     Text t = {out, size, 0};
     out[0] = '\0';
     bool ok = put(&t, "[Desktop Entry]\nType=Application\nName=Soldat Reloaded\nExec=\"") && put_path(&t, launcher, true) &&
-              put(&t, "\"\nIcon=") && put_path(&t, dir, false) && put(&t, "/assets/icon.png\n") &&
+              put(&t, "\"\nIcon=") && put_path(&t, dir, false) && put(&t, "/data/icon.png\n") &&
               put(&t, "Terminal=false\nCategories=Game;ActionGame;\nStartupWMClass=" DESKTOP_APP_ID "\n");
     free(dir);
     return ok;
@@ -68,7 +68,7 @@ bool desktop_entry_install(void)
     return true;
 #else
     // an install, not a build directory: the icon the entry names is there
-    if (!files_exists("assets/icon.png")) return true;
+    if (!files_exists("data/icon.png")) return true;
     char launcher[PATH_MAX];
     ssize_t n = readlink("/proc/self/exe", launcher, sizeof launcher - 1);
     if (n <= 0) return false;

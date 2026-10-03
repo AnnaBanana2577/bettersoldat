@@ -8,7 +8,7 @@
 //   host     the world, the line, the players, the bots and the rounds (host.c)
 //   lobby    the heartbeat that lists it with the lobby, while sv_public is on (lobby.c)
 //
-// It runs from the directory that holds config/ and assets/, as the client does.
+// It runs from the directory that holds config/ and data/, as the client does.
 //
 //   server [+map <name>] [+sv_port <port>] [+<cvar> <value>] [+<command> <args>...]
 
@@ -49,7 +49,7 @@
 
 typedef struct Server {
     Console *console; // large; on the heap
-    Cvar *assets;
+    Cvar *data;
     Cvar *map;
     Cvar *maps; // the rotation
     Cvar *port;
@@ -175,7 +175,7 @@ static void cmd_nextmap(Console *con, int argc, char **argv, void *user)
 }
 
 // addbot [name] / addbot1 [name] / addbot2 [name]: a bot, on the emptier side, on
-// alpha, or on bravo; one of assets/bots at random unless named (the original's commands).
+// alpha, or on bravo; one of data/bots at random unless named (the original's commands).
 static void cmd_addbot(Console *con, int argc, char **argv, void *user)
 {
     (void)con;
@@ -248,7 +248,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     weapons_default(&own);
     weapons_stats(&own, sv->weapons);
 
-    sv->assets = cvar_register(con, "assets", "./assets", 0, "the base assets directory: maps/, anims/, objects/...");
+    sv->data = cvar_register(con, "data", "./data", 0, "what the game plays by: maps/, anims/, objects/, bots/");
     sv->map = cvar_register(con, "map", "Arena", 0, "the map to load");
     sv->maps = cvar_register(con, "sv_maps", "", 0, "the maps in rotation, space-separated; empty plays the map again");
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
@@ -389,7 +389,7 @@ static HostSettings settings_from_cvars(const Server *sv)
         .flood_warnings = sv->warnings_flood->integer,
         .rope = sv->rope->integer != 0,
     };
-    snprintf(s.assets, sizeof s.assets, "%s", sv->assets->value);
+    snprintf(s.data, sizeof s.data, "%s", sv->data->value);
     snprintf(s.ip, sizeof s.ip, "%s", sv->ip->value);
     snprintf(s.map, sizeof s.map, "%s", sv->map->value);
     snprintf(s.maps, sizeof s.maps, "%s", sv->maps->value);

@@ -5,6 +5,7 @@
 // (interface-gfx/cursor.png=10), else by its folder, else DefaultScale (4.5).
 
 #include <stdbool.h>
+#include "mod.h"
 
 #define SCALE_DATA_MAX 64
 
@@ -20,7 +21,7 @@ typedef struct ScaleData {
 } ScaleData;
 
 // Reads mod.ini; without one, everything is at DefaultScale 4.5.
-void scale_data_load(ScaleData *sd, const char *base);
+void scale_data_load(ScaleData *sd, const Mod *mod);
 
 // The scale for an image at `path` relative to the base, such as "interface-gfx/nade.png".
 float scale_data_get(const ScaleData *sd, const char *path);

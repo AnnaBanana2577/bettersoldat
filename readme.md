@@ -61,6 +61,18 @@ Settings live in `config/` beside the game: `config/defaults/` holds the game's 
 every update replaces, and `config/client/` yours, which the game writes as it closes with
 only what you set otherwise; commands of your own go in `config/client/autoexec.cfg`.
 
+## Mods
+
+What the game looks and sounds like is in `mods/default/`: the soldiers, weapons,
+textures, scenery, interface, sounds and fonts. Every update replaces it, so leave it as
+it is and make a mod beside it instead: a folder in `mods/`, say `mods/mine/`, holding
+only the files you change, at the same paths (`mods/mine/sfx/ak74-fire.wav`). Set
+`cl_mod mine` in the console or `config/client/settings.cfg` and start the game again;
+whatever your mod doesn't have comes from `mods/default/`. No update touches your mods.
+
+What the game plays by — the maps, animations, skeletons and bots — is in `data/`, and
+isn't a mod's to change: everyone in a game has to have the same.
+
 ## Running a server
 
 The release's `-server` package is a headless server: the game, the maps and nothing to
@@ -98,7 +110,7 @@ xmake test         # the headless tests
 xmake dist         # the release packages, into build/packages/
 ```
 
-The game finds `config/`, `assets/` and `scripts/` in the directory it runs from: `runtime/`
+The game finds `data/`, `mods/`, `config/` and `scripts/` in the directory it runs from: `runtime/`
 under `xmake run`, which holds them as an install lays them out, or an unpacked package.
 
 ## How it's put together
@@ -110,7 +122,7 @@ under `xmake run`, which holds them as an install lays them out, or an unpacked 
 | `server/` | The headless server: connections, rounds, bots, votes, the Lua scripting and the lobby heartbeat. |
 | `launcher/` | The updater: fetches releases from GitHub, checks every file against the release's hashes, and starts the game. |
 | `tests/` | Headless checks of the simulation on real maps and of the netcode over the loopback. |
-| `runtime/` | What ships beside the executables, laid out as an install: `assets/`, the game's art, maps, sounds and bots, from [opensoldat/base](https://github.com/opensoldat/base); `config/defaults/`, the game's settings and keys; `scripts/`, the server's Lua scripts. What the game writes there as you play (`config/client/`, `config/server/`, `demos/`) is yours, and git leaves it out. |
+| `runtime/` | What ships beside the executables, laid out as an install: `data/`, the maps, animations, skeletons and bots the game plays by, and `mods/default/`, the art, sounds and fonts it looks and sounds like, both from [opensoldat/base](https://github.com/opensoldat/base); `config/defaults/`, the game's settings and keys; `scripts/`, the server's Lua scripts. What the game writes there as you play (`config/client/`, `config/server/`, `demos/`) and any mod beside `mods/default/` are yours, and git leaves them out. |
 | `docs/` | How it works and how to work on it. |
 
 The docs go deeper:
@@ -140,5 +152,7 @@ in its description what it changes in play.
 ## Licence
 
 The code is under the MIT licence: [license.md](license.md). The game's content in
-`runtime/assets/` is OpenSoldat's, under CC BY 4.0, with a few exceptions such as the menu's
-font; [runtime/assets/NOTICE.md](runtime/assets/NOTICE.md) has the details and the credits.
+`runtime/data/` and `runtime/mods/default/` is OpenSoldat's, under CC BY 4.0, with a few
+exceptions such as the menu's fonts; [runtime/data/NOTICE.md](runtime/data/NOTICE.md) and
+[runtime/mods/default/NOTICE.md](runtime/mods/default/NOTICE.md) have the details and the
+credits.

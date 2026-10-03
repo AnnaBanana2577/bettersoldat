@@ -26,7 +26,7 @@
 typedef struct HostSettings {
     uint16_t port;
     char ip[128];                    // the address to listen on; empty for every one (sv_ip)
-    char assets[512];
+    char data[512];
     char map[NET_MAP_SIZE];          // the first round's
     char maps[CONSOLE_VALUE_SIZE];   // the rotation, space-separated; empty plays `map` again
     char hostname[NET_NAME_SIZE];
@@ -67,7 +67,7 @@ typedef struct Host {
     NetLink link;
     Connections connections;
     Bots bots;
-    BotProfile *profiles; // what assets/bots holds, for the random bots
+    BotProfile *profiles; // what data/bots holds, for the random bots
     int profile_count;
     uint64_t rng;
     double accumulator;
@@ -79,7 +79,7 @@ typedef struct Host {
     char pending_map[NET_MAP_SIZE]; // the map the countdown leads to
     bool ending_told;               // the countdown has begun and been announced
     char end_why[8];                // "limit", "nextmap" or "vote", for the hooks
-    char (*maps)[64];               // the server's list of maps: the rotation, or every map under assets
+    char (*maps)[64];               // the server's list of maps: the rotation, or every map under data/
     int map_count;
     HostHooks hooks;
     LineHooks line_hooks;

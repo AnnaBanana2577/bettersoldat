@@ -61,7 +61,7 @@ players are known by on the wire; a slot is reused once its player has left.
 | `server.players()` | every player's table, in slot order |
 | `server.player(slot)` | one player's, or `nil` |
 | `server.kick(slot [, reason])` | the player put off, told `reason`; a bot is simply removed |
-| `server.add_bot([team [, name]])` | a bot, on `"alpha"` or `"bravo"` (else the emptier side), from `assets/bots` by `name` or at random: its slot, or `nil` |
+| `server.add_bot([team [, name]])` | a bot, on `"alpha"` or `"bravo"` (else the emptier side), from `data/bots` by `name` or at random: its slot, or `nil` |
 
 ## The web
 

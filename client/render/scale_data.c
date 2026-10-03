@@ -16,12 +16,12 @@ static void normalize(char *dst, const char *src, size_t size)
     dst[i] = '\0';
 }
 
-void scale_data_load(ScaleData *sd, const char *base)
+void scale_data_load(ScaleData *sd, const Mod *mod)
 {
     *sd = (ScaleData){.default_scale = DEFAULT_SCALE};
 
     char path[512];
-    snprintf(path, sizeof(path), "%s/mod.ini", base);
+    mod_file(mod, path, sizeof(path), "mod.ini");
     size_t size;
     char *text = (char *)file_read_all(path, &size);
     if (!text) return;

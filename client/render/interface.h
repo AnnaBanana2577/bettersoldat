@@ -18,6 +18,7 @@
 #include "render/scale_data.h"
 #include "ui/hud_data.h"
 #include "ui/menus.h"
+#include "mod.h"
 
 
 // An interface image with its size in game units.
@@ -47,7 +48,7 @@ typedef struct Interface {
 
 // The images from <base>/interface-gfx, keyed on pure green as the original's are.
 // The context must be up.
-void interface_load(Interface *hud, const char *base, const ScaleData *scales);
+void interface_load(Interface *hud, const Mod *mod, const ScaleData *scales);
 void interface_unload(Interface *hud);
 
 // For the main menu, drawn in the HUD's units under its own transform: the translucent

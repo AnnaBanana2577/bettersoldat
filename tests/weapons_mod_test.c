@@ -98,7 +98,7 @@ void weapons_mod_tests(void)
     CHECK(net_init(), "ENet starts");
     static Host host;
     HostSettings settings = {.port = PORT, .mode = MATCH_DEATHMATCH, .hostname = "weapons test", .quiet = true, .weapons_mod = true};
-    snprintf(settings.assets, sizeof settings.assets, "%s", TEST_ASSETS);
+    snprintf(settings.data, sizeof settings.data, "%s", TEST_DATA);
     snprintf(settings.map, sizeof settings.map, "Arena");
     weapons_stats(&own, settings.weapons);
     settings.weapons[WEAPON_EAGLE].damage = 9.5f;

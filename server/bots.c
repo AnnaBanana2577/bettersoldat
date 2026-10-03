@@ -109,10 +109,10 @@ bool bot_profile_load(const char *path, const Weapons *weapons, BotProfile *out)
     return true;
 }
 
-int bot_profiles_load(const char *assets, const Weapons *weapons, BotProfile *out, int max)
+int bot_profiles_load(const char *data, const Weapons *weapons, BotProfile *out, int max)
 {
     char dir[512], names[BOT_PROFILES][64];
-    snprintf(dir, sizeof dir, "%s/bots", assets);
+    snprintf(dir, sizeof dir, "%s/bots", data);
     int found = list_files(dir, ".bot", names, BOT_PROFILES), n = 0;
     for (int i = 0; i < found && n < max; i++) {
         char path[600];

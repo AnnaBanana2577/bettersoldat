@@ -7,6 +7,7 @@
 
 #include "game/game.h"
 #include "render/sprite.h"
+#include "mod.h"
 
 #define FLAME_FRAMES 16
 
@@ -30,7 +31,7 @@ typedef struct BulletArt {
     bool loaded;
 } BulletArt;
 
-void bullet_art_load(BulletArt *b, const char *base);
+void bullet_art_load(BulletArt *b, const Mod *mod);
 void bullet_art_unload(BulletArt *b);
 
 // Every live bullet, `alpha` of the way from its last tick to this one. `seconds` drives
