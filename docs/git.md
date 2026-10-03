@@ -82,9 +82,20 @@ release carries, for each platform, the game (`soldatreloaded-<version>-<platfor
 what a player downloads) and a manifest naming every file of an install by its hash; the
 launcher compares the install with it and brings what differs, those files alone, out
 of the game's zip where it lies, or the zip whole when most of it changed. So a release
-costs a player what it changed. `config/defaults/`, `mods/default/` and
-`scripts/examples/` are the release's and kept as it has them; `config/client/`,
-`config/server/`, any other mod in `mods/` and `scripts/main.lua` are the player's and the
+costs a player what it changed. The manifest lists every file the release ships; the
+launcher treats each by where it lies, weighing the file on disk against the last
+release's manifest and the new one (launcher/update.h):
+
+- **The release's own**, kept as it has it: the top-level files (the launcher,
+  `version.txt`), `bin/`, `data/`, `mods/default/`, `config/defaults/` and
+  `scripts/examples/`. Missing or otherwise, it is brought, damage repaired; dropped by a
+  release, deleted.
+- **Everything else a release ships** (`scripts/main.lua`): its start of a file that is
+  then the player's. It is made where it never was, brought anew only while it is still
+  as the last release made it, left alone once the player has changed it, stays out once
+  they take it out, and goes with a release that drops it only unchanged.
+
+`config/client/`, `config/server/` and any other mod in `mods/` are the player's and the
 server owner's, in no manifest, and never touched. So:
 
 - A release that adds a cvar registers it in code with its default (`cvar_register`), and

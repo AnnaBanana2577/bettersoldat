@@ -48,6 +48,24 @@ add_requires("libcurl", {configs = {shared = false, mbedtls = not is_plat("windo
 -- whole or by range, and the deflate inside a tar.gz, as releases before had them.
 add_requires("miniz")
 
+-- runtime/scripts/main.lua as a C string, main_lua.h: a server unpacked from its own package
+-- makes scripts/main.lua from it where it is missing (packages/server/main.c), so the file
+-- the game's package ships is the one source of it. Written only when it changes.
+rule("main_lua")
+    on_load(function (target)
+        local text = io.readfile(path.join(os.projectdir(), "runtime", "scripts", "main.lua")):gsub("\r", "")
+        local lines = {}
+        for line in (text .. "\n"):gmatch("(.-)\n") do
+            table.insert(lines, '    "' .. line:gsub("\\", "\\\\"):gsub('"', '\\"') .. '\\n"')
+        end
+        if lines[#lines] == '    "\\n"' then table.remove(lines) end -- the end of the file's last line
+        local header = "// Made by xmake.lua from runtime/scripts/main.lua.\nstatic const char MAIN_LUA[] =\n"
+                       .. table.concat(lines, "\n") .. ";\n"
+        local out = path.join(target:autogendir(), "main_lua.h")
+        if not os.isfile(out) or io.readfile(out) ~= header then io.writefile(out, header) end
+        target:add("includedirs", target:autogendir())
+    end)
+
 -- The game's icon, runtime/data/icon.ico, built into an executable on Windows: the one
 -- Explorer, the taskbar and the window show, as SDL takes a window's icon from the first
 -- in its executable. The resource script that names it is written here, at build time.
@@ -111,6 +129,7 @@ target("client")
 -- clock. Nothing but the console and the world until the netcode is ported.
 --   xmake run server [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 target("server")
+    add_rules("main_lua")
     set_kind("binary")
     add_deps("shared")
     add_files("packages/server/**.c")
@@ -203,17 +222,19 @@ local function release_package(name, suffix, bindir)
         set_bindir(bindir)
         add_installfiles("license.md")
         add_installfiles("runtime/(config/defaults/**)") -- the game's; the player's own are made by the game
-        -- the server's scripts: the examples, the release's; main.lua, which runs them, the
-        -- owner's from the day it is unpacked, so no manifest names it (update.h)
-        add_installfiles("runtime/(scripts/**)")
+        -- the server's scripts: the examples, the release's (main.lua, which runs them, is the
+        -- owner's: in the game's package, which the launcher leaves be once changed, and in
+        -- the server's none, as unpacking a release over a server would put it back as it
+        -- came; the server makes it there)
+        add_installfiles("runtime/(scripts/examples/**)")
 end
 
 -- What every package's install is given last, as xpack lays it out: version.txt, and on
 -- Linux the executables' bit, which nothing else is sure to keep; xpack's debug symbols go,
 -- a player having no use for them. The game's package writes its manifest, every file of
--- the install but the manifest itself and scripts/main.lua, by hash, and leaves it in
--- build/.xpack/manifest.txt for latest-<plat>-<arch>.txt. (Each step runs in a sandbox of
--- its own, batchcmds:call's, so what it needs is local to it.)
+-- the install but the manifest itself by hash (what the launcher does with each is
+-- launcher/update.h's), and leaves it in build/.xpack/manifest.txt for latest-<plat>-<arch>.txt. (Each
+-- step runs in a sandbox of its own, batchcmds:call's, so what it needs is local to it.)
 local function finish_install(manifest)
     after_installcmd(function (package, batchcmds)
         local stash = path.join(import("core.project.config").builddir(), ".xpack", "manifest.txt")
@@ -228,13 +249,14 @@ local function finish_install(manifest)
             end
         end
 
-        -- "file <sha256> <bytes> <path>". The player's own files (config/client/,
-        -- config/server/, their mods, scripts/main.lua) are in no manifest.
+        -- "file <sha256> <bytes> <path>", every file the release ships: what the launcher does
+        -- with each, by where it lies, is its own (launcher/update.h). The player's own files
+        -- (config/client/, config/server/, their mods) are in no manifest.
         local function write_manifest(installdir, version, stash)
             local names = {}
             for _, file in ipairs(os.files(path.join(installdir, "**"))) do
                 local name = path.relative(file, installdir):gsub("\\", "/")
-                if name ~= "manifest.txt" and name ~= "scripts/main.lua" then table.insert(names, name) end
+                if name ~= "manifest.txt" then table.insert(names, name) end
             end
             table.sort(names)
             local lines = {"// What this install holds, which the launcher checks it against.", "version " .. version}
@@ -276,6 +298,7 @@ release_package("soldatreloaded", "", "bin")
         add_installfiles("runtime/(data/icon.png)")
     end
     add_installfiles("runtime/(mods/default/**)") -- the game's; a player's mods beside it are theirs
+    add_installfiles("runtime/(scripts/main.lua)") -- the owner's once they change it (launcher/update.h)
     finish_install(true)
 
 release_package("soldatreloaded-server", "-server", ".")

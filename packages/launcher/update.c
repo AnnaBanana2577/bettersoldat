@@ -59,9 +59,19 @@ int update_plan(const Manifest *installed, const Manifest *latest, bool thorough
         // Anything else is hashed: a file it lists with another hash may already be the
         // new one, moved into place by an update cut off before manifest.txt was written.
         const ManifestFile *vouched = installed ? manifest_find(installed, f->path) : NULL;
-        bool hash = manifest_always_hashed(f->path) || thorough || !vouched || vouched->size != f->size ||
-                    !same_hash(vouched->sha256, f->sha256);
-        wanted[i] = !matches(f->path, f, hash);
+        if (!manifest_protected(f->path)) {
+            // Not the release's to keep (manifest_protected), so the player's once it is made:
+            // made where it is missing and never was, so one they took out stays out; the new
+            // one where it is still as the last release made it, so one they changed is theirs.
+            uint8_t digest[32];
+            if (!files_exists(f->path)) wanted[i] = !vouched;
+            else wanted[i] = vouched && files_sha256(f->path, digest, NULL, NULL) && !same_hash(digest, f->sha256) &&
+                             same_hash(digest, vouched->sha256);
+        } else {
+            bool hash = manifest_always_hashed(f->path) || thorough || !vouched || vouched->size != f->size ||
+                        !same_hash(vouched->sha256, f->sha256);
+            wanted[i] = !matches(f->path, f, hash);
+        }
         if (wanted[i] && !count++ && changed && changed_size) snprintf(changed, changed_size, "%s", f->path);
         advance(report, (uint64_t)i + 1, (uint64_t)latest->count);
     }
@@ -301,14 +311,16 @@ bool update_apply(const Manifest *latest, const bool *wanted, const char *url, c
 
 // What the install held that the release no longer does: what manifest.txt lists and
 // `latest` doesn't, and the old names, with the "<name>.old" a replace may have moved
-// them to (files_replace). A player's own files were never listed.
+// them to (files_replace). A player's own files were never listed; one outside the
+// release's own (manifest_protected) goes only as it came, as one changed is the player's.
 static void remove_retired(const Manifest *installed, const Manifest *latest)
 {
-    for (int i = 0; i < installed->count; i++)
-        if (!manifest_find(latest, installed->files[i].path)) {
-            remove(installed->files[i].path);
-            files_remove_old(installed->files[i].path);
-        }
+    for (int i = 0; i < installed->count; i++) {
+        const ManifestFile *f = &installed->files[i];
+        if (manifest_find(latest, f->path) || (!manifest_protected(f->path) && !matches(f->path, f, true))) continue;
+        remove(f->path);
+        files_remove_old(f->path);
+    }
     for (size_t i = 0; i < sizeof RETIRED / sizeof RETIRED[0]; i++)
         if (!manifest_find(latest, RETIRED[i])) {
             remove(RETIRED[i]);

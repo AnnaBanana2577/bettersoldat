@@ -152,3 +152,12 @@ const ManifestFile *manifest_find(const Manifest *m, const char *path)
         if (!strcmp(m->files[i].path, path)) return &m->files[i];
     return NULL;
 }
+
+bool manifest_protected(const char *path)
+{
+    static const char *const DIRS[] = {"bin/", "data/", "mods/default/", "config/defaults/", "scripts/examples/"};
+    if (manifest_top_level(path)) return true;
+    for (size_t i = 0; i < sizeof DIRS / sizeof DIRS[0]; i++)
+        if (strncmp(path, DIRS[i], strlen(DIRS[i])) == 0) return true;
+    return false;
+}

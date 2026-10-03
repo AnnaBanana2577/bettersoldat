@@ -74,12 +74,21 @@ static void manifest_tests(void)
         "package update e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 10 pkg-update.zip\n"
         "package full e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 20 pkg.zip\n"
         "file e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 Soldat Reloaded.exe\n"
-        "file ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad 3 data/maps/ctf_Ash.pms";
+        "file ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad 3 data/maps/ctf_Ash.pms\n"
+        "file ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad 3 scripts/main.lua";
     Manifest m;
     char error[128];
     bool ok = manifest_parse(&m, text, strlen(text), error, sizeof error);
     CHECK(ok, "a manifest parses: %s", ok ? "" : error);
-    CHECK(ok && !strcmp(m.version, "1.2.3") && m.count == 2, "its version and its two files");
+    CHECK(ok && !strcmp(m.version, "1.2.3") && m.count == 3, "its version and its three files");
+    CHECK(manifest_protected("Soldat Reloaded.exe") && manifest_protected("version.txt") &&
+              manifest_protected("bin/client.exe") && manifest_protected("data/maps/ctf_Ash.pms") &&
+              manifest_protected("mods/default/sfx/ak74-fire.wav") && manifest_protected("config/defaults/binds.client.cfg") &&
+              manifest_protected("scripts/examples/greeter.lua"),
+          "the release keeps its own as it has them: the top, bin/, data/, mods/default/, its defaults and examples");
+    CHECK(!manifest_protected("scripts/main.lua") && !manifest_protected("mods/mine/x.png") &&
+              !manifest_protected("config/server/maplist.txt") && !manifest_protected("scripts/examplesish.lua"),
+          "and anything else it ships is the player's once they change it");
     CHECK(ok && !strcmp(m.full.path, "pkg.zip") && m.full.size == 20,
           "its package, an older release's smaller one passed over");
     const ManifestFile *f = ok ? manifest_find(&m, "Soldat Reloaded.exe") : NULL;
@@ -357,11 +366,14 @@ static void update_tests(void)
 
     // version 2 changes the game, a program in bin/ and a default: those alone come down,
     // out of the package where it lies
+    // and the player's files to be: one theirs already, and new ones
     const Source v2[] = {{"version.txt", "2\n"}, {"game.exe", "new game"}, {"data/a.txt", "art"},
                          {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "new defaults"},
-                         {"bin/server.exe", "new server"}, {"mods/default/big.png", big}};
+                         {"bin/server.exe", "new server"}, {"mods/default/big.png", big},
+                         {"scripts/main.lua", "the release's script"}, {"scripts/new.lua", "a start"},
+                         {"scripts/kept.lua", "as it came"}, {"scripts/edited.lua", "as it came"}};
     enter(here);
-    release(SCRATCH "/releases", "2", v2, 7);
+    release(SCRATCH "/releases", "2", v2, 11);
     enter(SCRATCH "/install");
     uint64_t before = http_received();
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
@@ -377,16 +389,25 @@ static void update_tests(void)
               holds("scripts/main.lua", "a player's script"),
           "the player's config, mod and script and the server's lists are left alone");
     CHECK(!files_exists(UPDATE_STAGING), "nothing is left in .update");
+    CHECK(holds("scripts/new.lua", "a start") && holds("scripts/kept.lua", "as it came") &&
+              holds("scripts/edited.lua", "as it came"),
+          "the player's files to be are made where they weren't; their own main.lua stays theirs");
+    remove("scripts/new.lua");
+    files_write("scripts/edited.lua", "mine", 4);
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_CURRENT, "then it is current (%d: %s)", outcome, error);
+    CHECK(!files_exists("scripts/new.lua") && holds("scripts/edited.lua", "mine"),
+          "one taken out stays out, and one changed is left as it is");
 
     // version 3 changes most of the package's weight: it comes whole
+    // (and new starts of the player's files: one they changed, one they didn't)
     const Source v3[] = {{"version.txt", "3\n"}, {"game.exe", "new game"}, {"data/a.txt", "new art"},
                          {"data/b.txt", "more art"}, {"data/c.txt", "a new map"},
                          {"config/defaults/settings.client.cfg", "new defaults"}, {"bin/server.exe", "new server"},
-                         {"mods/default/big.png", bigger}};
+                         {"mods/default/big.png", bigger}, {"scripts/kept.lua", "a better one"},
+                         {"scripts/edited.lua", "a better one"}};
     enter(here);
-    release(SCRATCH "/releases", "3", v3, 8);
+    release(SCRATCH "/releases", "3", v3, 10);
     enter(SCRATCH "/install");
     before = http_received();
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
@@ -399,6 +420,8 @@ static void update_tests(void)
           (unsigned long long)brought, (unsigned long long)weighs);
     CHECK(holds("config/client/settings.cfg", "my settings") && holds("config.cfg", "mine"),
           "which doesn't replace the player's config");
+    CHECK(holds("scripts/kept.lua", "a better one") && holds("scripts/edited.lua", "mine"),
+          "one as the last release made it is brought anew; one the player changed is left theirs");
 
     // damage: an asset cut short is found by its size, one changed in place only by --verify
     files_write("data/b.txt", "more", 4);
@@ -454,6 +477,8 @@ static void update_tests(void)
               holds("mods/mine/sfx/ak74-fire.wav", "my gun") && holds("config.cfg", "mine") &&
               holds("scripts/main.lua", "a player's script"),
           "but not the player's own files");
+    CHECK(!files_exists("scripts/kept.lua") && holds("scripts/edited.lua", "mine"),
+          "one the release no longer has goes as it came, and stays as the player changed it");
 
     enter(here);
 }

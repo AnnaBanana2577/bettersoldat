@@ -1,5 +1,5 @@
 -- The server's script (docs/scripting.md): sv_script runs it as the server starts. It is
--- yours: the game ships it once, and no update touches it again.
+-- yours: an update brings a newer one only while you haven't changed it.
 --
 -- Write your own here: hand server.on a function for what you want to hear,
 --

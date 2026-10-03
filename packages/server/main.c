@@ -24,6 +24,7 @@
 #include "game/systems/systems.h"
 #include "host.h"
 #include "files.h" // the launcher's, to find the install from bin/
+#include "main_lua.h" // runtime/scripts/main.lua, made into a string by xmake.lua
 #include "http.h"
 #include "lobby.h"
 #include "script.h"
@@ -50,6 +51,7 @@
 #define CONFIG_DEFAULT_WEAPONS "config/defaults/weapons.server.cfg" // the game's own numbers, as `weapon` lines
 #define CONFIG_WEAPONS "config/server/weapons.cfg"                // a weapons mod, over them
 #define CONFIG_MAPLIST "config/server/maplist.txt"                // the rotation, a map to a line
+#define MAIN_SCRIPT "scripts/main.lua"                            // sv_script's, made from main_lua.h where missing
 #define SLEEP_MS 1 // between passes of the loop, so it never spins flat out
 
 typedef struct Server {
@@ -177,6 +179,12 @@ static void config_make_missing(void)
         fputs(FILES[i].text, f);
         fclose(f);
     }
+
+    // The script, unpacked from the server's own package, which has none (unpacking a
+    // release over a server would put an owner's back as it came). A game's install has a
+    // manifest.txt: its launcher makes it there, once, so one taken out stays out.
+    if (!file_exists(MAIN_SCRIPT) && !file_exists("manifest.txt") && files_make_parents(MAIN_SCRIPT))
+        files_write(MAIN_SCRIPT, MAIN_LUA, sizeof MAIN_LUA - 1);
 }
 
 // The rotation maplist.txt holds: its maps, a word each, space-separated into `out`.
@@ -342,7 +350,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     sv->bots_bravo = cvar_register(con, "bots_random_bravo", "0", 0, "bots on bravo in capture the flag");
     sv->bots_difficulty = cvar_register(con, "bots_difficulty", "100", 0, "300 stupid, 200 poor, 100 normal, 50 hard, 10 impossible");
     sv->bots_chat = cvar_register(con, "bots_chat", "1", 0, "whether the bots talk");
-    sv->script_path = cvar_register(con, "sv_script", "scripts/main.lua", 0, "the Lua script to run, if the file is there (docs/scripting.md)");
+    sv->script_path = cvar_register(con, "sv_script", MAIN_SCRIPT, 0, "the Lua script to run, if the file is there (docs/scripting.md)");
     sv->votepercent = cvar_register(con, "sv_votepercent", "60", 0, "the percentage of players whose yes passes a vote");
     sv->floodingpackets = cvar_register(con, "net_floodingpackets", "120", 0, "messages in a second from one player that count as flooding (a client sends sixty)");
     sv->warnings_flood = cvar_register(con, "sv_warnings_flood", "4", 0, "flood warnings before the player is kicked and barred for a quarter of an hour");
