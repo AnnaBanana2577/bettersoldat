@@ -25,6 +25,14 @@ static Vec2 lerp(Vec2 a, Vec2 b, float t)
     return vec2_add(a, vec2_scale(vec2_sub(b, a), t));
 }
 
+static Pose soldier_pose_between(const Context *ctx, const Soldier *from, const Soldier *to, Vec2 pos, float alpha)
+{
+    Pose a = soldier_pose(ctx->anims, from, pos);
+    Pose b = soldier_pose(ctx->anims, to, pos);
+    for (int i = 0; i < POSE_POINTS; i++) a.p[i] = lerp(a.p[i], b.p[i], alpha);
+    return a;
+}
+
 // The team's shirt, worn over the player's own in a team game.
 Rgba team_shirt(Team team)
 {
@@ -56,7 +64,12 @@ static RenderSoldier soldier_state(const Context *ctx, const Soldier *from, cons
     // a dead soldier is drawn as its body, once the ragdoll has started; until then it
     // holds its last pose
     out.corpse = to->dead && body_to->active;
-    out.pose = out.corpse ? corpse_pose(body_from, body_to, alpha) : soldier_pose(ctx->anims, to, out.pos);
+    bool same_pose_animation = continuous(from, to) && from->dead == to->dead &&
+                               from->body.id == to->body.id && from->legs.id == to->legs.id &&
+                               from->direction == to->direction && from->stance == to->stance;
+    out.pose = out.corpse ? corpse_pose(body_from, body_to, alpha)
+                          : same_pose_animation ? soldier_pose_between(ctx, from, to, out.pos, alpha)
+                                                : soldier_pose(ctx->anims, to, out.pos);
     // the chain's and the hair's points: the ragdoll's own on a body, the soldier's swing alive
     for (int k = 0; k < 4; k++) {
         if (out.corpse) out.swing[k] = body_from->active ? lerp(body_from->pos[20 + k], body_to->pos[20 + k], alpha) : body_to->pos[20 + k];
