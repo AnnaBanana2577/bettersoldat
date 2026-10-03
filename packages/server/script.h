@@ -1,9 +1,9 @@
 #pragma once
 
 // A Lua script on the server: an admin's ears and voice on a hosted game. It is read
-// once (sv_script, scripts/server.lua by default), and from then on it is called when
+// once (sv_script, scripts/main.lua by default), and from then on it is called when
 // things happen and may act on the game through a small API. docs/scripting.md is the
-// reference; scripts/example.lua shows it in use.
+// reference; scripts/examples/ shows it in use.
 //
 // What the script hears, when it defines these functions:
 //

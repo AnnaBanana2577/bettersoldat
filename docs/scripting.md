@@ -1,11 +1,16 @@
 # Scripting
 
-The server runs one Lua script (Lua 5.4), named by `sv_script`: `scripts/server.lua`
+The server runs one Lua script (Lua 5.4), named by `sv_script`: `scripts/main.lua`
 by default, read once as the server starts, if the file is there. The script defines
 functions the server calls when things happen, and calls the server back through the
 `server` table. Requests to the web go through `http`, with `json` for their bodies.
-`scripts/example.lua` shows all of it in use; copy it to `scripts/server.lua` to start
-from.
+
+`scripts/main.lua` is the server owner's: the game ships it once and no update touches it
+again. The game's examples are in `scripts/examples/`, kept current by every update;
+`main.lua` takes one up with `require("examples.example")` (its line is there, commented
+out), as a script may `require` any file beside it. An example changed in place is undone
+by the next update, so to change one, copy what you want of it into `main.lua`. Each
+example defines the hooks itself, so take up one at a time.
 
 The script runs on the server's thread, between ticks, so nothing it does races the
 game, and anything slow it does stalls the game: a request is sent from a thread of its
@@ -87,7 +92,7 @@ held in a table), and `json.array(t)` marks an empty table as an array.
 ## An example
 
 ```lua
--- scripts/server.lua
+-- scripts/main.lua
 local webhook = "https://discord.com/api/webhooks/..."
 
 function on_join(slot, name)

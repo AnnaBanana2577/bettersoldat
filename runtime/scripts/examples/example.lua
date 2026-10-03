@@ -1,5 +1,5 @@
--- An example of the server's script (docs/scripting.md): copy it to scripts/server.lua,
--- or point sv_script at it, and it runs as the server starts. It greets whoever comes,
+-- An example of the server's script (docs/scripting.md): take it up in scripts/main.lua with
+-- require("examples.example"), and it runs as the server starts. It greets whoever comes,
 -- answers /stats and /top, lets a few names pause the game and skip the map, keeps a
 -- word out of the chat, says who won, and reports each round to a webhook if one is set.
 

@@ -91,8 +91,9 @@ set `sv_adminpassword` and `/login`); and `banlist.cfg` and `mutelist.cfg`, whic
 server keeps as players are banned and muted.
 
 `sv_public 1` lists it in the game's server browser, once its UDP port (23073 by
-default) can be reached from outside. A script in `scripts/server.lua` runs with it;
-`scripts/example.lua` shows what a script can do.
+default) can be reached from outside. A script in `scripts/main.lua` runs with it, yours to
+write; the examples in `scripts/examples/` show what a script can do, and `main.lua` names
+them, ready to take up (docs/scripting.md).
 
 ## Building
 
