@@ -434,13 +434,49 @@ static int l_paused(lua_State *L)
     return 1;
 }
 
+// Whether the server has `map` to load, as a file among its maps: one it hasn't would stop
+// it at the round's end, unable to go on.
+static bool map_there(const Host *h, const char *map)
+{
+    if (!h->connections.maps_dir[0]) return true;
+    if (!map[0] || strchr(map, '/') || strchr(map, '\\') || strstr(map, "..")) return false;
+    char path[600];
+    snprintf(path, sizeof path, "%s/%s.pms", h->connections.maps_dir, map);
+    FILE *f = fopen(path, "rb");
+    if (f) fclose(f);
+    return f != NULL;
+}
+
+// server.next_map([map]): the round ends now, on `map` if given, else the rotation's next.
+// True, or false (and nothing changes) for a map the server hasn't got.
 static int l_next_map(lua_State *L)
 {
     Script *s = script_of(L);
     const char *map = luaL_optstring(L, 1, NULL);
-    if (map && map[0]) host_change_map(s->host, map);
-    else host_end_round(s->host);
-    return 0;
+    if (map && map[0]) {
+        if (!map_there(s->host, map)) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+        host_change_map(s->host, map);
+    } else {
+        host_end_round(s->host);
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// server.maps(): the server's list of maps, the one its votes and its map window pick from:
+// the rotation (sv_maps), or every map it has when there is none.
+static int l_maps(lua_State *L)
+{
+    const Host *h = script_of(L)->host;
+    lua_createtable(L, h->map_count, 0);
+    for (int i = 0; i < h->map_count; i++) {
+        lua_pushstring(L, h->maps[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
 }
 
 static int l_map(lua_State *L)
@@ -543,12 +579,12 @@ static int l_add_bot(lua_State *L)
 }
 
 static const luaL_Reg SERVER_API[] = {
-    {"say", l_say},         {"say_to", l_say_to},   {"print", l_print},       {"command", l_command},
-    {"pause", l_pause},     {"unpause", l_unpause}, {"paused", l_paused},     {"next_map", l_next_map},
-    {"map", l_map},         {"round", l_round},     {"mode", l_mode},         {"tick", l_tick},
-    {"time_left", l_time_left}, {"scores", l_scores}, {"players", l_players}, {"player", l_player},
-    {"kick", l_kick},       {"add_bot", l_add_bot}, {"on", l_on},             {"off", l_off},
-    {NULL, NULL},
+    {"say", l_say},             {"say_to", l_say_to},   {"print", l_print},     {"command", l_command},
+    {"pause", l_pause},         {"unpause", l_unpause}, {"paused", l_paused},   {"next_map", l_next_map},
+    {"map", l_map},             {"maps", l_maps},       {"round", l_round},     {"mode", l_mode},
+    {"tick", l_tick},           {"time_left", l_time_left}, {"scores", l_scores}, {"players", l_players},
+    {"player", l_player},       {"kick", l_kick},       {"add_bot", l_add_bot}, {"on", l_on},
+    {"off", l_off},             {NULL, NULL},
 };
 
 // http.request{url=, method=, body=, headers={}, timeout=}, callback(response)

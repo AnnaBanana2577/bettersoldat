@@ -155,6 +155,36 @@ void script_tests(void)
     CHECK(script_run(&script, "assert(ended.scores.alpha == 0 and ended.winner == nil and started == 'ctf_Ash')", "round"),
           "the scores, no winner, and on_round_start the map");
 
+    // the maps: the server's list, and no map it hasn't got loaded
+    CHECK(script_run(&script,
+                     "local has = {}; for _, m in ipairs(server.maps()) do has[m] = true end\n"
+                     "assert(has.ctf_Ash and has.Arena and not server.next_map('no_such_map'))",
+                     "maps"),
+          "the script sees the server's maps, and can't ask for one it hasn't got");
+
+    // the game run from the chat, by the example that does it (scripts/examples/)
+    CHECK(script_run(&script,
+                     "package.path = 'runtime/scripts/?.lua;' .. package.path\n"
+                     "require('examples.match_controls')({countdown = 1})",
+                     "match_controls"),
+          "the match controls example is taken up");
+    CHECK(line->chat && !line->chat(line->user, 0, "!p", false), "!p goes to the chat like any line");
+    host_pump(&host, TICK_SECONDS);
+    CHECK(host_paused(&host), "and pauses the game on the next tick");
+    line->chat(line->user, 0, "!up", false);
+    host_pump(&host, TICK_SECONDS * 2);
+    CHECK(host_paused(&host), "!up counts before the game goes on");
+    for (int i = 0; i < TICK_RATE + 2; i++) host_pump(&host, TICK_SECONDS); // one at a time: a pump catches up only so far
+    CHECK(!host_paused(&host), "then it goes on");
+    line->chat(line->user, 0, "!map aren", false);
+    line->chat(line->user, 0, "!map nowhere", false);
+    host_pump(&host, TICK_SECONDS * 2);
+    CHECK(!host.next_round, "!map changes nothing for a name that could be several maps, or none");
+    script_run(&script, "started = nil", "reset");
+    line->chat(line->user, 0, "!map ARENA", false);
+    CHECK(pump_until(&host, &script, "started", ROUND_END_TICKS + 120) && script_run(&script, "assert(started == 'Arena', started)", "arena"),
+          "!map arena ends the round, and the next is on Arena");
+
     // the request to nowhere comes back with an error, on this thread
     clock_t start = clock();
     bool answered = false;

@@ -9,7 +9,9 @@ with `json` for their bodies.
 `scripts/main.lua` is the server owner's: the game ships it once and no update touches it
 again. The game's examples are in `scripts/examples/`, kept current by every update: a
 greeter, the players' figures (/stats, /top), a chat filter, admin commands among friends,
-and a report of each round to a webhook. Each returns a function that sets it up, so
+the game run from the chat as gathers run it (`!p`, `!up` with a count of 3, 2, 1, `!r`,
+`!map ash`), and a report of each round to a webhook. Each returns a function that sets it
+up, so
 `main.lua` takes up as many as it likes, each with its settings:
 
 ```lua
@@ -76,7 +78,8 @@ players are known by on the wire; a slot is reused once its player has left.
 | `server.command(text)` | a console command, as if typed: `"say hello"`, `"addbot1"`, `"nextmap"`, `"sv_password x"` (the password to join, read live) |
 | `server.pause()`, `server.unpause()` | the game stands still, nobody moving and the clock stopped, or goes on; `true` if that changed anything |
 | `server.paused()` | whether it stands |
-| `server.next_map([map])` | the round ends now; on `map` if given, else the rotation's next |
+| `server.next_map([map])` | the round ends now; on `map` if given, else the rotation's next: `true`, or `false` (and nothing changes) for a map the server hasn't got, which it couldn't load |
+| `server.maps()` | the server's list of maps, the one its votes and map window pick from: the rotation (`sv_maps`), or every map it has when there is none |
 | `server.map()`, `server.round()`, `server.mode()` | the map, the round from 1, `"ctf"` or `"dm"` |
 | `server.tick()`, `server.time_left()` | the world's tick; the seconds left in the round |
 | `server.scores()` | `{alpha = n, bravo = n}` |

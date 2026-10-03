@@ -15,4 +15,5 @@
 -- require("examples.stats")({streak = 5})
 -- require("examples.chat_filter")({words = {"noob"}})
 -- require("examples.admin")({names = {"Major"}})
+-- require("examples.match_controls")({countdown = 3})
 -- require("examples.round_webhook")({url = "https://discord.com/api/webhooks/..."})
