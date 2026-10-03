@@ -1384,7 +1384,7 @@ static void game_close(App *app)
 static bool window_open(App *app)
 {
 #ifndef _WIN32
-    // the window's class, the launcher's menu entry's (launcher/desktop.h), unless the
+    // the window's class, the launcher's too, so a taskbar or dock groups them, unless the
     // player has given one
     setenv("SDL_VIDEO_X11_WMCLASS", "soldatreloaded", 0);
     setenv("SDL_VIDEO_WAYLAND_WMCLASS", "soldatreloaded", 0);

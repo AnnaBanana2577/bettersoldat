@@ -286,7 +286,7 @@ local function finish_install(manifest)
 end
 
 -- The icons: the .ico only builds the executables, which hold it on Windows; the .png is
--- the window's and the menu entry's elsewhere (launcher/desktop.h), and a server has neither.
+-- the windows' elsewhere, and a server has neither.
 release_package("soldatreloaded", "", "bin")
     add_targets("client", "server", "launcher")
     add_installfiles("runtime/(data/**)|icon.ico|icon.png")

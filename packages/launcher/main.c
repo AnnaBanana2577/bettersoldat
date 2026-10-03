@@ -37,7 +37,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "desktop.h"
 #include "files.h"
 #include "http.h"
 #include "update.h"
@@ -463,9 +462,10 @@ int main(int argc, char **argv)
     }
 
 #ifndef _WIN32
-    // the window's class, the menu entry's, unless the player has given one
-    setenv("SDL_VIDEO_X11_WMCLASS", DESKTOP_APP_ID, 0);
-    setenv("SDL_VIDEO_WAYLAND_WMCLASS", DESKTOP_APP_ID, 0);
+    // the window's class, the game's too, so a taskbar or dock groups them, unless the player
+    // has given one
+    setenv("SDL_VIDEO_X11_WMCLASS", "soldatreloaded", 0);
+    setenv("SDL_VIDEO_WAYLAND_WMCLASS", "soldatreloaded", 0);
 #endif
     if (SDL_Init(SDL_INIT_VIDEO) != 0) fprintf(stderr, "launcher: no window: %s\n", SDL_GetError());
     if (!http_init()) fprintf(stderr, "launcher: curl couldn't start\n");
