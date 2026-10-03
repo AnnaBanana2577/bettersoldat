@@ -11,8 +11,8 @@
 // The path or name is the rest of the line, so it may hold spaces ("Soldat
 // Reloaded.exe"); blank lines and // comments are skipped. The installed copy
 // (manifest.txt, inside the packages) has the version and the files; the release's
-// (latest-<platform>.txt, beside the packages) adds where to get them. config.cfg is
-// never listed: it is the player's.
+// (latest-<platform>.txt, beside the packages) adds where to get them. The player's own
+// config (config/client/, config/server/, an old config.cfg) is never listed: it is theirs.
 
 #include <stdbool.h>
 #include <stddef.h>

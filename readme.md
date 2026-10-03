@@ -57,18 +57,26 @@ X to go prone, the right mouse button for the jets, Space to throw a grenade, Q 
 switch weapons, R to reload, Tab for the weapons menu, Escape for the game menu, T to
 chat, Y to chat to your team, V for the radio menu, F1 for the scoreboard.
 
-Settings live in `config.cfg` beside the game, which it reads at start and saves on the
-way out.
+Settings live in `config/` beside the game: `config/defaults/` holds the game's own, which
+every update replaces, and `config/client/` yours, which the game writes as it closes with
+only what you set otherwise; commands of your own go in `config/client/autoexec.cfg`.
 
 ## Running a server
 
 The release's `-server` package is a headless server: the game, the maps and nothing to
-draw. Unpack it and run `server` (`server.exe` on Windows); settings are the `sv_*`
-lines in its `config.cfg`, or given on the command line:
+draw. Unpack it and run `server` (`server.exe` on Windows); its settings are the `sv_*`
+lines of `config/defaults/settings.server.cfg`, set otherwise in your own
+`config/server/settings.cfg`, or given on the command line:
 
 ```
 server +sv_hostname "My server" +sv_maps "ctf_Ash ctf_Kampf" +sv_password secret
 ```
+
+Beside it in `config/server/`: `weapons.cfg`, a weapons mod (the form is in
+`config/defaults/weapons.server.cfg`), sent to every player who joins; `admins.cfg`, the
+addresses of the admins, who may `/kick`, `/ban`, `/mute` and `/map` from the chat (or
+set `sv_adminpassword` and `/login`); and `banlist.cfg` and `mutelist.cfg`, which the
+server keeps as players are banned and muted.
 
 `sv_public 1` lists it in the game's server browser, once its UDP port (23073 by
 default) can be reached from outside. A script in `scripts/server.lua` runs with it;
@@ -90,7 +98,7 @@ xmake test         # the headless tests
 xmake dist         # the release packages, into build/dist/
 ```
 
-The game finds `config.cfg` and `assets/` in the directory it runs from, so run it from
+The game finds `config/` and `assets/` in the directory it runs from, so run it from
 the project directory or from an unpacked package.
 
 ## How it's put together

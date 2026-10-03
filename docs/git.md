@@ -69,26 +69,26 @@ does not match is refused, so any release that changes the protocol will not tal
 the one before it. Say so in the tag's message, every time.
 
 A tag is the version; what ships beside it is the client, the server, the launcher and
-the contents of `assets/`, unpacked flat so that config.cfg and the art sit beside the
-executable: the packages `xmake dist` makes (see xmake.lua). The tag alone is not a
-release until those exist.
+the contents of `assets/` and `config/defaults/`, unpacked flat so that the config and the
+art sit beside the executable: the packages `xmake dist` makes (see xmake.lua). The tag
+alone is not a release until those exist.
 
 Players start the launcher (`Soldat Reloaded.exe`, `soldatreloaded-launcher` on
 Linux), which keeps their copy at the newest release (launcher/update.h) and starts
 `client.exe`; `server.exe` is the dedicated server. Each release carries, for each
 platform, the game (`soldatreloaded-<version>-<platform>`, what a player downloads)
 and a manifest naming every file of an install by its hash; the launcher compares the
-install with it and downloads the small update package (`-patch`, the executables) when
-only those differ, and the full package when anything in `assets/` or `scripts/` does.
-config.cfg is the player's and is never replaced. So:
+install with it and downloads the small update package (`-patch`, the executables and
+`config/defaults/`) when only those differ, and the full package when anything in
+`assets/` or `scripts/` does. `config/defaults/` is the release's and replaced with it;
+`config/client/` and `config/server/` are the player's and the server owner's, in no
+package, and never touched. So:
 
-- A release that adds a cvar registers it in code with its default (`cvar_register`).
-  A player's config.cfg is from whatever version they first installed, and a cvar
-  that only config.cfg mentions doesn't exist for them. A new archived cvar is
-  written into their config on the way out.
-- A new default bind reaches only new players: binds live in config.cfg, which starts
-  with `unbindall`, and the player's own copy is left as it is. Say so in the tag's
-  message when a release adds one.
+- A release that adds a cvar registers it in code with its default (`cvar_register`), and
+  puts it in `config/defaults/` with its comment. A player's own files hold only what
+  they set otherwise, so a new or changed default reaches everyone who hasn't.
+- A new default bind goes in `config/defaults/binds.client.cfg` and reaches every player
+  who hasn't bound that key otherwise.
 - The newest *published* release is the one every launcher moves to, so a release that
   shouldn't go out to players is made a pre-release or left a draft.
 
