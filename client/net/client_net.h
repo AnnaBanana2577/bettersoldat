@@ -40,6 +40,10 @@ typedef struct ClientNet {
     MsgMapReply map_reply;  // the server's answer to the map window's last question
     bool map_replied;       // one has come since the last question
     bool playback;          // a demo plays: joined with no line, its packets fed in (client_net_feed)
+    // The weapons' numbers as the server said them (a weapons mod), taken over the game's own
+    // in every world made for its maps (client_net_weapons).
+    WeaponStats weapons[WEAPON_COUNT];
+    bool weapons_heard;
     // Told of every message the line brings, before it is heard: a demo records them.
     void (*tap)(void *user, const uint8_t *data, size_t size, MsgKind kind);
     void *tap_user;
@@ -77,6 +81,9 @@ void client_net_tick(ClientNet *n, const Game *g);
 void client_net_flush(ClientNet *n);
 
 bool client_net_joined(const ClientNet *n);
+
+// The server's weapons onto `g` (a world just made for its map), if it has said any.
+void client_net_weapons(const ClientNet *n, Game *g);
 
 // A demo's playback (net/demo.h): joined, as `slot`, with no line; what the demo
 // recorded comes in by client_net_feed, and nothing goes out. client_net_disconnect ends it.

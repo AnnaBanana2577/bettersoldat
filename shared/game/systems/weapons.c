@@ -151,3 +151,14 @@ WeaponId weapon_named(const char *name)
     }
     return WEAPON_NONE;
 }
+
+void weapons_apply(Weapons *w, const WeaponStats stats[WEAPON_COUNT])
+{
+    for (int id = 0; id < WEAPON_COUNT; id++) weapon_set_stats(&w->info[id], stats[id]);
+    weapons_finalize(w);
+}
+
+void weapons_stats(const Weapons *w, WeaponStats stats[WEAPON_COUNT])
+{
+    for (int id = 0; id < WEAPON_COUNT; id++) stats[id] = w->info[id].stats;
+}

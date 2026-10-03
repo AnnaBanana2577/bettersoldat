@@ -43,6 +43,8 @@ typedef struct HostSettings {
     bool quiet;                      // no lines of its own to the console but the first: a client beside it says what matters
     bool rope;                       // sv_rope: the rope is allowed; off, the boots are jets
     char lists_dir[256];             // where the bans, mutes and admins are kept (config/server); empty: in memory alone
+    bool weapons_mod;                // `weapons` is a weapons mod; else the game's own numbers
+    WeaponStats weapons[WEAPON_COUNT];
 } HostSettings;
 
 // What a server script hangs on the host (host_set_hooks): it hears every tick once it

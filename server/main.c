@@ -20,6 +20,7 @@
 
 #include "console/console.h"
 #include "game/game.h"
+#include "game/systems/systems.h"
 #include "host.h"
 #include "http.h"
 #include "lobby.h"
@@ -42,6 +43,8 @@
 #define CONFIG_SETTINGS "config/server/settings.cfg"
 #define CONFIG_OLD "config.cfg"
 #define CONFIG_LISTS "config/server" // banlist.cfg, mutelist.cfg, admins.cfg (lists.h)
+#define CONFIG_DEFAULT_WEAPONS "config/defaults/weapons.server.cfg" // the game's own numbers, as `weapon` lines
+#define CONFIG_WEAPONS "config/server/weapons.cfg"                // a weapons mod, over them
 #define SLEEP_MS 1 // between passes of the loop, so it never spins flat out
 
 typedef struct Server {
@@ -61,6 +64,9 @@ typedef struct Server {
     Cvar *rope; // sv_rope: the rope allowed; off, everyone's boots are jets
     Cvar *rope_debug; // sv_rope_debug: each soldier's rope each half second, and changes at once
     Cvar *public, *lobby_url, *lobby_ip; // sv_public, sv_lobby, sv_lobby_ip
+    // the weapons mod: the game's own numbers, changed by `weapon` (config/server/weapons.cfg)
+    WeaponStats weapons[WEAPON_COUNT];
+    bool weapons_mod;
     Host host;
     Script script;
     Lobby lobby;
@@ -231,10 +237,16 @@ static void cmd_lua(Console *con, int argc, char **argv, void *user)
 
 // The console and what the server keeps in it, then its config and the command line
 // over it. Nothing is saved on the way out: nothing here changes a setting.
+static void cmd_weapon(Console *con, int argc, char **argv, void *user);
+static void cmd_weaponlist(Console *con, int argc, char **argv, void *user);
+
 static bool console_open(Server *sv, int argc, char *argv[])
 {
     Console *con = sv->console = console_create(print_stdout, NULL);
     if (!con) return false;
+    Weapons own; // the mod starts from the game's own numbers
+    weapons_default(&own);
+    weapons_stats(&own, sv->weapons);
 
     sv->assets = cvar_register(con, "assets", "./assets", 0, "the base assets directory: maps/, anims/, objects/...");
     sv->map = cvar_register(con, "map", "Arena", 0, "the map to load");
@@ -274,6 +286,8 @@ static bool console_open(Server *sv, int argc, char *argv[])
     console_add_command(con, "bans", cmd_admin, sv, "the ban list");
     console_add_command(con, "mutes", cmd_admin, sv, "the mute list");
     console_add_command(con, "admins", cmd_admin, sv, "the admins (config/server/admins.cfg)");
+    console_add_command(con, "weapon", cmd_weapon, sv, "a weapons mod's line: weapon <name> <field> <value> [<field> <value>...]");
+    console_add_command(con, "weaponlist", cmd_weaponlist, sv, "every weapon's numbers, as the lines that set them");
     console_add_command(con, "addbot", cmd_addbot, sv, "add a bot: addbot [name]");
     console_add_command(con, "addbot1", cmd_addbot, sv, "add a bot to alpha: addbot1 [name]");
     console_add_command(con, "addbot2", cmd_addbot, sv, "add a bot to bravo: addbot2 [name]");
@@ -285,8 +299,76 @@ static bool console_open(Server *sv, int argc, char *argv[])
     if (file_exists(CONFIG_DEFAULT_SETTINGS)) console_execute_file(con, CONFIG_DEFAULT_SETTINGS);
     if (file_exists(CONFIG_SETTINGS)) console_execute_file(con, CONFIG_SETTINGS);
     else if (file_exists(CONFIG_OLD)) console_execute_file(con, CONFIG_OLD); // a server set up before config/
+    if (file_exists(CONFIG_DEFAULT_WEAPONS)) console_execute_file(con, CONFIG_DEFAULT_WEAPONS);
+    if (file_exists(CONFIG_WEAPONS)) console_execute_file(con, CONFIG_WEAPONS);
     console_execute_args(con, argc, argv);
     return true;
+}
+
+// The weapons a mod may change: not those that follow another (the cluster grenade and
+// its bomblets the frag grenade, the thrown knife the knife).
+static bool moddable(WeaponId id) { return id != WEAPON_CLUSTER_NADE && id != WEAPON_CLUSTER && id != WEAPON_THROWN_KNIFE; }
+
+// weapon <name> <field> <value> [<field> <value>...]: a weapons mod's line. The fields are
+// WEAPON_FIELDS'; while a game is on it takes the new numbers at once, and everyone on
+// is told.
+static void cmd_weapon(Console *con, int argc, char **argv, void *user)
+{
+    Server *sv = user;
+    if (argc < 4 || argc % 2 != 0) {
+        console_print(con, "usage: weapon <name> <field> <value> [<field> <value>...]; weaponlist shows them all\n");
+        return;
+    }
+    WeaponId id = weapon_named(argv[1]);
+    if (id == WEAPON_NONE && strcmp(argv[1], "Hands") != 0) {
+        console_print(con, "weapon: no weapon \"%s\"\n", argv[1]);
+        return;
+    }
+    if (!moddable(id)) {
+        console_print(con, "weapon: %s follows another weapon's numbers\n", argv[1]);
+        return;
+    }
+    WeaponStats *stats = &sv->weapons[id];
+    for (int a = 2; a + 1 < argc; a += 2) {
+        const NetField *f = NULL;
+        for (int k = 0; k < WEAPON_FIELD_COUNT && !f; k++)
+            if (strcmp(WEAPON_FIELDS[k].name, argv[a]) == 0) f = &WEAPON_FIELDS[k];
+        if (!f) {
+            console_print(con, "weapon: no field \"%s\"\n", argv[a]);
+            continue;
+        }
+        uint8_t *at = (uint8_t *)stats + f->offset;
+        if (f->kind == NET_F32) *(float *)at = (float)atof(argv[a + 1]);
+        else *(int32_t *)at = (int32_t)atoi(argv[a + 1]);
+    }
+    sv->weapons_mod = true;
+    if (sv->host.game) { // on the game as it plays, and told
+        weapons_apply(&sv->host.game->ctx.weapons, sv->weapons);
+        sv->host.settings.weapons_mod = true;
+        memcpy(sv->host.settings.weapons, sv->weapons, sizeof sv->weapons);
+        connections_send_weapons(&sv->host.connections, sv->host.game);
+    }
+}
+
+// weaponlist: every weapon a mod may change, as the lines that set it.
+static void cmd_weaponlist(Console *con, int argc, char **argv, void *user)
+{
+    (void)argc, (void)argv;
+    Server *sv = user;
+    Weapons names;
+    weapons_default(&names);
+    for (int id = 0; id < WEAPON_COUNT; id++) {
+        if (!moddable((WeaponId)id)) continue;
+        char line[CONSOLE_TEXT_SIZE];
+        int n = snprintf(line, sizeof line, "weapon \"%s\"", names.info[id].name);
+        for (int k = 0; k < WEAPON_FIELD_COUNT && n < (int)sizeof line; k++) {
+            const NetField *f = &WEAPON_FIELDS[k];
+            const uint8_t *at = (const uint8_t *)&sv->weapons[id] + f->offset;
+            if (f->kind == NET_F32) n += snprintf(line + n, sizeof line - (size_t)n, " %s %g", f->name, *(const float *)at);
+            else n += snprintf(line + n, sizeof line - (size_t)n, " %s %d", f->name, *(const int32_t *)at);
+        }
+        console_print(con, "%s\n", line);
+    }
 }
 
 // What the cvars say the game is.
@@ -313,6 +395,8 @@ static HostSettings settings_from_cvars(const Server *sv)
     snprintf(s.maps, sizeof s.maps, "%s", sv->maps->value);
     snprintf(s.hostname, sizeof s.hostname, "%s", sv->hostname->value);
     snprintf(s.lists_dir, sizeof s.lists_dir, "%s", CONFIG_LISTS); // the bans, mutes and admins, kept
+    s.weapons_mod = sv->weapons_mod;
+    memcpy(s.weapons, sv->weapons, sizeof s.weapons);
     return s;
 }
 

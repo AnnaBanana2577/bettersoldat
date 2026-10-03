@@ -84,6 +84,7 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
         h->game = NULL;
         return false;
     }
+    if (settings->weapons_mod) weapons_apply(&h->game->ctx.weapons, settings->weapons); // and every round's after (round_start)
     game_init(h->game, (uint64_t)time(NULL), match_settings(h, h->game->ctx.map));
     h->game->world.authority = true;
     h->game->world.history = calloc(1, sizeof(History)); // the snapshots' deltas are against it

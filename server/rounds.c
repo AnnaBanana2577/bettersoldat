@@ -38,11 +38,14 @@ bool round_start(Game *g, Connections *c, const char *assets, const char *map, M
 {
     History *history = g->world.history;
     MatchSettings settings = g->match.settings;
+    WeaponStats weapons[WEAPON_COUNT]; // a weapons mod outlives the map: the context is made anew
+    weapons_stats(&g->ctx.weapons, weapons);
     context_destroy(&g->ctx);
     if (!context_load(&g->ctx, assets, map)) {
         g->world.history = history;
         return false;
     }
+    weapons_apply(&g->ctx.weapons, weapons);
     settings.mode = match_mode_choose(g->ctx.map, wanted); // the limits stay; the mode is as asked, as the map allows
     game_init(g, (uint64_t)g->world.tick + 1, settings);
     g->world.authority = true;

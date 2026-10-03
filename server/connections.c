@@ -103,6 +103,27 @@ void connections_ban(Connections *c, int slot, int64_t seconds, const char *reas
     lists_ban(&c->lists, conn->peer->address.host, seconds > 0 ? (int64_t)time(NULL) + seconds : 0, conn->name, reason);
 }
 
+static void route_weapons(NetBuf *b, void *m) { msg_weapons(b, m); }
+
+// The weapons' numbers as the game has them (a weapons mod) to one peer, or to everyone
+// joined with NULL, in as many messages as they take.
+static void tell_weapons(Connections *c, ENetPeer *peer, const Game *g)
+{
+    WeaponStats stats[WEAPON_COUNT];
+    weapons_stats(&g->ctx.weapons, stats);
+    MsgWeapons msgs[WEAPON_COUNT];
+    int count = msg_weapons_fit(stats, NET_MTU, msgs, WEAPON_COUNT);
+    for (int i = 0; i < count; i++) {
+        uint8_t buf[NET_MTU];
+        size_t n = build(buf, sizeof buf, MSG_WEAPONS, route_weapons, &msgs[i]);
+        if (!n) continue;
+        if (peer) net_send(peer, MSG_WEAPONS, buf, n);
+        else connections_broadcast(c, MSG_WEAPONS, buf, n);
+    }
+}
+
+void connections_send_weapons(Connections *c, const Game *g) { tell_weapons(c, NULL, g); }
+
 // The round's map to one peer.
 static void tell_map(Connections *c, ENetPeer *peer)
 {
@@ -241,6 +262,7 @@ static void hello(Connections *c, Game *g, ENetPeer *peer, const NetEvent *e)
     MsgWelcome w = {.slot = (uint8_t)slot, .tick = g->world.tick};
     size_t n = build(buf, sizeof buf, MSG_WELCOME, route_welcome, &w);
     if (n) net_send(peer, MSG_WELCOME, buf, n);
+    tell_weapons(c, peer, g); // the weapons as this server has them, before the world they are used in
     tell_map(c, peer); // joining is hearing of the round
     if (g->match.state == MATCH_ENDED) tell_map_change(c, peer, g); // and of its end, if it is ending
     c->vote.answer[slot] = 0;

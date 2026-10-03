@@ -172,6 +172,10 @@ void connections_ban(Connections *c, int slot, int64_t seconds, const char *reas
 // /login <password>, which with sv_adminpassword set makes them an admin until they leave.
 bool connections_admin(Connections *c, Game *g, int from, const char *text);
 
+// The weapons' numbers as the game now has them, to everyone: a weapons mod changed while
+// they play. Whoever joins hears them as they join.
+void connections_send_weapons(Connections *c, const Game *g);
+
 // The server's own chat to everyone, shown as "*SERVER*: text".
 void connections_say(Connections *c, const char *text);
 // A line of `kind` to everyone, or to the one player in `slot` (a bot's slot hears

@@ -158,6 +158,17 @@ void demo_record_join(DemoRecorder *r, const ClientNet *n)
 {
     if (!r->file) return;
     uint8_t buf[NET_MTU];
+    if (n->weapons_heard) { // the server's weapons mod, before the world it is played in
+        static MsgWeapons msgs[WEAPON_COUNT];
+        int count = msg_weapons_fit(n->weapons, NET_MTU, msgs, WEAPON_COUNT);
+        for (int i = 0; i < count; i++) {
+            MsgKind weapons = MSG_WEAPONS;
+            NetBuf w = netbuf_writer(buf, sizeof buf);
+            msg_kind(&w, &weapons);
+            msg_weapons(&w, &msgs[i]);
+            if (netbuf_ok(&w)) demo_record_packet(r, buf, netbuf_bytes(&w));
+        }
+    }
     MsgKind kind = MSG_MAP;
     MsgMap map = {.round = n->round, .rope = n->rope};
     snprintf(map.map, sizeof map.map, "%s", n->map);

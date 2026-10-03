@@ -249,6 +249,11 @@ void weapon_set_stats(WeaponInfo *info, WeaponStats stats);
 
 // The derived weapons and numbers; call after changing any stats.
 void weapons_finalize(Weapons *w);
+// Every weapon's numbers set to `stats` (a weapons mod, as a server has it or a client
+// heard it), and finalized: the derived weapons follow theirs.
+void weapons_apply(Weapons *w, const WeaponStats stats[WEAPON_COUNT]);
+// Every weapon's numbers, as `w` has them.
+void weapons_stats(const Weapons *w, WeaponStats stats[WEAPON_COUNT]);
 
 // The weapon with this display name (any case), bare hands when there is none.
 WeaponId weapon_named(const char *name);

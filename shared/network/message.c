@@ -1,6 +1,9 @@
 // The messages: their kinds, which go reliably, and one routine each that reads and
 // writes it.
 
+#include <string.h>
+
+#include "game/systems/systems.h"
 #include "network/network.h"
 
 const bool MSG_RELIABLE[MSG_COUNT] = {
@@ -16,6 +19,7 @@ const bool MSG_RELIABLE[MSG_COUNT] = {
     [MSG_MAP_CHANGE] = true,
     [MSG_MAP_QUERY] = true,
     [MSG_MAP_REPLY] = true,
+    [MSG_WEAPONS] = true,
 };
 
 void msg_kind(NetBuf *b, MsgKind *kind)
@@ -101,4 +105,61 @@ void msg_map_reply(NetBuf *b, MsgMapReply *m)
     net_u16(b, &m->index);
     net_u16(b, &m->count);
     net_string(b, m->map, sizeof m->map);
+}
+
+// The game's own numbers, the base every weapon is written against.
+static const Weapons *weapon_defaults(void)
+{
+    static Weapons defaults;
+    static bool made;
+    if (!made) {
+        weapons_default(&defaults);
+        made = true;
+    }
+    return &defaults;
+}
+
+void msg_weapons(NetBuf *b, MsgWeapons *m)
+{
+    const Weapons *defaults = weapon_defaults();
+    uint32_t first = m->first, count = m->count;
+    net_range(b, &first, WEAPON_COUNT - 1);
+    net_range(b, &count, WEAPON_COUNT);
+    if (first + count > WEAPON_COUNT) {
+        b->bad = true;
+        return;
+    }
+    m->first = (uint8_t)first;
+    m->count = (uint8_t)count;
+    for (uint32_t i = first; i < first + count && netbuf_ok(b); i++) {
+        if (b->mode == NET_READ) m->stats[i] = defaults->info[i].stats; // what isn't said is the game's own
+        netfields_serialize(b, WEAPON_FIELDS, WEAPON_FIELD_COUNT, &m->stats[i], &defaults->info[i].stats);
+    }
+}
+
+int msg_weapons_fit(const WeaponStats stats[WEAPON_COUNT], size_t size, MsgWeapons *out, int max)
+{
+    uint8_t buf[NET_MTU];
+    if (size > sizeof buf) size = sizeof buf;
+    int made = 0;
+    for (int first = 0; first < WEAPON_COUNT && made < max;) {
+        MsgWeapons *m = &out[made];
+        memcpy(m->stats, stats, sizeof m->stats);
+        int count = 1; // as many as fit, one at the least
+        for (int more = 2; first + more <= WEAPON_COUNT; more++) {
+            NetBuf b = netbuf_writer(buf, size);
+            MsgKind kind = MSG_WEAPONS;
+            m->first = (uint8_t)first;
+            m->count = (uint8_t)more;
+            msg_kind(&b, &kind);
+            msg_weapons(&b, m);
+            if (!netbuf_ok(&b)) break;
+            count = more;
+        }
+        m->first = (uint8_t)first;
+        m->count = (uint8_t)count;
+        first += count;
+        made++;
+    }
+    return made;
 }

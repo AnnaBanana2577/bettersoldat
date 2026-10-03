@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "game/systems/systems.h"
+
 bool client_net_init(ClientNet *n)
 {
     *n = (ClientNet){.slot = -1};
@@ -31,6 +33,7 @@ void client_net_connect(ClientNet *n, Console *con, const char *address, uint16_
     n->slot = -1;
     n->had_map = false;
     n->map_changing = n->map_replied = false;
+    n->weapons_heard = false; // a new server says its own
     n->vote = (MsgVote){.kind = VOTE_NONE};
     snprintf(n->address, sizeof n->address, "%s", address);
     n->port = port;
@@ -109,6 +112,16 @@ static void heard(ClientNet *n, Console *con, Game *g, const uint8_t *data, size
         n->map_change = m;
         n->map_changing = true;
         console_print_color(con, HUD_COLOR_GAME, "Next map: %s\n", m.map);
+        break;
+    }
+    case MSG_WEAPONS: { // kept for the worlds to come, and taken by this one at once
+        static MsgWeapons m; // large
+        memcpy(m.stats, n->weapons, sizeof m.stats);
+        msg_weapons(&b, &m);
+        if (!netbuf_done(&b)) return;
+        memcpy(n->weapons, m.stats, sizeof n->weapons);
+        n->weapons_heard = true;
+        if (g) client_net_weapons(n, g);
         break;
     }
     case MSG_MAP_REPLY: {
@@ -199,6 +212,7 @@ void client_net_play(ClientNet *n, int slot)
     n->round = 0;
     n->had_map = n->mapped = false;
     n->map_changing = n->map_replied = false;
+    n->weapons_heard = false; // a new server says its own
     n->inbox_count = 0;
     n->vote = (MsgVote){.kind = VOTE_NONE};
     n->map_reply = (MsgMapReply){0};
@@ -264,4 +278,9 @@ bool client_net_map_replied(ClientNet *n)
     if (!n->map_replied) return false;
     n->map_replied = false;
     return true;
+}
+
+void client_net_weapons(const ClientNet *n, Game *g)
+{
+    if (n->weapons_heard) weapons_apply(&g->ctx.weapons, n->weapons);
 }

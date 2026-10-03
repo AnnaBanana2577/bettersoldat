@@ -2129,6 +2129,7 @@ static bool world_reload(App *app, const char *map)
     render_destroy(&app->render);
     game_close(app);
     if (!game_open(app, false)) return false;
+    client_net_weapons(&app->net, app->game); // the server's weapons mod, over the game's own
     render_init(&app->render, app->assets->value, &app->game->ctx);
     interface_open(app);
     app->previous = app->latest = (TickSnapshot){0};

@@ -25,7 +25,7 @@
 
 #include "game/entities.h"
 
-#define NET_VERSION 17
+#define NET_VERSION 18
 #define NET_DEFAULT_PORT 23073
 #define NET_NAME_SIZE 24 // a player's name, with its terminator
 #define NET_PASSWORD_SIZE 32 // the server's password, with its terminator (sv_password, cl_password)
@@ -157,6 +157,7 @@ typedef enum MsgKind {
     MSG_MAP_CHANGE,   // server -> client: the round is over; the next map, and the ticks until it
     MSG_MAP_QUERY,    // client -> server: the name of the server's map list's n-th map, for the map window
     MSG_MAP_REPLY,    // server -> client: that name, and how many the list holds
+    MSG_WEAPONS,      // server -> client: the weapons' numbers (a weapons mod), on joining and as they change
     MSG_COUNT,
 } MsgKind;
 
@@ -244,6 +245,15 @@ typedef struct MsgChat {
     char text[NET_TEXT_SIZE];
 } MsgChat;
 
+// The weapons' numbers, as a server's weapons mod has them: those of `count` weapons from
+// `first` (by WeaponId), each written as what differs from the game's own (weapons_default),
+// so a server with no mod says next to nothing and one with a full mod takes two or three
+// messages to fit the datagram (msg_weapons_fit). A client takes them over its defaults.
+typedef struct MsgWeapons {
+    uint8_t first, count;
+    WeaponStats stats[WEAPON_COUNT]; // by WeaponId; those in the range are the message's
+} MsgWeapons;
+
 // The kind, first in every message; reading one past the table is bad.
 void msg_kind(NetBuf *b, MsgKind *kind);
 void msg_hello(NetBuf *b, MsgHello *m);
@@ -255,3 +265,11 @@ void msg_map(NetBuf *b, MsgMap *m);
 void msg_map_change(NetBuf *b, MsgMapChange *m);
 void msg_map_query(NetBuf *b, MsgMapQuery *m);
 void msg_map_reply(NetBuf *b, MsgMapReply *m);
+void msg_weapons(NetBuf *b, MsgWeapons *m);
+// The whole set of weapons as messages that each fit `size` bytes: each message's range
+// in turn, into `out` (as many as `max`); how many it took.
+int msg_weapons_fit(const WeaponStats stats[WEAPON_COUNT], size_t size, MsgWeapons *out, int max);
+
+// A weapon's numbers as the wire and a weapons mod name them, for the delta and the mod.
+extern const NetField WEAPON_FIELDS[];
+extern const int WEAPON_FIELD_COUNT;

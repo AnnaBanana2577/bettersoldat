@@ -173,3 +173,21 @@ const NetField MATCH_FIELDS[] = {
     NETFIELD(Match, counter, NET_I, COUNTER),
 };
 const int MATCH_COUNT = sizeof MATCH_FIELDS / sizeof MATCH_FIELDS[0];
+
+const NetField WEAPON_FIELDS[] = {
+    NETFIELD(WeaponStats, damage, NET_F32, 0),
+    NETFIELD(WeaponStats, fire_interval, NET_I, 32),
+    NETFIELD(WeaponStats, ammo, NET_I, 32),
+    NETFIELD(WeaponStats, reload_time, NET_I, 32),
+    NETFIELD(WeaponStats, speed, NET_F32, 0),
+    NETFIELD(WeaponStats, startup, NET_I, 32),
+    NETFIELD(WeaponStats, bink, NET_I, 32),
+    NETFIELD(WeaponStats, movement_acc, NET_F32, 0),
+    NETFIELD(WeaponStats, spread, NET_F32, 0),
+    NETFIELD(WeaponStats, push, NET_F32, 0),
+    NETFIELD(WeaponStats, inherit, NET_F32, 0),
+    NETFIELD(WeaponStats, mod_head, NET_F32, 0),
+    NETFIELD(WeaponStats, mod_chest, NET_F32, 0),
+    NETFIELD(WeaponStats, mod_legs, NET_F32, 0),
+};
+const int WEAPON_FIELD_COUNT = sizeof WEAPON_FIELDS / sizeof WEAPON_FIELDS[0];
