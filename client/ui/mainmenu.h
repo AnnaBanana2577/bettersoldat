@@ -12,7 +12,8 @@
 // line. The widgets are immediate: each draw lays the page out again and acts on the
 // click, the wheel and the keys the events recorded since, so there is no widget tree
 // to keep. The mouse, the keys (arrows, Enter, Escape, Tab) and a game controller's pad
-// all work it: the sidebar picks the page, and the page's widgets take the focus in turn.
+// all work it: the rail down the left picks the page (the name is written at its top,
+// in the menu's own faces), and the page's widgets take the focus in turn.
 
 #include <SDL.h>
 
@@ -28,7 +29,7 @@ typedef enum MainPage { MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_PLAYER, MAIN_C
 #define MAINMENU_POPUP_ITEMS 16
 #define MAINMENU_SEARCH 32
 
-typedef enum MainZone { MAIN_ZONE_TABS, MAIN_ZONE_CONTENT } MainZone; // the top bar's tabs, or the page
+typedef enum MainZone { MAIN_ZONE_RAIL, MAIN_ZONE_CONTENT } MainZone; // the rail's items, or the page
 
 typedef enum MainPopupKind { MAIN_POPUP_NONE, MAIN_POPUP_LIST, MAIN_POPUP_COLOR } MainPopupKind;
 
@@ -53,8 +54,8 @@ typedef enum ServerSort { SERVER_SORT_PLAYERS, SERVER_SORT_NAME, SERVER_SORT_MOD
 typedef struct MainMenu {
     bool shown;
     MainPage page;
-    MainZone zone;                      // where the keys are: the tabs, or the page
-    int side;                           // the top bar's item with the keys
+    MainZone zone;                      // where the keys are: the rail, or the page
+    int side;                           // the rail's item with the keys: the pages, then Resume and Quit
     int nav;                            // the page's widget with the keys, in their order
     bool keys_used;                     // the keys moved the focus since the mouse last moved: it shows
     Vec2 last_cursor;
@@ -66,6 +67,8 @@ typedef struct MainMenu {
     bool scroll_follow;                 // the keys moved the focus: the page scrolls to it
     bool mouse_down;                    // the left button, for a slider's drag
     int drag;                           // the slider being dragged, -1 for none
+    int scroll_drag;                    // the scrollbar being dragged (the page's, a list's), -1 for none
+    float scroll_grab;                  // where on its knob it was taken, from the knob's top
     MainPopup popup;
     int picked_owner, picked;           // a list's choice, for its widget to take on its next draw
     char focus_cvar[CONSOLE_NAME_SIZE]; // the text field with the keyboard: the cvar it edits, empty for none
@@ -85,10 +88,7 @@ typedef struct MainMenu {
     char search[MAINMENU_SEARCH];       // the server list's filter, by name or map
     char command[256];                  // for the app to run; empty for none
     double time;                        // seconds, for the caret's blink
-    float switch_pos;                   // the Play/Settings switch's thumb, 0 on Play to 1 on Settings, as it slides
-    double switch_time;                 // when it last moved
     bool joined;                        // a server has us: Resume, and Escape, go back to it
-    GfxTexture wordmark;                // the name, drawn; none: it is written instead
     bool connect_asked;                 // Connect was pressed: the console's word on it shows under it
 } MainMenu;
 
@@ -111,9 +111,5 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
 // A command the menu asked for since last taken: true, with it, once.
 bool mainmenu_take_command(MainMenu *m, char *out, size_t size);
 
-// The menu on `page`, the sidebar with the keys.
+// The menu on `page`, the rail with the keys.
 void mainmenu_open_page(MainMenu *m, MainPage page);
-
-// The menu's art (interface-gfx/wordmark.png under `assets`), and its going.
-void mainmenu_load(MainMenu *m, const char *assets);
-void mainmenu_unload(MainMenu *m);

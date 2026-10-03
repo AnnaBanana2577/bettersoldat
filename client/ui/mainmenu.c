@@ -15,64 +15,93 @@
 #define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
 #endif
 
+// The layout, in the HUD's units (480 tall): the rail down the left, and the page
+// beside it with its header (the title and a line under it), its body, and its footer
+// (what the page says of where it stands, and its one button), all on one ground.
 #define VIEW_H 480.0f
-#define PANEL_TOP 80.0f   // the page's panel, under the top bar and the tabs
-#define BODY_TOP 94.0f
-#define ACTION_H 54.0f    // the action bar along the bottom
-#define PANEL_BOTTOM (VIEW_H - ACTION_H - 10)
-#define BODY_BOTTOM (PANEL_BOTTOM - 12)
-#define ACTION_CY (VIEW_H - ACTION_H / 2)
-#define BIG_H 34.0f       // the action bar's button
+#define RAIL_W 148.0f
+#define EDGE 14.0f        // the panel's distance from the rail and the window's edges
+#define PAD 18.0f         // inside the panel
+#define PANEL_X (RAIL_W + EDGE)
+#define PANEL_TOP EDGE
+#define PANEL_BOTTOM (VIEW_H - EDGE)
+#define HEADER_H 58.0f
+#define FOOTER_H 50.0f
+#define BODY_TOP (PANEL_TOP + HEADER_H + 10)
+#define BODY_BOTTOM (PANEL_BOTTOM - FOOTER_H - 8)
+#define ACTION_CY (PANEL_BOTTOM - FOOTER_H / 2)
+#define BIG_H 30.0f       // the footer's button
 #define ROW_H 26.0f
-#define SECTION_H 28.0f
-#define CTRL_H 20.0f     // a field, a list's box, a chip
+#define SECTION_H 30.0f
+#define CTRL_H 22.0f      // a field, a list's box, a chip, a small button
+#define RADIUS 4.0f       // every control's corners
 #define POPUP_ROW 20.0f
 #define SCROLL_STEP 30.0f
 
-// The look: steel and night for the ground, and one accent, the wordmark's ember (its
-// glow's rust, #BB5211, brought up to be seen on the dark and toward red): the main buttons, the chosen
-// tab, the server picked, where the keys are, what is being set.
+// The look: night and steel for the ground, white for what is read, and one accent,
+// ember, kept for what acts or is chosen: the main button, the page in the rail, the
+// server picked, where the keys are, what is being set. Nothing else is coloured.
 static const Rgba ACCENT = {232, 80, 30, 255}; // #E8501E
 static const Rgba ACCENT_HOT = {242, 112, 66, 255};
 static const Rgba ACCENT_SOFT = {232, 80, 30, 38};
-static const Rgba TEXT = {232, 236, 242, 255};
-static const Rgba MUTED = {140, 150, 168, 255};
-static const Rgba FAINT = {92, 100, 118, 255};
-static const Rgba PANEL = {22, 28, 40, 176};
-static const Rgba SIDEBAR = {11, 14, 20, 205}; // the top bar and the action bar
-static const Rgba CONTROL = {30, 37, 52, 255};
-static const Rgba CONTROL_HOT = {41, 50, 70, 255};
-static const Rgba TYPING = {16, 21, 31, 255};
-static const Rgba TRACK = {52, 60, 79, 255};
-static const Rgba LINE = {255, 255, 255, 18};
-static const Rgba HOVER = {255, 255, 255, 12};
-static const Rgba WELL = {0, 0, 0, 60};
+static const Rgba TEXT = {236, 239, 244, 255};
+static const Rgba MUTED = {146, 155, 172, 255};
+static const Rgba FAINT = {94, 102, 120, 255};
+static const Rgba SURFACE = {14, 17, 25, 222}; // the one ground the rail and the page share
+static const Rgba DIVIDER = {255, 255, 255, 24};
+static const Rgba CONTROL = {28, 34, 47, 255};
+static const Rgba CONTROL_HOT = {38, 46, 63, 255};
+static const Rgba TYPING = {12, 15, 22, 255};
+static const Rgba TRACK = {48, 56, 74, 255};
+static const Rgba BORDER = {255, 255, 255, 22}; // the hairline round a control
+static const Rgba LINE = {255, 255, 255, 14};
+static const Rgba HOVER = {255, 255, 255, 10};
+static const Rgba WELL = {0, 0, 0, 70};
 static const Rgba GOOD = {111, 208, 140, 255};
 static const Rgba WARN = {236, 192, 84, 255};
 static const Rgba BAD = {232, 85, 74, 255};
 
-// The menu's type: the HUD's faces at the menu's own sizes, which follow the window as
-// the HUD's do (FONT_BIG does not, so it is not used here).
+// The menu's type: four roles, each a face at a size that follows the window, with the
+// space between its letters. Play for what is read, its Bold for emphasis, Russo One
+// (wide, square) for the titles, and Black Ops One, a stencil, for the name alone; the
+// capitals are tracked out, as small capitals are.
 typedef struct Font {
     FontStyleId id;
     float scale;
+    float tracking; // em
 } Font;
-static const Font F_TINY = {FONT_SMALLEST, 1.0f};
-static const Font F_BODY = {FONT_SMALL, 1.0f};
-static const Font F_BOLD = {FONT_SMALL_BOLD, 1.0f};
-static const Font F_LABEL = {FONT_SMALL, 1.12f};
-static const Font F_NAV = {FONT_SMALL, 1.22f};
-static const Font F_BUTTON = {FONT_SMALL_BOLD, 1.12f};
-static const Font F_BIG = {FONT_SMALL_BOLD, 1.4f};
-static const Font F_GROUP = {FONT_SMALL_BOLD, 1.35f};
-static const Font F_CARD = {FONT_MENU, 0.95f};
-static const Font F_TITLE = {FONT_MENU, 1.45f};
-static const Font F_LOGO = {FONT_MENU, 1.3f};
+static const Font F_TINY = {FONT_UI, 0.82f, 0};
+static const Font F_BODY = {FONT_UI, 0.95f, 0};
+static const Font F_BOLD = {FONT_UI_BOLD, 0.95f, 0};
+static const Font F_LABEL = {FONT_UI, 1.0f, 0};
+static const Font F_NAV = {FONT_UI, 1.0f, 0};
+static const Font F_BUTTON = {FONT_UI_BOLD, 0.95f, 0.02f};
+static const Font F_BIG = {FONT_UI_BOLD, 1.0f, 0.12f};
+static const Font F_SECTION = {FONT_UI_BOLD, 0.8f, 0.16f};
+static const Font F_GROUP = {FONT_UI_BOLD, 0.7f, 0.24f}; // the rail's group labels: smaller and fainter than its items
+static const Font F_SUBTITLE = {FONT_UI, 0.95f, 0};
+static const Font F_TITLE = {FONT_DISPLAY, 1.25f, 0.01f};
+static const Font F_LOGO = {FONT_LOGO, 1.9f, 0.03f};
+static const Font F_LOGO_SUB = {FONT_UI_BOLD, 0.78f, 0}; // its tracking is worked out to fit under the name
 
-static void font_use(Font f) { text_style_scaled(f.id, f.scale); }
+static void font_use(Font f)
+{
+    text_style_scaled(f.id, f.scale);
+    text_tracking(f.tracking);
+}
 
-// The sidebar: the pages under their groups, play first.
-static const char *const PAGE_NAMES[MAIN_PAGE_COUNT] = {"Servers", "Direct", "Local", "Player", "Controls", "Options", "Graphics"};
+// The rail: the pages under their groups, play first.
+static const char *const PAGE_NAMES[MAIN_PAGE_COUNT] = {"Servers", "Join by address", "Local play", "Player", "Controls", "Options", "Graphics"};
+static const char *const PAGE_TITLES[MAIN_PAGE_COUNT] = {"Servers", "Join by address", "Local play", "Player", "Controls", "Options", "Graphics"};
+static const char *const PAGE_LINES[MAIN_PAGE_COUNT] = {
+    "The games being played now, from the lobby.",
+    "Connect to a server you know the address of.",
+    "Host a game on this machine, against bots or for friends on your network.",
+    "Your name, and how your soldier looks and what it carries.",
+    "The keys. Click a binding, then press the new key; Escape cancels.",
+    "Sound, the mouse, the interface and the connection.",
+    "The window, and what is drawn of the world.",
+};
 
 // --- drawing ------------------------------------------------------------------------
 
@@ -113,6 +142,23 @@ static void rrect(float x, float y, float w, float h, float r, Rgba color)
 }
 
 static void circle(float x, float y, float r, Rgba color) { rrect(x - r, y - r, 2 * r, 2 * r, r, color); }
+
+// One window pixel in units, for the hairlines: set as each draw begins.
+static float hairline = 1.0f;
+
+// A box with its corners rounded by `r`: `fill` inside a hairline of `border`.
+static void box_r(float x, float y, float w, float h, float r, Rgba fill, Rgba border)
+{
+    float b = hairline;
+    rrect(x, y, w, h, r, border);
+    rrect(x + b, y + b, w - 2 * b, h - 2 * b, r - b, fill);
+}
+
+// A control's box: the corners RADIUS, as every control's are.
+static void box(float x, float y, float w, float h, Rgba fill, Rgba border) { box_r(x, y, w, h, RADIUS, fill, border); }
+
+// A line one window pixel thick, across from `x0` to `x1` at `y`.
+static void rule(float x0, float x1, float y, Rgba color) { rect(x0, y, x1, y + hairline, color); }
 
 // A small triangle pointing down (a list's box, a column sorted downwards) or up.
 static void chevron(float x, float y, float size, bool down, Rgba color)
@@ -325,7 +371,40 @@ static bool nav_focused(Ui *ui, int id, float y, float h)
 
 static void focus_ring(const Ui *ui, bool focused, float x, float y, float w, float h, float r)
 {
-    if (focused && ui->show_focus) rrect(x - 2, y - 2, w + 4, h + 4, r + 2, with_alpha(ACCENT, 150));
+    if (focused && ui->show_focus) rrect(x - 2, y - 2, w + 4, h + 4, r + 2, with_alpha(ACCENT, 170));
+}
+
+// The scrollbars: the page's, and the lists' own.
+enum { SCROLL_PAGE, SCROLL_SERVERS, SCROLL_MAPS };
+#define SCROLL_W 3.0f
+#define SCROLL_HIT 16.0f // the bar is thin; the mouse gets more
+
+// A scrollbar's mouse: the bar `track` tall from `top` at `x`, its knob `knob` tall at
+// `pos` (0 to 1) of the way down. A press on the knob holds it; one on the track beside
+// it brings the knob there and holds on. The position, moved as the mouse drags. Called
+// before whatever lies under the bar, so the press is the bar's.
+static float scroll_take(Ui *ui, int id, float x, float top, float track, float knob, float pos)
+{
+    MainMenu *m = ui->m;
+    float run = track - knob, hit_x = x - (SCROLL_HIT - SCROLL_W) / 2;
+    if (run <= 0) return pos;
+    float knob_y = top + run * pos;
+    if (ui->click && over(ui, hit_x, top, SCROLL_HIT, track)) {
+        ui->click = false;
+        m->scroll_drag = id;
+        m->scroll_grab = inside(ui->cursor, hit_x, knob_y, SCROLL_HIT, knob) ? ui->cursor.y - knob_y : knob / 2;
+    }
+    if (m->scroll_drag == id && ui->held) {
+        pos = clampf((ui->cursor.y - m->scroll_grab - top) / run, 0, 1);
+        m->scroll_follow = false;
+    }
+    return pos;
+}
+
+static void scroll_draw(const Ui *ui, int id, float x, float top, float track, float knob, float pos)
+{
+    bool active = ui->m->scroll_drag == id || over(ui, x - (SCROLL_HIT - SCROLL_W) / 2, top, SCROLL_HIT, track);
+    rrect(x, top + (track - knob) * pos, SCROLL_W, knob, SCROLL_W / 2, active ? MUTED : FAINT);
 }
 
 // A row of the column: its box, whether it is in view, focused, under the cursor. The
@@ -348,25 +427,25 @@ static Row row(Ui *ui, float h, bool focusable)
     }
     r.hot = r.shown && focusable && over(ui, r.x, r.y, r.w, h);
     if (r.shown && r.focused && ui->show_focus) {
-        rrect(r.x, r.y + 1, r.w, h - 2, 5, ACCENT_SOFT);
-        rrect(r.x, r.y + 6, 3, h - 12, 1.5f, ACCENT);
+        rrect(r.x, r.y + 1, r.w, h - 2, RADIUS, ACCENT_SOFT);
+        rrect(r.x, r.y + 6, 2, h - 12, 1, ACCENT);
     } else if (r.hot) {
-        rrect(r.x, r.y + 1, r.w, h - 2, 5, HOVER);
+        rrect(r.x, r.y + 1, r.w, h - 2, RADIUS, HOVER);
     }
     return r;
 }
 
 static void gap(Ui *ui, float h) { ui->y += h; }
 
-// A heading over the rows that follow, a rule after it.
+// A heading over the rows that follow: small tracked capitals, a rule after them.
 static void section(Ui *ui, const char *title)
 {
     Row r = row(ui, SECTION_H, false);
     if (!r.shown) return;
-    float cy = r.y + r.h - 9;
-    text_mid(F_BOLD, title, r.x + 2, cy, ACCENT);
-    float tw = width_of(F_BOLD, title);
-    rect(r.x + tw + 10, cy, r.x + r.w, cy + 1, LINE);
+    float cy = r.y + r.h - 10;
+    text_mid(F_SECTION, title, r.x + 2, cy, MUTED);
+    float tw = width_of(F_SECTION, title);
+    rule(r.x + tw + 12, r.x + r.w, cy, LINE);
 }
 
 // Where a row's control goes: on its right, half of it at most.
@@ -376,7 +455,7 @@ static float ctrl_y(const Row *r) { return r->y + (r->h - CTRL_H) / 2; }
 
 static void row_label(const Row *r, const char *text)
 {
-    text_fit(F_LABEL, text, r->x + 12, r->y + r->h / 2, r->w - ctrl_w(r) - 28, TEXT);
+    text_fit(F_LABEL, text, r->x + 10, r->y + r->h / 2, r->w - ctrl_w(r) - 28, TEXT);
 }
 
 // --- the popups ---------------------------------------------------------------------
@@ -578,7 +657,7 @@ static void picker_draw(const Ui *ui)
     PickerParts k = picker_parts(p);
     bool unset = p->clearable && color_unset(ui->con, p->cvar);
     Rgba now = hsv_to_rgb(p->hue, p->sat, p->val);
-    text_mid(F_BOLD, "COLOUR", k.sq_x, p->y + PICK_HEAD / 2 + 1, ACCENT);
+    text_mid(F_SECTION, "COLOUR", k.sq_x, p->y + PICK_HEAD / 2 + 1, MUTED);
     char hex[16];
     snprintf(hex, sizeof hex, unset ? "none" : "#%02X%02X%02X", now.r, now.g, now.b);
     float hw = width_of(F_BODY, hex);
@@ -628,7 +707,7 @@ static void picker_draw(const Ui *ui)
     }
     if (p->clearable) {
         bool hot = p->hover == SWATCH_COUNT;
-        rrect(k.sq_x, k.clear_y, p->w - 2 * PICK_PAD, PICK_CLEAR - 4, 4, hot ? CONTROL_HOT : CONTROL);
+        box(k.sq_x, k.clear_y, p->w - 2 * PICK_PAD, PICK_CLEAR - 4, hot ? CONTROL_HOT : CONTROL, BORDER);
         text_mid(F_BODY, unset ? "None (the art's own)  *" : "None (the art's own)", k.sq_x + 8, k.clear_y + (PICK_CLEAR - 4) / 2,
                  hot ? TEXT : MUTED);
     }
@@ -689,15 +768,15 @@ static void popup_draw(const Ui *ui)
 {
     const MainPopup *p = &ui->m->popup;
     if (p->kind == MAIN_POPUP_NONE) return;
-    rrect(p->x + 2, p->y + 4, p->w, p->h, 7, (Rgba){0, 0, 0, 110}); // its shadow
-    rrect(p->x, p->y, p->w, p->h, 6, (Rgba){26, 30, 42, 252});
+    rrect(p->x + 2, p->y + 4, p->w, p->h, RADIUS + 2, (Rgba){0, 0, 0, 120}); // its shadow
+    box(p->x, p->y, p->w, p->h, (Rgba){22, 26, 37, 253}, (Rgba){255, 255, 255, 34});
     if (p->kind == MAIN_POPUP_COLOR) {
         picker_draw(ui);
         return;
     }
     for (int i = 0; i < p->count; i++) {
         float y = p->y + 4 + (float)i * POPUP_ROW;
-        if (i == p->hover && !p->locked[i]) rrect(p->x + 4, y, p->w - 8, POPUP_ROW, 4, ACCENT_SOFT);
+        if (i == p->hover && !p->locked[i]) rrect(p->x + 4, y, p->w - 8, POPUP_ROW, RADIUS, ACCENT_SOFT);
         char text[64];
         snprintf(text, sizeof text, "%s%s", p->names[i], p->locked[i] ? " (locked)" : "");
         text_fit(F_BODY, text, p->x + 12, y + POPUP_ROW / 2, p->w - 24, p->locked[i] ? FAINT : i == p->hover ? TEXT : MUTED);
@@ -718,9 +797,9 @@ static int take_picked(Ui *ui, int id)
 // A switch: on, the accent, its knob to the right.
 static void switch_draw(float x, float cy, bool on, bool hot)
 {
-    Rgba track = on ? (hot ? ACCENT_HOT : ACCENT) : hot ? (Rgba){86, 93, 114, 255} : TRACK;
-    rrect(x, cy - 8, 32, 16, 8, track);
-    circle(on ? x + 24 : x + 8, cy, 6, TEXT);
+    Rgba track = on ? (hot ? ACCENT_HOT : ACCENT) : hot ? (Rgba){70, 80, 102, 255} : TRACK;
+    rrect(x, cy - 7, 30, 14, 7, track);
+    circle(on ? x + 23 : x + 7, cy, 5, TEXT);
 }
 
 // A cvar of 0 and 1, the whole row a switch.
@@ -736,9 +815,9 @@ static void toggle(Ui *ui, const char *label, const char *cvar)
     }
     if (!r.shown) return;
     row_label(&r, label);
-    float sx = r.x + r.w - 8 - 32;
+    float sx = r.x + r.w - 8 - 30;
     const char *state = on ? "On" : "Off";
-    text_mid(F_BODY, state, sx - 8 - width_of(F_BODY, state), r.y + r.h / 2, on ? TEXT : MUTED);
+    text_mid(F_BODY, state, sx - 10 - width_of(F_BODY, state), r.y + r.h / 2, on ? TEXT : MUTED);
     switch_draw(sx, r.y + r.h / 2, on, r.hot || r.focused);
 }
 
@@ -771,9 +850,9 @@ static void slider(Ui *ui, const char *label, const char *cvar, float lo, float 
     row_label(&r, label);
     float t = hi > lo ? (v - lo) / (hi - lo) : 0;
     bool active = r.hot || r.focused || m->drag == r.id;
-    rrect(x0, cy - 2, x1 - x0, 4, 2, TRACK);
-    if (t > 0) rrect(x0, cy - 2, (x1 - x0) * t, 4, 2, active ? ACCENT_HOT : ACCENT);
-    circle(x0 + (x1 - x0) * t, cy, active ? 7.0f : 6.0f, TEXT);
+    rrect(x0, cy - 1.5f, x1 - x0, 3, 1.5f, TRACK);
+    if (t > 0) rrect(x0, cy - 1.5f, (x1 - x0) * t, 3, 1.5f, active ? ACCENT_HOT : ACCENT);
+    circle(x0 + (x1 - x0) * t, cy, active ? 6.0f : 5.0f, TEXT);
     char shown[32];
     if (integer) snprintf(shown, sizeof shown, fmt, (int)lroundf(v));
     else snprintf(shown, sizeof shown, fmt, (double)v);
@@ -806,12 +885,12 @@ static int select_box(Ui *ui, const char *label, const char *const *names, const
     if (open) popup_fill_list(&m->popup, names, locked, count); // what is locked may change with the rest
     if (!r.shown) return picked;
     row_label(&r, label);
-    rrect(cx, cy, cw, CTRL_H, 4, r.hot || open ? CONTROL_HOT : CONTROL);
+    box(cx, cy, cw, CTRL_H, r.hot || open ? CONTROL_HOT : CONTROL, open ? with_alpha(ACCENT, 200) : BORDER);
     char text[64];
     snprintf(text, sizeof text, "%s%s", current >= 0 && current < count ? names[current] : "",
              locked && current >= 0 && current < count && locked[current] ? " (locked)" : "");
     text_fit(F_BODY, text, cx + 8, cy + CTRL_H / 2, cw - 30, TEXT);
-    chevron(cx + cw - 12, cy + CTRL_H / 2, 7, !open, open ? ACCENT : MUTED);
+    chevron(cx + cw - 11, cy + CTRL_H / 2, 6, !open, open ? ACCENT : MUTED);
     return picked;
 }
 
@@ -858,8 +937,7 @@ static void field_box(Ui *ui, int id, bool focused, float x, float y, float w, c
         begin_edit(ui, key, max);
         typing = true;
     }
-    if (typing) rrect(x - 1, y - 1, w + 2, CTRL_H + 2, 5, ACCENT);
-    rrect(x, y, w, CTRL_H, 4, typing ? TYPING : hot ? CONTROL_HOT : CONTROL);
+    box(x, y, w, CTRL_H, typing ? TYPING : hot ? CONTROL_HOT : CONTROL, typing ? with_alpha(ACCENT, 220) : BORDER);
     const char *value = typing ? m->edit : field_value(ui, key);
     char shown[MAINMENU_EDIT + 4];
     size_t n = strlen(value);
@@ -917,12 +995,12 @@ static void color_row(Ui *ui, const char *label, const char *cvar)
     row_label(&r, label);
     field_box(ui, r.id, false, cx, cy, cw - CTRL_H - 6, cvar, 6, "none", false);
     bool hot = over(ui, sx, cy, CTRL_H, CTRL_H) || open;
-    rrect(sx - 1, cy - 1, CTRL_H + 2, CTRL_H + 2, 5, hot ? ACCENT : (Rgba){255, 255, 255, 60});
+    Rgba edge = hot ? ACCENT : (Rgba){255, 255, 255, 70};
     if (color_unset(ui->con, cvar)) { // no colour: the art's own, a slash through an empty box
-        rrect(sx, cy, CTRL_H, CTRL_H, 4, CONTROL);
-        gfx_draw_line(vec2(sx + 4, cy + CTRL_H - 4), vec2(sx + CTRL_H - 4, cy + 4), 1.5f, BAD);
+        box(sx, cy, CTRL_H, CTRL_H, CONTROL, edge);
+        gfx_draw_line(vec2(sx + 5, cy + CTRL_H - 5), vec2(sx + CTRL_H - 5, cy + 5), 1.5f, BAD);
     } else {
-        rrect(sx, cy, CTRL_H, CTRL_H, 4, with_alpha(cvar_color(ui->con, cvar), 255));
+        box(sx, cy, CTRL_H, CTRL_H, with_alpha(cvar_color(ui->con, cvar), 255), edge);
     }
 }
 
@@ -933,28 +1011,36 @@ static bool button_at(Ui *ui, float x, float y, float w, float h, const char *ca
     int id = nav_next(ui);
     bool focused = nav_focused(ui, id, y, h);
     bool hot = !disabled && over(ui, x, y, w, h);
-    focus_ring(ui, focused, x, y, w, h, 5);
-    Rgba bg = disabled ? (Rgba){40, 44, 56, 160} : primary ? (hot ? ACCENT_HOT : ACCENT) : hot ? CONTROL_HOT : CONTROL;
-    rrect(x, y, w, h, 5, bg);
+    focus_ring(ui, focused, x, y, w, h, RADIUS);
+    if (disabled) box(x, y, w, h, (Rgba){24, 28, 38, 200}, (Rgba){255, 255, 255, 12});
+    else if (primary) rrect(x, y, w, h, RADIUS, hot ? ACCENT_HOT : ACCENT);
+    else box(x, y, w, h, hot ? CONTROL_HOT : CONTROL, hot ? (Rgba){255, 255, 255, 48} : BORDER);
     float tw = width_of(F_BUTTON, caption);
     text_mid(F_BUTTON, caption, x + (w - tw) / 2, y + h / 2, disabled ? FAINT : TEXT);
     bool pressed = take(ui, id, x, y, w, h) || take_enter(ui, focused);
     return pressed && !disabled;
 }
 
-static float button_w(const char *caption) { return maxf(width_of(F_BUTTON, caption) + 32, 84); }
+static float button_w(const char *caption) { return maxf(width_of(F_BUTTON, caption) + 28, 80); }
 
-// A chip that is on or off, as a filter is.
+// A chip that is on or off, as a filter is: a tick box and its name.
 static bool chip(Ui *ui, float x, float y, const char *caption, bool on)
 {
-    float w = width_of(F_BODY, caption) + 26;
+    float w = width_of(F_BODY, caption) + 30;
     int id = nav_next(ui);
     bool focused = nav_focused(ui, id, y, CTRL_H);
     bool hot = over(ui, x, y, w, CTRL_H);
-    focus_ring(ui, focused, x, y, w, CTRL_H, CTRL_H / 2);
-    rrect(x, y, w, CTRL_H, CTRL_H / 2, on ? ACCENT_SOFT : hot ? CONTROL_HOT : CONTROL);
-    circle(x + 10, y + CTRL_H / 2, 3, on ? ACCENT : FAINT);
-    text_mid(F_BODY, caption, x + 18, y + CTRL_H / 2, on ? TEXT : MUTED);
+    focus_ring(ui, focused, x, y, w, CTRL_H, RADIUS);
+    box(x, y, w, CTRL_H, on ? ACCENT_SOFT : hot ? CONTROL_HOT : CONTROL, on ? with_alpha(ACCENT, 120) : BORDER);
+    float bx = x + 8, by = y + CTRL_H / 2 - 5;
+    if (on) {
+        rrect(bx, by, 10, 10, 2.5f, ACCENT);
+        gfx_draw_line(vec2(bx + 2.5f, by + 5), vec2(bx + 4.5f, by + 7.5f), 1.4f, TEXT);
+        gfx_draw_line(vec2(bx + 4.5f, by + 7.5f), vec2(bx + 8, by + 2.5f), 1.4f, TEXT);
+    } else {
+        box_r(bx, by, 10, 10, 2.5f, TYPING, (Rgba){255, 255, 255, 50});
+    }
+    text_mid(F_BODY, caption, x + 22, y + CTRL_H / 2, on ? TEXT : MUTED);
     return take(ui, id, x, y, w, CTRL_H) || take_enter(ui, focused);
 }
 
@@ -965,20 +1051,20 @@ static void footer_text(const Ui *ui, float x, float w, const char *text, Rgba c
     text_fit(F_BODY, text, x, ACTION_CY, w, color);
 }
 
-// The action bar's button, its right edge at `right`: the page's one thing to do (Join,
+// The footer's button, its right edge at `right`: the page's one thing to do (Join,
 // Connect, Play), in the accent when `primary`. `left` gets where it begins, for what
 // goes beside it. True when pressed.
 static bool big_button(Ui *ui, float right, const char *caption, bool primary, bool disabled, float *left)
 {
-    float w = maxf(width_of(F_BIG, caption) + 56, 150), x = right - w, y = ACTION_CY - BIG_H / 2;
+    float w = maxf(width_of(F_BIG, caption) + 52, 130), x = right - w, y = ACTION_CY - BIG_H / 2;
     if (left) *left = x;
     int id = nav_next(ui);
     bool focused = nav_focused(ui, id, y, BIG_H);
     bool hot = !disabled && over(ui, x, y, w, BIG_H);
-    focus_ring(ui, focused, x, y, w, BIG_H, 5);
-    Rgba bg = disabled ? (Rgba){40, 44, 56, 200} : primary ? (hot ? ACCENT_HOT : ACCENT) : hot ? CONTROL_HOT : CONTROL;
-    rrect(x, y, w, BIG_H, 5, bg);
-    if (primary && !disabled) rrect(x, y + BIG_H - 3, w, 3, 1.5f, (Rgba){0, 0, 0, 50}); // a lip under it
+    focus_ring(ui, focused, x, y, w, BIG_H, RADIUS);
+    if (disabled) box(x, y, w, BIG_H, (Rgba){24, 28, 38, 200}, (Rgba){255, 255, 255, 12});
+    else if (primary) rrect(x, y, w, BIG_H, RADIUS, hot ? ACCENT_HOT : ACCENT);
+    else box(x, y, w, BIG_H, hot ? CONTROL_HOT : CONTROL, hot ? (Rgba){255, 255, 255, 48} : BORDER);
     float tw = width_of(F_BIG, caption);
     text_mid(F_BIG, caption, x + (w - tw) / 2, ACTION_CY, disabled ? FAINT : TEXT);
     bool pressed = take(ui, id, x, y, w, BIG_H) || take_enter(ui, focused);
@@ -1113,17 +1199,29 @@ static void join_server(Ui *ui, const BrowserServer *s)
 
 static Rgba ping_color(int ping) { return ping < 80 ? GOOD : ping < 160 ? WARN : BAD; }
 
+// Something is being waited for: a ring of dots at `r` from `x, y`, lit one after another.
+static void spinner(float x, float y, float r, double time)
+{
+    enum { DOTS = 8 };
+    float t = (float)fmod(time * 1.2, 1.0);
+    for (int i = 0; i < DOTS; i++) {
+        float a = 2 * (float)M_PI * (float)i / DOTS, phase = fmodf((float)i / DOTS - t + 1.0f, 1.0f);
+        uint8_t alpha = (uint8_t)(40 + 215 * (1.0f - phase));
+        circle(x + r * sinf(a), y - r * cosf(a), 1.7f, with_alpha(MUTED, alpha));
+    }
+}
+
 // A column's heading, which sorts by it; a second click turns the order.
 static void column_head(Ui *ui, float x, float y, float w, const char *title, ServerSort sort)
 {
     MainMenu *m = ui->m;
     bool sorted = m->server_sort == sort, hot = over(ui, x, y, w, 18);
-    text_mid(F_BOLD, title, x, y + 9, sorted ? TEXT : hot ? MUTED : FAINT);
+    text_mid(F_SECTION, title, x, y + 9, sorted ? TEXT : hot ? MUTED : FAINT);
     if (sorted) {
         // pointing down while the larger come first: the players' natural order, the
         // others' turned
         bool down = sort == SERVER_SORT_PLAYERS ? !m->server_sort_up : m->server_sort_up;
-        chevron(x + width_of(F_BOLD, title) + 8, y + 9, 6, down, ACCENT);
+        chevron(x + width_of(F_SECTION, title) + 8, y + 9, 5, down, ACCENT);
     }
     if (take(ui, -1, x, y, w, 18)) {
         if (sorted) m->server_sort_up = !m->server_sort_up;
@@ -1146,19 +1244,20 @@ static void page_servers(Ui *ui, const Browser *b)
     {
         int id = nav_next(ui);
         bool focused = nav_focused(ui, id, y, CTRL_H);
-        focus_ring(ui, focused, x, y, sw, CTRL_H, 4);
-        field_box(ui, id, focused, x, y, sw, "#search", MAINMENU_SEARCH - 1, "Search", false);
+        focus_ring(ui, focused, x, y, sw, CTRL_H, RADIUS);
+        field_box(ui, id, focused, x, y, sw, "#search", MAINMENU_SEARCH - 1, "Search by name or map", false);
     }
     float cx = x + sw + 10;
     if (chip(ui, cx, y, "Not empty", m->hide_empty)) m->hide_empty = !m->hide_empty;
-    cx += width_of(F_BODY, "Not empty") + 26 + 6;
+    cx += width_of(F_BODY, "Not empty") + 30 + 6;
     if (chip(ui, cx, y, "Not full", m->hide_full)) m->hide_full = !m->hide_full;
-    cx += width_of(F_BODY, "Not full") + 26 + 6;
-    float rw = width_of(F_BUTTON, "Refresh") + 28;
-    if (cx + width_of(F_BODY, "Compatible") + 26 <= x + w - rw - 10)
+    cx += width_of(F_BODY, "Not full") + 30 + 6;
+    float rw = button_w("Refresh");
+    if (cx + width_of(F_BODY, "Compatible") + 30 <= x + w - rw - 10)
         if (chip(ui, cx, y, "Compatible", m->only_compatible)) m->only_compatible = !m->only_compatible;
-    if (button_at(ui, x + w - rw, y, rw, CTRL_H, "Refresh", false, false)) snprintf(m->command, sizeof m->command, "browse");
-    y += CTRL_H + 10;
+    if (button_at(ui, x + w - rw, y, rw, CTRL_H, "Refresh", false, b->state == BROWSER_FETCHING || b->state == BROWSER_QUERYING))
+        snprintf(m->command, sizeof m->command, "browse");
+    y += CTRL_H + 12;
 
     // the columns, from the right: ping, players, map, mode; the name has the rest
     float ping_x = x + w - 46, players_x = ping_x - 86, map_x = players_x - clampf(w * 0.24f, 80, 170), mode_x = map_x - 56;
@@ -1202,8 +1301,13 @@ static void page_servers(Ui *ui, const Browser *b)
         m->wheel = 0;
     }
     m->server_scroll = clampi(m->server_scroll, 0, maxi(n - rows, 0));
-    focus_ring(ui, focused, x, y, w, h, 6);
-    rrect(x, y, w, h, 6, WELL);
+    if (n > rows) { // its bar, dragged: before the rows, so the press is the bar's
+        float track = h - 8, knob = maxf(track * (float)rows / (float)n, 10);
+        float pos = scroll_take(ui, SCROLL_SERVERS, x + w - 6, y + 4, track, knob, (float)m->server_scroll / (float)(n - rows));
+        m->server_scroll = clampi((int)lroundf(pos * (float)(n - rows)), 0, n - rows);
+    }
+    focus_ring(ui, focused, x, y, w, h, RADIUS);
+    box(x, y, w, h, WELL, LINE);
     const BrowserServer *selected = picked_at >= 0 ? &b->servers[order[picked_at]] : NULL;
     for (int row_at = 0; row_at < rows && m->server_scroll + row_at < n; row_at++) {
         int i = m->server_scroll + row_at;
@@ -1211,10 +1315,10 @@ static void page_servers(Ui *ui, const Browser *b)
         float ry = y + 2 + (float)row_at * SERVER_ROW, cy = ry + SERVER_ROW / 2;
         bool picked = i == picked_at, can = joinable(s), hot = over(ui, x, ry, w, SERVER_ROW);
         if (picked) {
-            rrect(x + 2, ry, w - 4, SERVER_ROW, 4, ACCENT_SOFT);
-            rrect(x + 2, ry + 4, 3, SERVER_ROW - 8, 1.5f, ACCENT);
+            rrect(x + 2, ry, w - 4, SERVER_ROW, RADIUS, ACCENT_SOFT);
+            rrect(x + 2, ry + 4, 2, SERVER_ROW - 8, 1, ACCENT);
         } else if (hot) {
-            rrect(x + 2, ry, w - 4, SERVER_ROW, 4, HOVER);
+            rrect(x + 2, ry, w - 4, SERVER_ROW, RADIUS, HOVER);
         }
         Rgba color = can ? TEXT : FAINT, soft = can ? MUTED : FAINT;
         if (s->info.password) padlock(x + 10, cy - 5, soft);
@@ -1237,8 +1341,7 @@ static void page_servers(Ui *ui, const Browser *b)
     }
     if (n > rows) { // where in the list this is
         float track = h - 8, knob = maxf(track * (float)rows / (float)n, 10);
-        float top = y + 4 + (track - knob) * (float)m->server_scroll / (float)(n - rows);
-        rrect(x + w - 6, top, 3, knob, 1.5f, FAINT);
+        scroll_draw(ui, SCROLL_SERVERS, x + w - 6, y + 4, track, knob, (float)m->server_scroll / (float)(n - rows));
     }
 
     // what the list is waiting on, in the list while it has nothing to show
@@ -1255,10 +1358,13 @@ static void page_servers(Ui *ui, const Browser *b)
         else snprintf(status, sizeof status, "%d server%s", n, n == 1 ? "" : "s");
         break;
     }
-    if (n == 0) {
+    if (n == 0) { // the list's empty state: what it is waiting on, with a spinner while it waits
+        bool waiting = b->state == BROWSER_IDLE || b->state == BROWSER_FETCHING || b->state == BROWSER_QUERYING;
         char cut[192];
         fit(F_BODY, cut, sizeof cut, status, w - 40);
-        text_mid(F_BODY, cut, x + (w - width_of(F_BODY, cut)) / 2, y + h / 2, MUTED);
+        float cy = y + h / 2 + (waiting ? 10 : 0);
+        text_mid(F_BODY, cut, x + (w - width_of(F_BODY, cut)) / 2, cy, b->state == BROWSER_FAILED ? WARN : MUTED);
+        if (waiting) spinner(x + w / 2, cy - 24, 9, m->time);
     }
     if (focused && ui->enter) {
         ui->enter = false;
@@ -1280,8 +1386,8 @@ static void page_servers(Ui *ui, const Browser *b)
         else
             snprintf(line, sizeof line, "Runs another version of the game (v%u; this is v%u).", selected->info.protocol, NET_VERSION);
         text_fit(F_BODY, line, x, top + 9, tw, joinable(selected) ? MUTED : WARN);
-    } else {
-        footer_text(ui, x, tw, n ? "Pick a server; a double click joins it." : status, MUTED);
+    } else if (n) {
+        footer_text(ui, x, tw, "Pick a server, or double-click one to join it.", MUTED);
     }
 }
 
@@ -1375,8 +1481,13 @@ static void map_list(Ui *ui, float x, float y, float w, float h, const char (*ma
         m->wheel = 0;
     }
     m->map_scroll = clampi(m->map_scroll, 0, maxi(count - rows, 0));
-    focus_ring(ui, focused, x, y, w, h, 6);
-    rrect(x, y, w, h, 6, WELL);
+    if (count > rows) { // its bar, dragged: before the rows, so the press is the bar's
+        float track = h - 8, knob = maxf(track * (float)rows / (float)count, 10);
+        float pos = scroll_take(ui, SCROLL_MAPS, x + w - 6, y + 4, track, knob, (float)m->map_scroll / (float)(count - rows));
+        m->map_scroll = clampi((int)lroundf(pos * (float)(count - rows)), 0, count - rows);
+    }
+    focus_ring(ui, focused, x, y, w, h, RADIUS);
+    box(x, y, w, h, WELL, LINE);
     const Cvar *cv = cvar_find(ui->con, "sv_maps");
     const char *list = cv ? cv->value : "";
     for (int row_at = 0; row_at < rows; row_at++) {
@@ -1385,13 +1496,15 @@ static void map_list(Ui *ui, float x, float y, float w, float h, const char (*ma
         float ry = y + 2 + (float)row_at * MAP_ROW, cy = ry + MAP_ROW / 2;
         int at = rotation_index(list, maps[i]);
         bool hot = over(ui, x, ry, w, MAP_ROW), cursor = focused && ui->show_focus && i == m->map_cursor;
-        if (cursor) rrect(x + 2, ry, w - 4, MAP_ROW, 4, ACCENT_SOFT);
-        else if (hot) rrect(x + 2, ry, w - 4, MAP_ROW, 4, HOVER);
+        if (cursor) rrect(x + 2, ry, w - 4, MAP_ROW, RADIUS, ACCENT_SOFT);
+        else if (hot) rrect(x + 2, ry, w - 4, MAP_ROW, RADIUS, HOVER);
         // the tick box, the accent when in the rotation
-        rrect(x + 8, cy - 6, 12, 12, 3, at >= 0 ? ACCENT : CONTROL_HOT);
         if (at >= 0) {
+            rrect(x + 8, cy - 6, 12, 12, 3, ACCENT);
             gfx_draw_line(vec2(x + 10.5f, cy), vec2(x + 13, cy + 3), 1.6f, TEXT);
             gfx_draw_line(vec2(x + 13, cy + 3), vec2(x + 18, cy - 3), 1.6f, TEXT);
+        } else {
+            box_r(x + 8, cy - 6, 12, 12, 3, TYPING, (Rgba){255, 255, 255, 50});
         }
         text_fit(F_BODY, maps[i], x + 28, cy, w - 60, at >= 0 ? TEXT : MUTED);
         if (at >= 0) {
@@ -1406,8 +1519,7 @@ static void map_list(Ui *ui, float x, float y, float w, float h, const char (*ma
     }
     if (count > rows) {
         float track = h - 8, knob = maxf(track * (float)rows / (float)count, 10);
-        float top = y + 4 + (track - knob) * (float)m->map_scroll / (float)(count - rows);
-        rrect(x + w - 6, top, 3, knob, 1.5f, FAINT);
+        scroll_draw(ui, SCROLL_MAPS, x + w - 6, y + 4, track, knob, (float)m->map_scroll / (float)(count - rows));
     }
 }
 
@@ -1443,14 +1555,14 @@ static void page_local(Ui *ui, const char *status, bool hosting, const char (*ma
     const Cvar *cv = cvar_find(ui->con, "sv_maps");
     const char *list = cv ? cv->value : "";
     int chosen = rotation_count(list);
-    text_mid(F_BOLD, "MAP ROTATION", lx + 2, ly + SECTION_H - 9, ACCENT);
+    text_mid(F_SECTION, "MAP ROTATION", lx + 2, ly + SECTION_H - 10, MUTED);
     char counted[32];
     snprintf(counted, sizeof counted, chosen ? "%d chosen" : "none chosen", chosen);
-    text_mid(F_BODY, counted, lx + list_w - 4 - width_of(F_BODY, counted), ly + SECTION_H - 9, MUTED);
+    text_mid(F_TINY, counted, lx + list_w - 4 - width_of(F_TINY, counted), ly + SECTION_H - 10, FAINT);
     ly += SECTION_H + 2;
     float lh = ui->bottom - ly - 18;
     map_list(ui, lx, ly, list_w, lh, maps, count);
-    text_fit(F_BODY, chosen ? "Ticked maps play in this order." : "None ticked: the current map plays again and again.", lx + 2,
+    text_fit(F_BODY, chosen ? "Ticked maps play in this order." : "None ticked: the current map repeats.", lx + 2,
              ly + lh + 10, list_w - 4, FAINT);
 
     float bx = x + w;
@@ -1579,15 +1691,16 @@ static void page_player(Ui *ui, const Gostek *gostek, const Context *ctx)
     if (note.shown) text_mid(F_BODY, "Team games dress you in your team's shirt.", note.x + 12, note.y + 11, FAINT);
     ui->w = w;
 
-    // the soldier as dressed, on a stand of its own
+    // the soldier as dressed, on a stand of its own, as large as the stand allows
     float px = x + w - pw, py = BODY_TOP, ph = ui->bottom - BODY_TOP;
-    rrect(px, py, pw, ph, 8, (Rgba){28, 33, 45, 200});
-    float floor_y = py + ph * 0.64f;
+    box(px, py, pw, ph, WELL, LINE);
+    float floor_y = py + ph * 0.74f, scale = clampf(ph / 52.0f, 4.0f, 7.0f);
     char name[64];
     const Cvar *cv = cvar_find(ui->con, "cl_player_name");
-    fit(F_LABEL, name, sizeof name, cv && cv->value[0] ? cv->value : "Major", pw - 20);
-    text_at(F_LABEL, name, px + (pw - width_of(F_LABEL, name)) / 2, py + 16, TEXT);
-    preview(ui, gostek, ctx, vec2(px + pw / 2 - 8, floor_y), 4.0f);
+    fit(F_BOLD, name, sizeof name, cv && cv->value[0] ? cv->value : "Major", pw - 20);
+    text_at(F_BOLD, name, px + (pw - width_of(F_BOLD, name)) / 2, py + 14, TEXT);
+    rrect(px + pw / 2 - 34, floor_y - 2, 60, 5, 2.5f, (Rgba){0, 0, 0, 90}); // the ground under it
+    preview(ui, gostek, ctx, vec2(px + pw / 2 - 2 * scale, floor_y), scale);
 }
 
 // --- the controls -------------------------------------------------------------------
@@ -1662,15 +1775,15 @@ static void bind_row(Ui *ui, int i)
         for (; bound[n] && n + 1 < sizeof key; n++) key[n] = (char)toupper((unsigned char)bound[n]);
         key[n] = '\0';
     }
-    float kw = maxf(width_of(F_BOLD, key) + 18, 56), kx = r.x + r.w - 8 - kw, ky = r.y + (r.h - 18) / 2;
-    text_fit(F_LABEL, CONTROLS[i].label, r.x + 12, r.y + r.h / 2, kx - r.x - 20, TEXT);
+    float kh = 18, kw = maxf(width_of(F_BOLD, key) + 18, 54), kx = r.x + r.w - 8 - kw, ky = r.y + (r.h - kh) / 2;
+    text_fit(F_LABEL, CONTROLS[i].label, r.x + 10, r.y + r.h / 2, kx - r.x - 20, TEXT);
     if (capturing) {
         float pulse = 0.5f + 0.5f * sinf((float)m->time * 6.0f);
-        rrect(kx, ky, kw, 18, 4, with_alpha(ACCENT, (uint8_t)(110 + 120 * pulse)));
+        rrect(kx, ky, kw, kh, RADIUS, with_alpha(ACCENT, (uint8_t)(110 + 120 * pulse)));
     } else {
-        rrect(kx, ky, kw, 18, 4, r.hot ? CONTROL_HOT : CONTROL);
+        box(kx, ky, kw, kh, r.hot ? CONTROL_HOT : CONTROL, r.hot ? (Rgba){255, 255, 255, 48} : BORDER);
     }
-    text_mid(F_BOLD, key, kx + (kw - width_of(F_BOLD, key)) / 2, ky + 9, capturing ? TEXT : bound[0] ? TEXT : FAINT);
+    text_mid(F_BOLD, key, kx + (kw - width_of(F_BOLD, key)) / 2, ky + kh / 2, capturing ? TEXT : bound[0] ? TEXT : FAINT);
 }
 
 static void page_controls(Ui *ui)
@@ -1758,7 +1871,7 @@ static void page_graphics(Ui *ui)
     }
     toggle(ui, "VSync", "r_swapeffect");
     section(ui, "WORLD");
-    toggle(ui, "Scenery", "r_scenery");
+    toggle(ui, "Background scenery", "r_scenery");
     toggle(ui, "Weather", "r_weathereffects");
     toggle(ui, "Bullet trails", "r_trails");
     section(ui, "SKY");
@@ -1799,13 +1912,14 @@ void mainmenu_show(MainMenu *m, bool shown)
     m->shown = shown;
     m->page = MAIN_SERVERS;
     if (shown) snprintf(m->command, sizeof m->command, "browse"); // the list as it is now
-    m->zone = MAIN_ZONE_TABS;
+    m->zone = MAIN_ZONE_RAIL;
     m->side = 0;
     m->nav = 0;
     m->scroll = m->scroll_max = 0;
     m->capturing = -1;
     m->drag = -1;
     m->picked_owner = -1;
+    m->scroll_drag = -1;
     m->clicked = m->mouse_down = false;
     m->key_move = m->key_side = m->key_page = 0;
     m->key_enter = m->key_back = false;
@@ -1949,14 +2063,11 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e)
     }
 }
 
-// The top bar's items, in the keys' order: the pages, then Resume (while a server has
-// us) and Quit.
-static int tab_count(bool joined) { return MAIN_PAGE_COUNT + (joined ? 1 : 0) + 1; }
+// The rail's items, in the keys' order: the pages, then Resume (while a server has us)
+// and Quit.
+static int rail_count(bool joined) { return MAIN_PAGE_COUNT + (joined ? 1 : 0) + 1; }
 
-static MainPage group_first(MainPage page) { return page < MAIN_PLAYER ? MAIN_SERVERS : MAIN_PLAYER; }
-static MainPage group_end(MainPage page) { return page < MAIN_PLAYER ? MAIN_PLAYER : MAIN_PAGE_COUNT; }
-
-static void tab_activate(Ui *ui, int item, bool joined)
+static void rail_activate(Ui *ui, int item, bool joined)
 {
     MainMenu *m = ui->m;
     if (item < MAIN_PAGE_COUNT) {
@@ -1970,11 +2081,11 @@ static void tab_activate(Ui *ui, int item, bool joined)
     }
 }
 
-// The keys while the tabs have them: left and right go along them (a page shown as its
-// tab is reached), down or Enter goes into the page, Escape back to the game. In the
+// The keys while the rail has them: up and down go along it (a page is shown as its
+// item is reached), right or Enter goes into the page, Escape back to the game. In the
 // page, Escape (or up from its first widget) comes back out here; Q and E, or a
 // controller's shoulders, turn the pages from anywhere.
-static void tab_keys(Ui *ui, bool joined)
+static void rail_keys(Ui *ui, bool joined)
 {
     MainMenu *m = ui->m;
     if (ui->page) {
@@ -1986,136 +2097,125 @@ static void tab_keys(Ui *ui, bool joined)
     }
     if (m->zone == MAIN_ZONE_CONTENT) {
         if (ui->back) {
-            m->zone = MAIN_ZONE_TABS;
+            m->zone = MAIN_ZONE_RAIL;
             m->side = (int)m->page;
             ui->back = false;
         }
         return;
     }
-    int count = tab_count(joined);
+    int count = rail_count(joined);
     m->side = clampi(m->side, 0, count - 1);
-    if (ui->side) {
-        m->side = clampi(m->side + ui->side, 0, count - 1);
+    if (ui->move) {
+        m->side = clampi(m->side + ui->move, 0, count - 1);
         if (m->side < MAIN_PAGE_COUNT && (int)m->page != m->side) go_page(m, (MainPage)m->side);
     }
-    if (ui->enter || (ui->move > 0 && m->side < MAIN_PAGE_COUNT)) tab_activate(ui, m->side, joined);
+    if (ui->enter || (ui->side > 0 && m->side < MAIN_PAGE_COUNT)) rail_activate(ui, m->side, joined);
     if (ui->back && joined) mainmenu_show(m, false); // back to the game; with none, nothing to go back to
     ui->enter = ui->back = false;
     ui->side = ui->move = 0;
 }
 
-// A small button of the top bar, outside the page's order (the tabs' keys reach it).
-static bool bar_button(Ui *ui, float x, float y, float w, float h, const char *caption, bool primary, bool focused)
+// A button of the rail, outside the page's order (the rail's keys reach it).
+static bool rail_button(Ui *ui, float x, float y, float w, float h, const char *caption, bool primary, bool focused)
 {
     bool hot = over(ui, x, y, w, h);
-    focus_ring(ui, focused, x, y, w, h, 5);
-    rrect(x, y, w, h, 5, primary ? (hot ? ACCENT_HOT : ACCENT) : hot ? CONTROL_HOT : CONTROL);
+    focus_ring(ui, focused, x, y, w, h, RADIUS);
+    if (primary) rrect(x, y, w, h, RADIUS, hot ? ACCENT_HOT : ACCENT);
+    else box(x, y, w, h, hot ? CONTROL_HOT : CONTROL, hot ? (Rgba){255, 255, 255, 48} : BORDER);
     float tw = width_of(F_BUTTON, caption);
     text_mid(F_BUTTON, caption, x + (w - tw) / 2, y + h / 2, TEXT);
     return take(ui, -1, x, y, w, h);
 }
 
-// A tab: its caption, lit when chosen, under the cursor or the keys; a bar under it when
-// chosen. True when clicked.
-static bool tab(Ui *ui, Font font, float x, float cy, const char *caption, bool chosen, bool focused, float bar_y, float bar_h)
+// The name, written: SOLDAT in the stencil face, and RELOADED under it in the accent,
+// its letters spaced out to the same width. The height it took.
+static float logo(float x, float y, float width)
 {
-    float w = width_of(font, caption), h = line_height(font) + 10;
-    bool hot = over(ui, x - 6, cy - h / 2, w + 12, h);
-    focus_ring(ui, focused, x - 6, cy - h / 2, w + 12, h, 4);
-    text_mid(font, caption, x, cy, chosen || hot ? TEXT : MUTED);
-    if (chosen) rrect(x, bar_y, w, bar_h, bar_h / 2, ACCENT);
-    return take(ui, -1, x - 6, cy - h / 2, w + 12, h);
+    Font name = F_LOGO; // as large as the rail allows
+    float w = width_of(name, "SOLDAT");
+    if (w > width) {
+        name.scale *= width / w;
+        w = width_of(name, "SOLDAT");
+    }
+    text_at(name, "SOLDAT", x, y, TEXT);
+    float h = line_height(name);
+    Font sub = F_LOGO_SUB;
+    float w0 = width_of(sub, "RELOADED");
+    sub.tracking = 0.1f;
+    float w1 = width_of(sub, "RELOADED"); // the width grows evenly with the tracking
+    sub.tracking = w1 > w0 ? 0.1f * (w - w0) / (w1 - w0) : 0;
+    float sy = y + h - 5;
+    text_at(sub, "RELOADED", x, sy, ACCENT);
+    return sy + line_height(sub) - y;
 }
 
-#define TOP_H 44.0f
-#define SUB_CY 62.0f
-#define EDGE 16.0f
+#define RAIL_ITEM_H 24.0f
+#define RAIL_PAD 10.0f
 
-// The bar across the top: the wordmark, the groups (Play, Settings), and on the right
-// the version, Resume and Quit; under it, the group's pages.
-static void top_bar(Ui *ui, bool joined, float content_x)
+// The rail down the left, on the same ground as the page, a divider between: the name,
+// the pages under their groups, and at the bottom Resume (while a server has us), Quit
+// and the version.
+static void rail(Ui *ui, bool joined)
 {
     MainMenu *m = ui->m;
-    float W = ui->game_width;
-    rect(0, 0, W, TOP_H, SIDEBAR);
-    rect(0, TOP_H - 1, W, TOP_H, LINE);
+    rect(RAIL_W - hairline, 0, RAIL_W, VIEW_H, DIVIDER);
 
-    float x = EDGE;
-    if (m->wordmark.handle) {
-        float h = TOP_H - 16, w = h * (float)m->wordmark.width / (float)m->wordmark.height, y = 8;
-        Rgba white = {255, 255, 255, 255};
-        GfxVertex v[4] = {gfx_vertex(x, y, 0, 0, white), gfx_vertex(x + w, y, 1, 0, white), gfx_vertex(x + w, y + h, 1, 1, white),
-                          gfx_vertex(x, y + h, 0, 1, white)};
-        gfx_draw_quad(m->wordmark, v);
-        x += w + 26;
-    } else {
-        text_mid(F_TITLE, "SOLDAT", x, TOP_H / 2, TEXT);
-        x += width_of(F_TITLE, "SOLDAT") + 26;
-    }
+    float x = RAIL_PAD + 8, y = 24;
+    y += logo(x, y, RAIL_W - 2 * x) + 28;
 
-    // the groups, as a segmented switch in the middle of the bar, iOS's way: equal
-    // segments on a rounded track, and a raised thumb under the chosen one that slides
-    // across when the other is chosen, its name in the accent (the pages under it are
-    // underlined instead, so the two rows read apart). A click goes to the group's first page.
-    static const char *const GROUPS[] = {"PLAY", "SETTINGS"};
-    float seg = maxf(width_of(F_GROUP, GROUPS[0]), width_of(F_GROUP, GROUPS[1])) + 36, h = 28, pad = 2;
-    float track_w = 2 * seg + 2 * pad, track_h = h + 2 * pad;
-    float tx = maxf((W - track_w) / 2, x), ty = (TOP_H - track_h) / 2;
-    float target = group_first(m->page) == MAIN_PLAYER ? 1.0f : 0.0f;
-    { // the thumb eases toward its segment, quick at first and settling, frame rate aside
-        float dt = clampf((float)(m->time - m->switch_time), 0, 0.1f);
-        m->switch_time = m->time;
-        m->switch_pos += (target - m->switch_pos) * (1.0f - expf(-dt * 16.0f));
-        if (fabsf(target - m->switch_pos) < 0.002f) m->switch_pos = target;
-    }
-    rrect(tx, ty, track_w, track_h, 9, (Rgba){255, 255, 255, 12});
-    float thumb_x = tx + pad + m->switch_pos * seg;
-    rrect(thumb_x, ty + pad + 2, seg, h, 7, (Rgba){0, 0, 0, 70});            // its shadow
-    rrect(thumb_x, ty + pad, seg, h, 7, (Rgba){58, 66, 86, 255});             // the thumb
-    rrect(thumb_x + 1, ty + pad, seg - 2, 1, 0.5f, (Rgba){255, 255, 255, 30}); // its lit top edge
-    for (int g = 0; g < 2; g++) {
-        MainPage first = g == 0 ? MAIN_SERVERS : MAIN_PLAYER;
-        bool chosen = group_first(m->page) == first;
-        float sx = tx + pad + (float)g * seg, y = ty + pad;
-        bool hot = !chosen && over(ui, sx, y, seg, h);
-        // the name's colour follows the thumb across, so it warms as the thumb arrives
-        float lit = 1.0f - minf(fabsf(m->switch_pos - (float)g), 1.0f);
-        Rgba rest = hot ? TEXT : MUTED;
-        Rgba color = {(uint8_t)(rest.r + (ACCENT.r - rest.r) * lit), (uint8_t)(rest.g + (ACCENT.g - rest.g) * lit),
-                      (uint8_t)(rest.b + (ACCENT.b - rest.b) * lit), 255};
-        float tw = width_of(F_GROUP, GROUPS[g]);
-        text_mid(F_GROUP, GROUPS[g], sx + (seg - tw) / 2, TOP_H / 2, color);
-        if (take(ui, -1, sx, y, seg, h) && !chosen) {
-            go_page(m, first);
-            m->zone = MAIN_ZONE_TABS;
+    bool focus_rail = m->zone == MAIN_ZONE_RAIL;
+    static const struct {
+        const char *name;
+        MainPage first, end;
+    } GROUPS[] = {{"PLAY", MAIN_SERVERS, MAIN_PLAYER}, {"SETTINGS", MAIN_PLAYER, MAIN_PAGE_COUNT}};
+    for (size_t g = 0; g < sizeof GROUPS / sizeof GROUPS[0]; g++) {
+        // the group's label: small, faint and set apart, so it reads as a heading and not
+        // as one more item
+        text_at(F_GROUP, GROUPS[g].name, x, y, with_alpha(FAINT, 200));
+        y += line_height(F_GROUP) + 6;
+        for (int i = GROUPS[g].first; i < (int)GROUPS[g].end; i++) {
+            bool chosen = m->page == (MainPage)i, focused = focus_rail && m->side == i;
+            float ix = RAIL_PAD, iw = RAIL_W - 2 * RAIL_PAD;
+            bool hot = over(ui, ix, y, iw, RAIL_ITEM_H);
+            if (chosen) {
+                rrect(ix, y, iw, RAIL_ITEM_H, RADIUS, ACCENT_SOFT);
+                rrect(ix, y + 5, 2, RAIL_ITEM_H - 10, 1, ACCENT);
+            } else if (hot) {
+                rrect(ix, y, iw, RAIL_ITEM_H, RADIUS, HOVER);
+            }
+            focus_ring(ui, focused, ix, y, iw, RAIL_ITEM_H, RADIUS);
+            text_fit(F_NAV, PAGE_NAMES[i], x, y + RAIL_ITEM_H / 2, iw - 16, chosen || hot ? TEXT : MUTED);
+            if (take(ui, -1, ix, y, iw, RAIL_ITEM_H)) {
+                go_page(m, (MainPage)i);
+                m->zone = MAIN_ZONE_RAIL;
+            }
+            y += RAIL_ITEM_H + 2;
         }
+        y += 18;
     }
 
-    // on the right: Quit, Resume, and the version
-    bool focus_tabs = m->zone == MAIN_ZONE_TABS;
-    float bh = 24, by = (TOP_H - bh) / 2, right = W - EDGE;
-    float qw = width_of(F_BUTTON, "Quit") + 28;
-    if (bar_button(ui, right - qw, by, qw, bh, "Quit", false, focus_tabs && m->side == tab_count(joined) - 1))
-        snprintf(m->command, sizeof m->command, "quit");
-    right -= qw + 8;
-    if (joined) {
-        float rw = width_of(F_BUTTON, "Resume") + 28;
-        if (bar_button(ui, right - rw, by, rw, bh, "Resume", true, focus_tabs && m->side == MAIN_PAGE_COUNT)) mainmenu_show(m, false);
-        right -= rw + 8;
-    }
+    // the bottom, from the bottom up: the version, Quit, and Resume
     const char *version = "v" SOLDATRELOADED_VERSION;
-    text_mid(F_BODY, version, right - 6 - width_of(F_BODY, version), TOP_H / 2, FAINT);
-
-    // the group's pages
-    float px = content_x;
-    for (int i = group_first(m->page); i < (int)group_end(m->page); i++) {
-        bool focused = focus_tabs && m->side == i;
-        if (tab(ui, F_NAV, px, SUB_CY, PAGE_NAMES[i], m->page == (MainPage)i, focused, SUB_CY + 10, 2)) {
-            go_page(m, (MainPage)i);
-            m->zone = MAIN_ZONE_TABS;
-        }
-        px += width_of(F_NAV, PAGE_NAMES[i]) + 26;
+    float vy = VIEW_H - 14 - line_height(F_TINY);
+    text_at(F_TINY, version, x, vy, FAINT);
+    float bw = RAIL_W - 2 * RAIL_PAD, by = vy - 10 - CTRL_H;
+    if (rail_button(ui, RAIL_PAD, by, bw, CTRL_H, "Quit", false, focus_rail && m->side == rail_count(joined) - 1))
+        snprintf(m->command, sizeof m->command, "quit");
+    if (joined) {
+        by -= CTRL_H + 8;
+        if (rail_button(ui, RAIL_PAD, by, bw, CTRL_H, "Resume", true, focus_rail && m->side == MAIN_PAGE_COUNT)) mainmenu_show(m, false);
     }
+}
+
+// The panel's header: the page's title, and a line on what it is for.
+static void header(const Ui *ui, float x, float w)
+{
+    MainPage page = ui->m->page;
+    float y = PANEL_TOP + 13;
+    text_at(F_TITLE, PAGE_TITLES[page], x, y, TEXT);
+    y += line_height(F_TITLE) + 4;
+    text_fit(F_SUBTITLE, PAGE_LINES[page], x, y + line_height(F_SUBTITLE) / 2, w, MUTED);
+    rule(x, x + w, PANEL_TOP + HEADER_H, LINE);
 }
 
 // A glow: `color` at the middle, fading to nothing at `r`.
@@ -2188,14 +2288,14 @@ static void background(float W, double time)
     shade(0, VIEW_H * 0.75f, W, VIEW_H, none, dark, false);
 }
 
-// What the action bar says on the pages with nothing of their own to say there.
+// What the footer says on the pages with nothing of their own to say there.
 static const char *page_note(MainPage page)
 {
     switch (page) {
-    case MAIN_CONTROLS: return "Click a binding, then press the new key. Escape cancels.";
+    case MAIN_CONTROLS:
     case MAIN_PLAYER:
     case MAIN_OPTIONS:
-    case MAIN_GRAPHICS: return "Saved to config.cfg when the game closes.";
+    case MAIN_GRAPHICS: return "Changes take effect at once, and are saved to config.cfg when the game closes.";
     default: return "";
     }
 }
@@ -2214,7 +2314,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     m->joined = joined;
     if (fabsf(cursor.x - m->last_cursor.x) > 0.01f || fabsf(cursor.y - m->last_cursor.y) > 0.01f || m->clicked) m->keys_used = false;
     m->last_cursor = cursor;
-    if (!m->mouse_down) m->drag = -1;
+    if (!m->mouse_down) m->drag = m->scroll_drag = -1;
     Ui ui = {.m = m,
              .con = con,
              .hud = hud,
@@ -2239,19 +2339,20 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     text_align(TEXT_TOP);
     text_scale(1.0f);
 
+    hairline = pixel;
     background(game_width, time);
+    rect(0, 0, game_width, VIEW_H, SURFACE); // one ground for the rail and the page, the embers faint through it
 
-    // the page's panel: from the left, as wide as it wants, the background beside it on a wide screen
-    float w = minf(game_width - 2 * EDGE - 28, 780), x = EDGE + 14;
+    // the page beside the rail: as wide as the window allows, up to a width the rows
+    // read well at
+    float panel_w = minf(game_width - EDGE - PANEL_X, 740);
+    float x = PANEL_X + PAD, w = panel_w - 2 * PAD;
 
     popup_input(&ui); // the popup first: it has the keys and the clicks while open
-    tab_keys(&ui, joined);
-    top_bar(&ui, joined, x);
-
-    rrect(x - 14, PANEL_TOP, w + 28, PANEL_BOTTOM - PANEL_TOP, 8, PANEL);
-    // the action bar along the bottom
-    rect(0, VIEW_H - ACTION_H, game_width, VIEW_H, SIDEBAR);
-    rect(0, VIEW_H - ACTION_H, game_width, VIEW_H - ACTION_H + 1, LINE);
+    rail_keys(&ui, joined);
+    rail(&ui, joined);
+    header(&ui, x, w);
+    rule(x, x + w, PANEL_BOTTOM - FOOTER_H, LINE); // the footer's
 
     m->scroll = clampf(m->scroll, 0, m->scroll_max);
     ui.x = x;
@@ -2275,37 +2376,34 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     ui.x = x;
     ui.w = w;
     const char *note = page_note(m->page);
-    if (note[0]) { // a settings page: a note, and the way back to the game while there is one
-        ui.scrolling = false;
-        float left = x + w;
-        if (joined && big_button(&ui, x + w, "RESUME", true, false, &left)) mainmenu_show(m, false);
-        footer_text(&ui, x, left - x - 16, note, MUTED);
-    }
+    if (note[0]) footer_text(&ui, x, w, note, MUTED); // a settings page: a note on where its changes go
 
     // what no widget took: up and down move the focus along the page, up from its
-    // first widget back out to the tabs
+    // first widget back out to the rail
     if (m->zone == MAIN_ZONE_CONTENT) {
         if (ui.move < 0 && m->nav == 0) {
-            m->zone = MAIN_ZONE_TABS;
+            m->zone = MAIN_ZONE_RAIL;
             m->side = (int)m->page;
         } else if (ui.move) {
             m->nav += ui.move;
         }
     }
     m->nav = clampi(m->nav, 0, maxi(ui.nav_count - 1, 0));
-    if (m->zone == MAIN_ZONE_CONTENT && ui.nav_count == 0) m->zone = MAIN_ZONE_TABS;
+    if (m->zone == MAIN_ZONE_CONTENT && ui.nav_count == 0) m->zone = MAIN_ZONE_RAIL;
 
     // the page's scroll, by the wheel over it; its bar, when there is more than shows
     m->scroll_max = maxf(ui.extent - BODY_BOTTOM, 0);
-    if (m->wheel && m->popup.kind == MAIN_POPUP_NONE && inside(cursor, x - 14, BODY_TOP, w + 28, BODY_BOTTOM - BODY_TOP)) {
+    if (m->wheel && m->popup.kind == MAIN_POPUP_NONE && inside(cursor, PANEL_X, BODY_TOP, panel_w, BODY_BOTTOM - BODY_TOP)) {
         m->scroll -= (float)m->wheel * SCROLL_STEP;
         m->scroll_follow = false;
     }
     m->scroll = clampf(m->scroll, 0, m->scroll_max);
-    if (m->scroll_max > 0) {
+    if (m->scroll_max > 0) { // its bar, beside the page, dragged
         float track = BODY_BOTTOM - BODY_TOP, view = track / (track + m->scroll_max);
-        float knob = maxf(track * view, 16), top = BODY_TOP + (track - knob) * (m->scroll / m->scroll_max);
-        rrect(x + w + 6, top, 3, knob, 1.5f, FAINT);
+        float knob = maxf(track * view, 16), bar_x = x + w + 8;
+        float pos = scroll_take(&ui, SCROLL_PAGE, bar_x, BODY_TOP, track, knob, m->scroll / m->scroll_max);
+        m->scroll = pos * m->scroll_max;
+        scroll_draw(&ui, SCROLL_PAGE, bar_x, BODY_TOP, track, knob, pos);
     }
     m->wheel = 0;
 
@@ -2315,6 +2413,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     }
 
     text_shadow(0, 0, (Rgba){0});
+    text_tracking(0);
     interface_draw_pointer(hud, cursor, cvar_color(con, "cl_cursor_color"),
                            clampi(cvar_int(con, "cl_cursor_size", 50, 200), 50, 200) / 100.0f);
 }
@@ -2330,18 +2429,6 @@ bool mainmenu_take_command(MainMenu *m, char *out, size_t size)
 void mainmenu_open_page(MainMenu *m, MainPage page)
 {
     go_page(m, page);
-    m->zone = MAIN_ZONE_TABS;
+    m->zone = MAIN_ZONE_RAIL;
 }
 
-void mainmenu_load(MainMenu *m, const char *assets)
-{
-    char path[512];
-    snprintf(path, sizeof path, "%s/interface-gfx/wordmark.png", assets);
-    if (!gfx_texture_load(&m->wordmark, path, NULL)) {
-        fprintf(stderr, "no %s: the menu writes the name instead\n", path);
-        return;
-    }
-    gfx_texture_mipmap(m->wordmark); // drawn far smaller than it is
-}
-
-void mainmenu_unload(MainMenu *m) { gfx_texture_delete(&m->wordmark); }

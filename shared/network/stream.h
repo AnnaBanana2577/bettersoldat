@@ -197,8 +197,10 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
 
 // Before the client's tick: the view clock set against the newest snapshot, keeping at
 // least `interp` ticks behind it; the snapshot of the tick on show applied to the world
-// (the match, the things, `me`'s served half, and its owned half only on a new life);
-// every other soldier taken from its newest word and stepped on to the tick on show,
+// (the match, the things, `me`'s served half, and its owned half only on a new life),
+// or with none for that tick the newest before it not yet applied, so the server's
+// word never waits on the clock; every other soldier taken from its newest word and
+// stepped on to the tick on show,
 // so a word that comes late moves nothing that stepping had right; and the server's
 // events due by the tick into the game's mailbox.
 void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp);

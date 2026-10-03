@@ -13,7 +13,7 @@
 -- package's own directory once unpacked, so nothing is passed on the command line.
 
 set_project("soldatreloaded")
-set_version("0.7.0")
+set_version("0.7.1")
 
 add_rules("mode.debug", "mode.release")
 set_languages("c11")
@@ -207,7 +207,8 @@ task("dist")
         -- the art and the sound: the client's alone
         local function server_needs(name)
             return not (name:endswith("-gfx") or name == "textures" or name == "custom-interfaces" or name == "sfx"
-                        or name == "icon.png" or name == "icon.ico" or name == "play-regular.ttf" or name == "OFL.txt"
+                        or name == "icon.png" or name == "icon.ico" or name == "play-regular.ttf" or name == "play-bold.ttf"
+                        or name == "russo-one.ttf" or name == "black-ops-one.ttf" or name == "OFL.txt"
                         or name == "mod.ini")
         end
 
@@ -236,7 +237,14 @@ task("dist")
             -- absolute: the archiver runs inside distdir so the directory's name is the archive's root
             local archivefile = path.absolute(path.join(distdir, name .. extension))
             os.tryrm(archivefile)
-            archive.archive(archivefile, name, {curdir = distdir})
+            if extension == ".tar.gz" then
+                -- tar itself, not xmake's archiver: that gzips its own output file (empty, just
+                -- made) before the tar, so the package comes out as two gzip members, an
+                -- empty one first, which the launchers shipped before 0.7.2 can't read
+                os.vrunv("tar", {"-czf", archivefile, name}, {curdir = distdir})
+            else
+                archive.archive(archivefile, name, {curdir = distdir})
+            end
             print("packaged " .. archivefile)
             return archivefile
         end
