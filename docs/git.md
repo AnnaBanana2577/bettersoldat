@@ -74,9 +74,10 @@ art sit beside the executable: the packages `xmake dist` makes (see xmake.lua). 
 alone is not a release until those exist.
 
 Players start the launcher (`Soldat Reloaded.exe`, `soldatreloaded-launcher` on
-Linux), which keeps their copy at the newest release (launcher/update.h) and starts
-`client.exe`; `server.exe` is the dedicated server. Each release carries, for each
-platform, the game (`soldatreloaded-<version>-<platform>`, what a player downloads)
+Linux), at the top of the install, which keeps their copy at the newest release
+(launcher/update.h) and starts `bin/client.exe`; `bin/server.exe` is the dedicated
+server, and the server package's own sits at its top, the one executable there. Each
+release carries, for each platform, the game (`soldatreloaded-<version>-<platform>`, what a player downloads)
 and a manifest naming every file of an install by its hash; the launcher compares the
 install with it and downloads the small update package (`-patch`, the executables and
 `config/defaults/`) when only those differ, and the full package when anything in

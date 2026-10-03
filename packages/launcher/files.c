@@ -40,6 +40,18 @@ bool files_enter_own_directory(void)
 #endif
 }
 
+bool files_enter_install(const char *marker)
+{
+    if (files_exists(marker)) return true;
+    if (!files_enter_own_directory()) return false;
+    if (files_exists(marker)) return true;
+#ifdef _WIN32
+    return SetCurrentDirectoryW(L"..") != 0 && files_exists(marker);
+#else
+    return chdir("..") == 0 && files_exists(marker);
+#endif
+}
+
 bool files_exists(const char *path)
 {
 #ifdef _WIN32

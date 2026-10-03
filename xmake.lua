@@ -185,24 +185,27 @@ target("tests")
 -- install holds is runtime/'s data/, mods/default/, config/defaults/ and scripts/, flat,
 -- which is how the game expects to find them (docs/git.md, Releases).
 --
---   soldatreloaded          the game, a player's: everything, the launcher and the server
---                           among it, so anyone can host; and manifest.txt, what it all is
---   soldatreloaded-patch    the client's top-level files and config/defaults/: the
---                           executables, version.txt, manifest.txt and the licence. What the
---                           launcher downloads when nothing in data/, mods/default/ or
---                           scripts/ changed
---   soldatreloaded-server   a headless server's: data/ and no mods/, no art and no sound
+--   soldatreloaded          the game, a player's: everything, the server among it so anyone
+--                           can host; the launcher, what a player starts, at the top, and
+--                           the client and the server in bin/; and manifest.txt, what it
+--                           all is
+--   soldatreloaded-patch    the launcher, bin/, the top-level files and config/defaults/:
+--                           version.txt, manifest.txt and the licence. What the launcher
+--                           downloads when nothing in data/, mods/default/ or scripts/
+--                           changed
+--   soldatreloaded-server   a headless server's: the server at the top, its one executable;
+--                           data/ and no mods/, no art and no sound
 --
 -- `xmake dist` packs them in that order, into build/release/, beside the manifest the
 -- launcher reads; the formats are launcher/manifest.h's, what the launcher does with them
 -- update.h's. The full package leaves its manifest in build/.xpack/manifest.txt for the
 -- update package, which carries the same, and for latest-<plat>-<arch>.txt.
-local function release_package(name, suffix)
+local function release_package(name, suffix, bindir)
     xpack(name)
         set_formats(is_plat("windows", "mingw") and "zip" or "targz") -- the mingw cross-build's exes are Windows'
         set_basename("soldatreloaded-$(version)-$(plat)-$(arch)" .. suffix)
         set_prefixdir("soldatreloaded-$(version)-$(plat)-$(arch)" .. suffix)
-        set_bindir(".")
+        set_bindir(bindir)
         add_installfiles("license.md")
         add_installfiles("runtime/(config/defaults/**)") -- the game's; the player's own are made by the game
         -- A tar.gz packed again by tar itself. xmake's archiver gzips its own output file
@@ -228,7 +231,7 @@ local function finish_install(manifest)
 
         local function finish(installdir, version, executables, linux)
             io.writefile(path.join(installdir, "version.txt"), version .. "\n")
-            for _, file in ipairs(os.files(path.join(installdir, "*.pdb"))) do
+            for _, file in ipairs(os.files(path.join(installdir, "**.pdb"))) do
                 os.rm(file)
             end
             for _, name in ipairs(linux and executables or {}) do
@@ -260,9 +263,18 @@ local function finish_install(manifest)
             os.cp(stash, path.join(installdir, "manifest.txt"))
         end
 
+        -- the game's executables in bin/, where there is one; the launcher, what a player
+        -- starts, at the top, out of it
         local executables = {}
+        local bindir = path.relative(package:bindir(), package:installdir()):gsub("\\", "/")
         for _, target in ipairs(package:targets()) do
-            table.insert(executables, target:filename())
+            local file = target:filename()
+            if target:name() == "launcher" and bindir ~= "." then
+                batchcmds:mv(path.join(package:bindir(), file), path.join(package:installdir(), file))
+                table.insert(executables, file)
+            else
+                table.insert(executables, bindir == "." and file or bindir .. "/" .. file)
+            end
         end
         batchcmds:call(finish, {package:installdir(), package:version(), executables, not package:is_plat("windows", "mingw")})
         if manifest == "write" then
@@ -275,7 +287,7 @@ end
 
 -- The icons: the .ico only builds the executables, which hold it on Windows; the .png is
 -- the window's and the menu entry's elsewhere (launcher/desktop.h), and a server has neither.
-release_package("soldatreloaded", "")
+release_package("soldatreloaded", "", "bin")
     add_targets("client", "server", "launcher")
     add_installfiles("runtime/(data/**)|icon.ico|icon.png")
     if not is_plat("windows") then
@@ -285,11 +297,11 @@ release_package("soldatreloaded", "")
     add_installfiles("runtime/(scripts/**)")      -- the server's scripts, the example among them
     finish_install("write")
 
-release_package("soldatreloaded-patch", "-patch")
+release_package("soldatreloaded-patch", "-patch", "bin")
     add_targets("client", "server", "launcher")
     finish_install("copy")
 
-release_package("soldatreloaded-server", "-server")
+release_package("soldatreloaded-server", "-server", ".")
     add_targets("server")
     add_installfiles("runtime/(data/**)|icon.ico|icon.png")
     add_installfiles("runtime/(scripts/**)")

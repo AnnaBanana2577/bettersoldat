@@ -51,6 +51,6 @@ bool manifest_safe_path(const char *path);
 
 // Whether a path is at the top of the install, with no directory.
 bool manifest_top_level(const char *path);
-// Whether the update package holds a path: the top-level files and config/ (the defaults
-// the game ships there, which change with the code, not with the art).
+// Whether the update package holds a path: the top-level files, the executables in bin/ and
+// config/ (the defaults the game ships there, which change with the code, not with the art).
 bool manifest_in_update(const char *path);

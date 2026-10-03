@@ -46,10 +46,10 @@
 #define NOGDI
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#define CLIENT_FILE "client.exe" // xmake.lua's client target
+#define CLIENT_FILE "bin\\client.exe" // xmake.lua's client target, in bin/ beside the launcher
 #else
 #include <unistd.h>
-#define CLIENT_FILE "client"
+#define CLIENT_FILE "bin/client"
 // the window's icon, which on Windows is the executable's own (data/icon.ico)
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG

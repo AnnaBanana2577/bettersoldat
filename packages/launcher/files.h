@@ -14,6 +14,13 @@
 // it couldn't be found or entered.
 bool files_enter_own_directory(void);
 
+// The install as the working directory, for a program in its bin/: the current directory
+// if it holds `marker` (data, beside which the game's files are), as when the launcher or
+// xmake run starts it; else the executable's own directory or the one above it, as when
+// it is started from bin/ itself (a double click, `cd bin && ./server`). False if none
+// holds it.
+bool files_enter_install(const char *marker);
+
 bool files_exists(const char *path);
 // The size of a regular file; false if there is none.
 bool files_size(const char *path, uint64_t *size);

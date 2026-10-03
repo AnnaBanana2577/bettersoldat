@@ -5,15 +5,17 @@
 //
 //   latest-<platform>.txt   its manifest (manifest.h): the version, the two packages
 //                           and every file of an install, with their hashes
-//   <stem>-patch.<ext>      the update package: the files at the top of an install
-//                           (the executables, version.txt, manifest.txt, the licence)
+//   <stem>-patch.<ext>      the update package: the launcher and the files at the top of an
+//                           install (version.txt, manifest.txt, the licence), the game's
+//                           executables in bin/, and config/defaults/
 //   <stem>.<ext>            the full package: everything a player unpacks
 //
 // The launcher fetches <releases>/latest/download/latest-<platform>.txt, which GitHub
 // redirects to the newest release's copy, and compares the install with it: a file
 // missing or of the wrong size, or whose hash isn't the manifest's, has to come down.
-// When all of those are at the top of the install or in config/ the update package will
-// do; when any is in data/, mods/default/ or scripts/ it takes the full one. The package is downloaded into
+// When all of those are at the top of the install, in bin/ or in config/ the update
+// package will do; when any is in data/, mods/default/ or scripts/ it takes the full one.
+// The package is downloaded into
 // .update/, checked against its hash, unpacked, each file checked again, and only then
 // moved into place, version.txt last, so an update cut off part way is finished on the
 // next start. A file already the release's is left where it is, so the launcher is
@@ -25,8 +27,8 @@
 //
 // Hashing every asset on every start would take a second, so the install's
 // manifest.txt is trusted for what it vouches for: a file it lists with the release's
-// hash, and of that size, is taken as it is. The top-level files are always hashed, and
-// `thorough` hashes the rest too.
+// hash, and of that size, is taken as it is. What the update package carries (the
+// top-level files, bin/ and config/) is always hashed, and `thorough` hashes the rest too.
 
 #include <stdbool.h>
 #include <stdint.h>

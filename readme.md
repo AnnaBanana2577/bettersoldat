@@ -76,9 +76,9 @@ isn't a mod's to change: everyone in a game has to have the same.
 ## Running a server
 
 The release's `-server` package is a headless server: the game, the maps and nothing to
-draw. Unpack it and run `server` (`server.exe` on Windows); its settings are the `sv_*`
-lines of `config/defaults/settings.server.cfg`, set otherwise in your own
-`config/server/settings.cfg`, or given on the command line:
+draw. Unpack it and run `server` (`server.exe` on Windows; in the game's own folder it is
+`bin/server`); its settings are the `sv_*` lines of `config/defaults/settings.server.cfg`,
+set otherwise in your own `config/server/settings.cfg`, or given on the command line:
 
 ```
 server +sv_hostname "My server" +sv_maps "ctf_Ash ctf_Kampf" +sv_password secret

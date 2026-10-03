@@ -8,7 +8,8 @@
 //   host     the world, the line, the players, the bots and the rounds (host.c)
 //   lobby    the heartbeat that lists it with the lobby, while sv_public is on (lobby.c)
 //
-// It runs from the directory that holds config/ and data/, as the client does.
+// It runs from the directory that holds config/ and data/, as the client does: the
+// install, above bin/ where it sits, found from wherever it is started (files_enter_install).
 //
 //   server [+map <name>] [+sv_port <port>] [+<cvar> <value>] [+<command> <args>...]
 
@@ -22,6 +23,7 @@
 #include "game/game.h"
 #include "game/systems/systems.h"
 #include "host.h"
+#include "files.h" // the launcher's, to find the install from bin/
 #include "http.h"
 #include "lobby.h"
 #include "script.h"
@@ -403,6 +405,8 @@ static HostSettings settings_from_cvars(const Server *sv)
 int main(int argc, char *argv[])
 {
     Server sv = {0};
+    // its files beside it, from the install: started from bin/ itself, the folder above
+    if (!files_enter_install("data")) fprintf(stderr, "no data/ here, beside the executable or above it\n");
 
     if (!console_open(&sv, argc, argv)) return 1;
     if (!net_init()) {

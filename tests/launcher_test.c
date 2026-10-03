@@ -309,11 +309,12 @@ static void update_tests(void)
     // version 1, installed by hand: the game's defaults, and beside them the player's own
     // config, the server owner's lists and a config.cfg from before config/
     const Source v1[] = {{"version.txt", "1\n"}, {"game.exe", "old game"}, {"data/a.txt", "art"},
-                         {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "defaults"}};
-    release(SCRATCH "/releases", "1", v1, 5);
+                         {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "defaults"},
+                         {"bin/server.exe", "old server"}};
+    release(SCRATCH "/releases", "1", v1, 6);
     files_remove_tree(SCRATCH "/install");
     files_make_directory(SCRATCH "/install");
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         char path[256];
         snprintf(path, sizeof path, SCRATCH "/install/%s", v1[i].path);
         files_write(path, v1[i].text, strlen(v1[i].text));
@@ -333,17 +334,19 @@ static void update_tests(void)
           "an install with no manifest.txt that matches the release is current (%d: %s)", outcome, error);
     CHECK(files_exists(UPDATE_MANIFEST), "and is given its manifest.txt");
 
-    // version 2 changes the game and a default: the update package
+    // version 2 changes the game, a program in bin/ and a default: the update package
     const Source v2[] = {{"version.txt", "2\n"}, {"game.exe", "new game"}, {"data/a.txt", "art"},
-                         {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "new defaults"}};
+                         {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "new defaults"},
+                         {"bin/server.exe", "new server"}};
     enter(here);
-    release(SCRATCH "/releases", "2", v2, 5);
+    release(SCRATCH "/releases", "2", v2, 6);
     remove(SCRATCH "/releases/download/v2/pkg-full.zip"); // so only the update package can serve
     enter(SCRATCH "/install");
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_UPDATED && !strcmp(version, "2"), "a new game comes in the update package (%d: %s)",
           outcome, error);
-    CHECK(holds("game.exe", "new game") && holds("version.txt", "2\n"), "the new game, and its version");
+    CHECK(holds("game.exe", "new game") && holds("bin/server.exe", "new server") && holds("version.txt", "2\n"),
+          "the new game, the program in bin/, and its version");
     CHECK(holds("config/defaults/settings.client.cfg", "new defaults"), "and the new defaults with it");
     CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.cfg", "my bans") &&
               holds("mods/mine/sfx/ak74-fire.wav", "my gun") &&
@@ -356,9 +359,9 @@ static void update_tests(void)
     // version 3 changes an asset: the full package
     const Source v3[] = {{"version.txt", "3\n"}, {"game.exe", "new game"}, {"data/a.txt", "new art"},
                          {"data/b.txt", "more art"}, {"data/c.txt", "a new map"},
-                         {"config/defaults/settings.client.cfg", "new defaults"}};
+                         {"config/defaults/settings.client.cfg", "new defaults"}, {"bin/server.exe", "new server"}};
     enter(here);
-    release(SCRATCH "/releases", "3", v3, 6);
+    release(SCRATCH "/releases", "3", v3, 7);
     enter(SCRATCH "/install");
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_UPDATED && holds("data/a.txt", "new art") && holds("data/c.txt", "a new map") &&
@@ -406,9 +409,9 @@ static void update_tests(void)
     files_write("soldatreloaded.exe.old", "oldest game", 11);
     const Source v4[] = {{"version.txt", "4\n"}, {"client.exe", "new game"}, {"data/a.txt", "new art"},
                          {"data/b.txt", "more art"}, {"data/c.txt", "a new map"},
-                         {"config/defaults/settings.client.cfg", "new defaults"}};
+                         {"config/defaults/settings.client.cfg", "new defaults"}, {"bin/server.exe", "new server"}};
     enter(here);
-    release(SCRATCH "/releases", "4", v4, 6);
+    release(SCRATCH "/releases", "4", v4, 7);
     enter(SCRATCH "/install");
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_UPDATED && holds("client.exe", "new game"), "a renamed game comes in (%d: %s)", outcome,

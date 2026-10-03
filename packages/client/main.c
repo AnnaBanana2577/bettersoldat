@@ -2197,6 +2197,8 @@ static void net_take(App *app)
 int main(int argc, char *argv[])
 {
     App app = {0};
+    // its files beside it, from the install: started from bin/ itself, the folder above
+    if (!files_enter_install("data")) fprintf(stderr, "no data/ here, beside the executable or above it\n");
 
     if (!client_net_init(&app.net)) fprintf(stderr, "ENet wouldn't start: no connecting\n");
     app.net.tap = demo_tap; // what the line brings, into the demo being recorded
