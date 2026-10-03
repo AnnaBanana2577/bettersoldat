@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "game/systems/systems.h"
 #include "gfx/font.h"
@@ -91,12 +92,13 @@ static void font_use(Font f)
 }
 
 // The rail: the pages under their groups, play first.
-static const char *const PAGE_NAMES[MAIN_PAGE_COUNT] = {"Servers", "Join by address", "Local play", "Player", "Controls", "Options", "Graphics"};
-static const char *const PAGE_TITLES[MAIN_PAGE_COUNT] = {"Servers", "Join by address", "Local play", "Player", "Controls", "Options", "Graphics"};
+static const char *const PAGE_NAMES[MAIN_PAGE_COUNT] = {"Servers", "Join by address", "Local play", "Demos", "Player", "Controls", "Options", "Graphics"};
+static const char *const PAGE_TITLES[MAIN_PAGE_COUNT] = {"Servers", "Join by address", "Local play", "Demos", "Player", "Controls", "Options", "Graphics"};
 static const char *const PAGE_LINES[MAIN_PAGE_COUNT] = {
     "The games being played now, from the lobby.",
     "Connect to a server you know the address of.",
     "Host a game on this machine, against bots or for friends on your network.",
+    "Games recorded here, to watch again.",
     "Your name, and how your soldier looks and what it carries.",
     "The keys. Click a binding, then press the new key; Escape cancels.",
     "Sound, the mouse, the interface and the connection.",
@@ -375,7 +377,7 @@ static void focus_ring(const Ui *ui, bool focused, float x, float y, float w, fl
 }
 
 // The scrollbars: the page's, and the lists' own.
-enum { SCROLL_PAGE, SCROLL_SERVERS, SCROLL_MAPS };
+enum { SCROLL_PAGE, SCROLL_SERVERS, SCROLL_MAPS, SCROLL_DEMOS };
 #define SCROLL_W 3.0f
 #define SCROLL_HIT 16.0f // the bar is thin; the mouse gets more
 
@@ -1575,6 +1577,145 @@ static void page_local(Ui *ui, const char *status, bool hosting, const char (*ma
     ui->scrolling = scrolling;
 }
 
+// --- the demos ----------------------------------------------------------------------
+
+#define DEMO_ROW 20.0f
+
+static void play_demo(Ui *ui, const DemoListing *d)
+{
+    snprintf(ui->m->command, sizeof ui->m->command, "playdemo \"%s\"", d->name);
+}
+
+// A demo's length as minutes and seconds; a file cut short doesn't say its own.
+static void demo_length(char *out, size_t size, const DemoHeader *h)
+{
+    uint32_t s = h->ticks / TICK_RATE;
+    if (h->ticks == 0) snprintf(out, size, "-");
+    else snprintf(out, size, "%u:%02u", s / 60, s % 60);
+}
+
+static void demo_date(char *out, size_t size, const DemoHeader *h)
+{
+    time_t when = (time_t)h->date;
+    struct tm *t = localtime(&when);
+    if (!t || !strftime(out, size, "%Y-%m-%d %H:%M", t)) snprintf(out, size, "-");
+}
+
+// The demos in demos/, newest first, a row each: its name, map, recorder, length and
+// date. A click picks one, a second plays it, as Play does; the wheel scrolls, and with
+// the focus on the list the arrows pick and Enter plays. Above, whether every game is
+// recorded (demo_autorecord); below, the one picked, and Play.
+static void page_demos(Ui *ui, const DemoListing *demos, int n)
+{
+    MainMenu *m = ui->m;
+    float x = ui->x, w = ui->w, y = BODY_TOP;
+    ui->scrolling = false; // the list scrolls itself
+
+    bool autorecord = cvar_int(ui->con, "demo_autorecord", 0, 1) != 0;
+    if (chip(ui, x, y, "Record every game", autorecord)) set_int(ui->con, "demo_autorecord", !autorecord);
+    char counted[32];
+    snprintf(counted, sizeof counted, n == 1 ? "1 demo" : "%d demos", n);
+    text_mid(F_BODY, counted, x + w - width_of(F_BODY, counted), y + CTRL_H / 2, FAINT);
+    y += CTRL_H + 12;
+
+    // the columns, from the right: date, length, player, map; the name has the rest
+    float date_x = x + w - 108, length_x = date_x - 66, player_x = length_x - clampf(w * 0.18f, 70, 120),
+          map_x = player_x - clampf(w * 0.2f, 70, 140);
+    text_mid(F_SECTION, "NAME", x + 12, y + 9, FAINT);
+    text_mid(F_SECTION, "MAP", map_x, y + 9, FAINT);
+    text_mid(F_SECTION, "PLAYER", player_x, y + 9, FAINT);
+    text_mid(F_SECTION, "LENGTH", length_x, y + 9, FAINT);
+    text_mid(F_SECTION, "RECORDED", date_x, y + 9, FAINT);
+    y += 20;
+
+    int picked_at = -1;
+    for (int i = 0; i < n; i++)
+        if (strcmp(demos[i].name, m->demo_selected) == 0) picked_at = i;
+
+    float h = ui->bottom - y;
+    int rows = maxi((int)(h / DEMO_ROW), 1);
+    int list_id = nav_next(ui);
+    bool focused = nav_focused(ui, list_id, y, h);
+    if (focused && ui->move) { // the arrows pick along the list, and past its ends leave it
+        int to = picked_at < 0 ? (ui->move > 0 ? 0 : -1) : picked_at + ui->move;
+        if (to >= 0 && to < n) {
+            picked_at = to;
+            snprintf(m->demo_selected, sizeof m->demo_selected, "%s", demos[to].name);
+            ui->move = 0;
+            if (to < m->demo_scroll) m->demo_scroll = to;
+            if (to >= m->demo_scroll + rows) m->demo_scroll = to - rows + 1;
+        }
+    }
+    if (over(ui, x, y, w, h) && m->wheel) {
+        m->demo_scroll -= m->wheel * 3;
+        m->wheel = 0;
+    }
+    m->demo_scroll = clampi(m->demo_scroll, 0, maxi(n - rows, 0));
+    if (n > rows) { // its bar, dragged: before the rows, so the press is the bar's
+        float track = h - 8, knob = maxf(track * (float)rows / (float)n, 10);
+        float pos = scroll_take(ui, SCROLL_DEMOS, x + w - 6, y + 4, track, knob, (float)m->demo_scroll / (float)(n - rows));
+        m->demo_scroll = clampi((int)lroundf(pos * (float)(n - rows)), 0, n - rows);
+    }
+    focus_ring(ui, focused, x, y, w, h, RADIUS);
+    box(x, y, w, h, WELL, LINE);
+    const DemoListing *selected = picked_at >= 0 ? &demos[picked_at] : NULL;
+    for (int row_at = 0; row_at < rows && m->demo_scroll + row_at < n; row_at++) {
+        int i = m->demo_scroll + row_at;
+        const DemoListing *d = &demos[i];
+        float ry = y + 2 + (float)row_at * DEMO_ROW, cy = ry + DEMO_ROW / 2;
+        bool picked = i == picked_at, hot = over(ui, x, ry, w, DEMO_ROW);
+        if (picked) {
+            rrect(x + 2, ry, w - 4, DEMO_ROW, RADIUS, ACCENT_SOFT);
+            rrect(x + 2, ry + 4, 2, DEMO_ROW - 8, 1, ACCENT);
+        } else if (hot) {
+            rrect(x + 2, ry, w - 4, DEMO_ROW, RADIUS, HOVER);
+        }
+        char text[32];
+        text_fit(F_BODY, d->name, x + 12, cy, map_x - x - 20, TEXT);
+        text_fit(F_BODY, d->header.map, map_x, cy, player_x - map_x - 8, MUTED);
+        text_fit(F_BODY, d->header.name, player_x, cy, length_x - player_x - 8, MUTED);
+        demo_length(text, sizeof text, &d->header);
+        text_mid(F_BODY, text, length_x, cy, MUTED);
+        demo_date(text, sizeof text, &d->header);
+        text_fit(F_BODY, text, date_x, cy, x + w - date_x - 8, MUTED);
+        if (take(ui, list_id, x, ry, w, DEMO_ROW)) {
+            if (picked && m->time - m->demo_clicked_at < SERVER_DOUBLE_CLICK) play_demo(ui, d);
+            snprintf(m->demo_selected, sizeof m->demo_selected, "%s", d->name);
+            m->demo_clicked_at = m->time;
+            selected = d;
+        }
+    }
+    if (n > rows) { // where in the list this is
+        float track = h - 8, knob = maxf(track * (float)rows / (float)n, 10);
+        scroll_draw(ui, SCROLL_DEMOS, x + w - 6, y + 4, track, knob, (float)m->demo_scroll / (float)(n - rows));
+    }
+    if (n == 0) { // the list's empty state: how to make one
+        const char *none = "No demos yet. Type record in the console during a game, or record every game.";
+        char cut[128];
+        fit(F_BODY, cut, sizeof cut, none, w - 40);
+        text_mid(F_BODY, cut, x + (w - width_of(F_BODY, cut)) / 2, y + h / 2, MUTED);
+    }
+    if (focused && ui->enter) {
+        ui->enter = false;
+        if (selected) play_demo(ui, selected);
+    }
+
+    // the action bar: the one picked, and Play
+    float px = x + w;
+    if (big_button(ui, x + w, "PLAY", true, !selected, &px)) play_demo(ui, selected);
+    float tw = px - x - 16;
+    if (selected) {
+        char length[16], date[32], line[192];
+        demo_length(length, sizeof length, &selected->header);
+        demo_date(date, sizeof date, &selected->header);
+        text_fit(F_LABEL, selected->name, x, ACTION_CY - 7, tw, TEXT);
+        snprintf(line, sizeof line, "%s on %s  -  %s  -  %s", selected->header.name, selected->header.map, length, date);
+        text_fit(F_BODY, line, x, ACTION_CY + 9, tw, MUTED);
+    } else if (n) {
+        footer_text(ui, x, tw, "Pick a demo, or double-click one to play it. The arrows skip ten seconds as it plays.", MUTED);
+    }
+}
+
 // --- the player ---------------------------------------------------------------------
 
 static const char *const HAIR_STYLES[] = {"Army", "Dreadlocks", "Punk", "Mr. T", "Normal", "Fringe", "Bob"};
@@ -2302,7 +2443,8 @@ static const char *page_note(MainPage page)
 
 void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Context *ctx,
                    Vec2 cursor, float game_width, float pixel, double time, const char *status,
-                   bool joined, bool hosting, const char (*maps)[64], int map_count, const Browser *browser)
+                   bool joined, bool hosting, const char (*maps)[64], int map_count, const Browser *browser,
+                   const DemoListing *demos, int demo_count)
 {
     if (!m->shown) {
         m->wheel = 0;
@@ -2367,6 +2509,7 @@ void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek
     case MAIN_SERVERS: page_servers(&ui, browser); break;
     case MAIN_JOIN: page_join(&ui, status, joined); break;
     case MAIN_LOCAL: page_local(&ui, status, hosting, maps, map_count); break;
+    case MAIN_DEMOS: page_demos(&ui, demos, demo_count); break;
     case MAIN_PLAYER: page_player(&ui, gostek, ctx); break;
     case MAIN_CONTROLS: page_controls(&ui); break;
     case MAIN_OPTIONS: ui.w = minf(w, 520); page_options(&ui); break;

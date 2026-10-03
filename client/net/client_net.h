@@ -39,6 +39,10 @@ typedef struct ClientNet {
     bool map_changing;      // a MapChange not yet taken (client_net_take_map_change)
     MsgMapReply map_reply;  // the server's answer to the map window's last question
     bool map_replied;       // one has come since the last question
+    bool playback;          // a demo plays: joined with no line, its packets fed in (client_net_feed)
+    // Told of every message the line brings, before it is heard: a demo records them.
+    void (*tap)(void *user, const uint8_t *data, size_t size, MsgKind kind);
+    void *tap_user;
 } ClientNet;
 
 // Once per program; false if ENet or the ring wouldn't start.
@@ -73,6 +77,12 @@ void client_net_tick(ClientNet *n, const Game *g);
 void client_net_flush(ClientNet *n);
 
 bool client_net_joined(const ClientNet *n);
+
+// A demo's playback (net/demo.h): joined, as `slot`, with no line; what the demo
+// recorded comes in by client_net_feed, and nothing goes out. client_net_disconnect ends it.
+void client_net_play(ClientNet *n, int slot);
+// A message as the line would bring it, heard as one.
+void client_net_feed(ClientNet *n, Console *con, Game *g, const uint8_t *data, size_t size);
 
 // A line of chat to the server, which relays it. False if not joined.
 bool client_net_say(ClientNet *n, const char *text, bool team);

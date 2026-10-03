@@ -473,25 +473,31 @@ void client_stream_begin_tick(ClientStream *c, Game *g, int me, int interp)
     // forward by what it never needed, with a frame or so of slack so that a line
     // whose jitter is about a tick is not nudged to and fro. Each nudge is a frame
     // shown twice or passed over, smoothed as a correction is.
+    // A demo playing passes the clock over: the tick shown is the one it showed.
     int32_t level = (int32_t)(c->newest - w->tick);
-    if (level > STREAM_VIEW_SNAP + c->interp || level < -STREAM_VIEW_SNAP) {
-        w->tick = c->newest > (uint32_t)c->interp ? c->newest - (uint32_t)c->interp : 0;
-        level = c->interp;
-        c->window = 0;
-        c->resyncs++;
-    }
-    if (c->window <= 0) {
-        c->level_min = level;
-        c->window = STREAM_VIEW_WINDOW;
+    if (c->view_at) {
+        w->tick = c->view_at;
+        c->view_at = 0;
     } else {
-        if (level < c->level_min) c->level_min = level;
-        if (--c->window == 0) {
-            if (c->level_min < c->interp) {
-                w->tick--;
-                c->held++;
-            } else if (c->level_min >= c->interp + STREAM_VIEW_SLACK) {
-                w->tick += (uint32_t)(c->level_min - c->interp);
-                c->skipped += (uint32_t)(c->level_min - c->interp);
+        if (level > STREAM_VIEW_SNAP + c->interp || level < -STREAM_VIEW_SNAP) {
+            w->tick = c->newest > (uint32_t)c->interp ? c->newest - (uint32_t)c->interp : 0;
+            level = c->interp;
+            c->window = 0;
+            c->resyncs++;
+        }
+        if (c->window <= 0) {
+            c->level_min = level;
+            c->window = STREAM_VIEW_WINDOW;
+        } else {
+            if (level < c->level_min) c->level_min = level;
+            if (--c->window == 0) {
+                if (c->level_min < c->interp) {
+                    w->tick--;
+                    c->held++;
+                } else if (c->level_min >= c->interp + STREAM_VIEW_SLACK) {
+                    w->tick += (uint32_t)(c->level_min - c->interp);
+                    c->skipped += (uint32_t)(c->level_min - c->interp);
+                }
             }
         }
     }

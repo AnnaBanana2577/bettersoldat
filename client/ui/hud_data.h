@@ -181,6 +181,11 @@ typedef struct HudData {
     bool minimap;      // F3
     bool sniper_line;  // ui_sniperline, when the server allows
     bool recording;    // a demo
+    char demo_name[64]; // the demo being recorded, for the scoreboard
+    bool demo_playing;  // a demo plays: how far through, and how fast
+    uint32_t demo_tick, demo_ticks;
+    bool demo_paused, demo_seeking;
+    float demo_speed;
     bool bullet_time;  // sv_bullettime slowing the game: the widescreen cut
     bool show_info;    // F5: the FPS and ping line
     bool player_names; // the original's PlayerNamesShow

@@ -1,13 +1,14 @@
 #pragma once
 
 // The main menu: joining a server, a game hosted here (Local Play: the mode, the limits,
-// the bots, the maps in rotation), the player's name and look with the gostek shown as
-// it will be, the keys, the options, and what is drawn of the world (Graphics). OpenSoldat
+// the bots, the maps in rotation), the demos recorded here, the player's name and look
+// with the gostek shown as it will be, the keys, the options, and what is drawn of the
+// world (Graphics). OpenSoldat
 // has none of this in the game (its launcher does it); this one is drawn in the HUD's
 // units over the world, which goes on behind it.
 //
 // Everything it changes is a cvar or a bind of the console, so the config keeps it, and
-// everything it asks of the game is a console command (connect, disconnect, host, quit)
+// everything it asks of the game is a console command (connect, disconnect, host, playdemo, quit)
 // the app takes and runs (mainmenu_take_command): nothing here touches the game or the
 // line. The widgets are immediate: each draw lays the page out again and acts on the
 // click, the wheel and the keys the events recorded since, so there is no widget tree
@@ -20,10 +21,11 @@
 #include "console/console.h"
 #include "game/game.h"
 #include "net/browser.h"
+#include "net/demo.h"
 #include "render/gostek.h"
 #include "render/interface.h"
 
-typedef enum MainPage { MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_PLAYER, MAIN_CONTROLS, MAIN_OPTIONS, MAIN_GRAPHICS, MAIN_PAGE_COUNT } MainPage;
+typedef enum MainPage { MAIN_SERVERS, MAIN_JOIN, MAIN_LOCAL, MAIN_DEMOS, MAIN_PLAYER, MAIN_CONTROLS, MAIN_OPTIONS, MAIN_GRAPHICS, MAIN_PAGE_COUNT } MainPage;
 
 #define MAINMENU_EDIT 128
 #define MAINMENU_POPUP_ITEMS 16
@@ -86,6 +88,9 @@ typedef struct MainMenu {
     bool server_sort_up;                // ascending, against the column's natural order
     bool hide_empty, hide_full, only_compatible;
     char search[MAINMENU_SEARCH];       // the server list's filter, by name or map
+    int demo_scroll;                    // the demo list's first row shown
+    char demo_selected[64];             // the demo picked in the list; empty for none
+    double demo_clicked_at;             // when it was picked, so a second click soon after plays it
     char command[256];                  // for the app to run; empty for none
     double time;                        // seconds, for the caret's blink
     bool joined;                        // a server has us: Resume, and Escape, go back to it
@@ -102,11 +107,13 @@ bool mainmenu_event(MainMenu *m, Console *con, const SDL_Event *e);
 // `pixel` is one window pixel in units). `cursor` is the input's, in those units.
 // `status` is a line for the join and local pages (the console's last), `joined` whether
 // a server has us, `hosting` whether it is our own, `maps` the maps under assets for the
-// rotation, `weapons` names the loadout, the gostek and anims draw the preview, and
-// `browser` is the server list (the `browse` command asks for it anew).
+// rotation, `weapons` names the loadout, the gostek and anims draw the preview,
+// `browser` is the server list (the `browse` command asks for it anew), and `demos` the
+// demos kept in demos/, newest first.
 void mainmenu_draw(MainMenu *m, Console *con, const Interface *hud, const Gostek *gostek, const Context *ctx,
                    Vec2 cursor, float game_width, float pixel, double time, const char *status,
-                   bool joined, bool hosting, const char (*maps)[64], int map_count, const Browser *browser);
+                   bool joined, bool hosting, const char (*maps)[64], int map_count, const Browser *browser,
+                   const DemoListing *demos, int demo_count);
 
 // A command the menu asked for since last taken: true, with it, once.
 bool mainmenu_take_command(MainMenu *m, char *out, size_t size);

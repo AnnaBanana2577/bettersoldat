@@ -39,6 +39,13 @@ void client_net_connect(ClientNet *n, Console *con, const char *address, uint16_
 
 void client_net_disconnect(ClientNet *n, Console *con)
 {
+    if (n->playback) {
+        n->playback = false;
+        n->state = CLIENT_NET_OFF;
+        n->slot = -1;
+        n->vote.kind = VOTE_NONE;
+        return;
+    }
     if (!n->link.host) return;
     net_close(&n->link);
     n->state = CLIENT_NET_OFF;
@@ -65,12 +72,13 @@ static void send_hello(ClientNet *n)
     n->state = CLIENT_NET_JOINING;
 }
 
-static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
+static void heard(ClientNet *n, Console *con, Game *g, const uint8_t *data, size_t size)
 {
-    NetBuf b = netbuf_reader(e->data, e->size);
+    NetBuf b = netbuf_reader(data, size);
     MsgKind kind;
     msg_kind(&b, &kind);
-    switch (e->msg) {
+    if (!netbuf_ok(&b)) return;
+    switch (kind) {
     case MSG_WELCOME: {
         MsgWelcome m = {0};
         msg_welcome(&b, &m);
@@ -137,7 +145,7 @@ static void heard(ClientNet *n, Console *con, Game *g, const NetEvent *e)
         break;
     }
     case MSG_SNAPSHOT:
-        if (n->state == CLIENT_NET_JOINED && n->round && !n->mapped && g) client_stream_hear(&n->stream, g, n->slot, e->data, e->size);
+        if (n->state == CLIENT_NET_JOINED && n->round && !n->mapped && g) client_stream_hear(&n->stream, g, n->slot, data, size);
         break;
     default: break;
     }
@@ -158,7 +166,10 @@ void client_net_poll(ClientNet *n, Console *con, Game *g)
             n->state = CLIENT_NET_OFF;
             n->slot = -1;
             return;
-        case NET_EVENT_MESSAGE: heard(n, con, g, &e); break;
+        case NET_EVENT_MESSAGE:
+            if (n->tap) n->tap(n->tap_user, e.data, e.size, e.msg);
+            heard(n, con, g, e.data, e.size);
+            break;
         default: break;
         }
     }
@@ -180,9 +191,30 @@ bool client_net_take_chat(ClientNet *n, MsgChat *out)
     return true;
 }
 
+void client_net_play(ClientNet *n, int slot)
+{
+    n->playback = true;
+    n->state = CLIENT_NET_JOINED;
+    n->slot = slot;
+    n->round = 0;
+    n->had_map = n->mapped = false;
+    n->map_changing = n->map_replied = false;
+    n->inbox_count = 0;
+    n->vote = (MsgVote){.kind = VOTE_NONE};
+    n->map_reply = (MsgMapReply){0};
+    n->hostname[0] = '\0';
+    snprintf(n->address, sizeof n->address, "demo");
+    n->port = 0;
+}
+
+void client_net_feed(ClientNet *n, Console *con, Game *g, const uint8_t *data, size_t size) { heard(n, con, g, data, size); }
+
+// Joined to a server, with a line to say things down: not a demo's playback.
+static bool live(const ClientNet *n) { return n->state == CLIENT_NET_JOINED && !n->playback; }
+
 void client_net_tick(ClientNet *n, const Game *g)
 {
-    if (n->state != CLIENT_NET_JOINED) return;
+    if (!live(n)) return;
     client_stream_collect(&n->stream, g, n->slot);
     const Soldier *me = &g->world.soldiers[n->slot];
     if (!me->active) return; // nothing to say of a soldier the server hasn't placed yet
@@ -197,7 +229,7 @@ bool client_net_joined(const ClientNet *n) { return n->state == CLIENT_NET_JOINE
 
 bool client_net_say(ClientNet *n, const char *text, bool team)
 {
-    if (n->state != CLIENT_NET_JOINED) return false;
+    if (!live(n)) return false;
     uint8_t buf[NET_MTU];
     NetBuf b = netbuf_writer(buf, sizeof buf);
     MsgKind kind = MSG_CHAT;
@@ -217,7 +249,7 @@ bool client_net_take_map_change(ClientNet *n)
 
 void client_net_map_query(ClientNet *n, int index)
 {
-    if (n->state != CLIENT_NET_JOINED || index < 0) return;
+    if (!live(n) || index < 0) return;
     uint8_t buf[NET_MTU];
     NetBuf b = netbuf_writer(buf, sizeof buf);
     MsgKind kind = MSG_MAP_QUERY;

@@ -160,7 +160,9 @@ target("tests")
     add_files("tests/*.c", "server/connections.c", "server/rounds.c", "server/bots.c", "server/host.c", "server/script.c",
               "server/lobby.c")
     add_files("launcher/*.c|main.c")
-    add_includedirs("tests", "server", "launcher")
+    -- the client's line and its demos, for the demo's round trip (tests/demo_test.c)
+    add_files("client/net/client_net.c", "client/net/demo.c")
+    add_includedirs("tests", "server", "launcher", "client")
     add_packages("lua", "libcurl", "miniz")
     if not is_plat("windows") then
         add_syslinks("pthread") -- the script's requests

@@ -815,7 +815,12 @@ static void draw_frags_texts(const Frame *f, const HudData *d, float menu_bottom
             }
         }
     }
-    (void)menu_bottom; // the demo's name goes above it, once demos are recorded
+    // the demo being recorded, its name blinking above the board's bottom (the original's)
+    if (d->recording && d->demo_name[0]) {
+        text_style(FONT_SMALL);
+        text_color((Rgba){0, 128, 0, (uint8_t)fabsf(sinf(5.1f * (float)d->time / 2) * 255)});
+        text_draw(d->demo_name, x + 280, y + menu_bottom - 10);
+    }
 }
 
 // The round's end over the scoreboard (RenderEndGameTexts): the team that won, or a
@@ -1573,6 +1578,18 @@ void interface_draw(const Interface *hud, const HudData *d, const GameMenus *men
     if (d->recording) {
         text_color((Rgba){195, 0, 0, (uint8_t)fabsf(sinf(5.1f * (float)d->time / 2) * 255)});
         text_draw("REC", 612 * f.iscale_x, 1);
+    }
+    // a demo playing: how far through it is, where the original puts it (shown always
+    // here, not only with the FPS line), and whether it is held or hurried
+    if (d->demo_playing) {
+        char str[96], pace[16] = "";
+        uint32_t at = d->demo_tick / TICK_RATE, of = d->demo_ticks / TICK_RATE;
+        if (d->demo_seeking) snprintf(pace, sizeof pace, "  seeking...");
+        else if (d->demo_paused) snprintf(pace, sizeof pace, "  paused");
+        else if (d->demo_speed != 1.0f) snprintf(pace, sizeof pace, "  x%g", d->demo_speed);
+        snprintf(str, sizeof str, "Demo: %02u:%02u / %02u:%02u%s", at / 60, at % 60, of / 60, of % 60, pace);
+        text_color((Rgba){239, 170, 200, 255});
+        text_draw(str, 460 * f.iscale_x, 80);
     }
     if (menus->noob_show && esc && d->chat_type == HUD_CHAT_NONE) draw_keys_help();
     if (d->shot_distance_shown) {

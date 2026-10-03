@@ -36,6 +36,8 @@
 // (ui_minimap), F5 the FPS line (ui_info), F7 the names (ui_playernames). F9 toggles the wireframe
 // (r_wireframe), F10 the debug overlay (r_debug), F4 vsync (r_swapeffect, off as the
 // original's default). There is no zoom: everyone sees the same 480 units of height.
+// A demo playing (net/demo.h): F6 pauses it, F8 runs it fast, as the original's F10 and F8;
+// the left and right arrows take it ten seconds back or on.
 
 #include <SDL.h>
 #include <stdio.h>
@@ -49,6 +51,7 @@
 #include "gfx/gfx.h"
 #include "input/input.h"
 #include "net/client_net.h"
+#include "net/demo.h"
 #include "http.h" // the launcher's HTTPS, for the browser's list
 #include "render/interface.h"
 #include "render/render.h"
@@ -56,6 +59,7 @@
 #include "render/scale_data.h"
 #include <ctype.h>
 #include <math.h>
+#include <time.h>
 
 #include "audio/audio.h"
 #include "host.h" // the server's, built in for Local Play
@@ -87,6 +91,7 @@ static const char *VIEW_BINDS =
     "bind escape escmenu; bind tab weaponsmenu; bind m teammenu; bind f1 fragsmenu; bind f2 statsmenu;"
     "bind f3 \"toggle ui_minimap\"; bind f4 \"toggle r_swapeffect\"; bind f5 \"toggle ui_info\";"
     "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
+    "bind f6 demo_pause; bind f8 demo_fast; bind leftarrow \"demo_tick_r -600\"; bind rightarrow \"demo_tick_r 600\";"
     "bind v +radio; bind t chat; bind y teamchat; bind slash cmd; bind f12 \"say /yes\"; bind f11 \"say /no\"";
 
 typedef struct App {
@@ -131,6 +136,25 @@ typedef struct App {
     Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat, *votepercent;
     Cvar *rope; // sv_rope: whether the rope is allowed in a game hosted here (Local Play)
     Host *host; // the game hosted here (the `host` command), joined over the loopback; NULL for none
+
+    // Demos (net/demo.h): the game joined recorded, or a demo played in its place.
+    Cvar *demo_autorecord; // a demo of every round joined
+    Cvar *demo_speed;      // a demo's playback, times its own speed
+    DemoRecorder recorder;
+    bool record_asked;     // `record` said: begun once the frame's packets are in
+    char record_name[128]; // and its name, empty for the date and the map
+    bool round_recorded;   // a demo of this round was begun: demo_autorecord begins no other
+    DemoPlayer player;
+    bool playing;          // a demo plays: the line is the demo's, my soldier its recorder's
+    char play_name[256];   // `playdemo` said: opened in the loop, where the world is
+    bool demo_paused;
+    bool demo_ticked;      // `demo_tick` holds the tick to run next
+    DemoTick demo_tick;    // the demo's tick on hand: my command and soldier
+    bool seeking;          // the demo runs on, unseen and unheard, to `seek_to` (demo_seek)
+    uint32_t seek_to;
+    DemoListing demos[128]; // demos/, for the main menu's Demos page: read as the page opens
+    int demo_count;
+    bool demos_shown;       // the page was up last frame
 
     Game *game; // large; on the heap
     int me;     // my soldier: 0 in the local sandbox, the slot the server gave me online
@@ -605,6 +629,218 @@ static bool chat_event(App *app, const SDL_Event *e)
     return true;
 }
 
+// --- demos (net/demo.h) --------------------------------------------------------------
+
+static void host_stop(App *app);
+
+static void demo_stop_recording(App *app)
+{
+    if (!demo_recording(&app->recorder)) return;
+    uint32_t seconds = app->recorder.ticks / TICK_RATE;
+    demo_record_close(&app->recorder);
+    console_print_color(app->console, HUD_COLOR_CLIENT, "Demo saved: %s (%u:%02u)\n", app->recorder.path, seconds / 60, seconds % 60);
+}
+
+// The demo playing, stopped: the line it was is closed, and the main menu comes back
+// as for any line lost.
+static void demo_stop_playback(App *app)
+{
+    if (!app->playing) return;
+    app->playing = false;
+    app->demo_paused = false;
+    app->demo_ticked = false;
+    app->seeking = false;
+    demo_play_close(&app->player);
+    client_net_disconnect(&app->net, app->console);
+    console_print_color(app->console, HUD_COLOR_CLIENT, "Demo ended\n");
+}
+
+// Every message the line brings, into the recording. A Map ends it, as the original's
+// map change does: the round it was of is over, and demo_autorecord begins the next.
+static void demo_tap(void *user, const uint8_t *data, size_t size, MsgKind kind)
+{
+    App *app = user;
+    if (!demo_recording(&app->recorder)) return;
+    if (kind == MSG_MAP) demo_stop_recording(app);
+    else demo_record_packet(&app->recorder, data, size);
+}
+
+// A demo of the round joined, from now: into demos/ as `name`, or as the date and the
+// map with none.
+static void demo_start_recording(App *app, const char *name)
+{
+    char stem[192], path[256];
+    if (name && name[0]) snprintf(stem, sizeof stem, "%s", name);
+    else demo_default_name(stem, sizeof stem, app->net.map);
+    demo_path(path, sizeof path, stem);
+    DemoHeader h = {.date = (uint32_t)time(NULL), .slot = (uint8_t)app->net.slot};
+    snprintf(h.name, sizeof h.name, "%s", app->player_name->value);
+    snprintf(h.map, sizeof h.map, "%s", app->net.map);
+    if (!demo_record_open(&app->recorder, path, &h)) {
+        console_print_color(app->console, HUD_COLOR_WARNING, "could not write the demo %s\n", path);
+        return;
+    }
+    demo_record_join(&app->recorder, &app->net);
+    console_print_color(app->console, HUD_COLOR_CLIENT, "Recording demo: %s\n", path);
+}
+
+// The demo `playdemo` named, in place of whatever game was on: once it is found good,
+// the line and the game hosted here closed, the demo's own line opened.
+static void demo_start_playback(App *app)
+{
+    char path[256], error[320];
+    demo_path(path, sizeof path, app->play_name);
+    app->play_name[0] = '\0';
+    demo_stop_playback(app);
+    if (!demo_play_open(&app->player, path, error, sizeof error)) {
+        console_print_color(app->console, HUD_COLOR_WARNING, "%s\n", error);
+        return;
+    }
+    const DemoHeader *h = &app->player.header;
+    char file[NET_MAP_SIZE + 8], map[512];
+    snprintf(file, sizeof file, "%s.pms", h->map);
+    path_join(map, sizeof map, app->assets->value, "maps", file);
+    if (!file_exists(map)) { // its world couldn't be made: it isn't played
+        console_print_color(app->console, HUD_COLOR_WARNING, "the demo's map %s is not here\n", h->map);
+        demo_play_close(&app->player);
+        return;
+    }
+    demo_stop_recording(app);
+    client_net_disconnect(&app->net, app->console);
+    host_stop(app);
+    client_net_play(&app->net, h->slot);
+    app->playing = true;
+    app->accumulator = 0;
+    menus_hide_all(&app->menus);
+    uint32_t seconds = h->ticks / TICK_RATE;
+    console_print_color(app->console, HUD_COLOR_CLIENT, "Playing demo %s: %s on %s, %u:%02u\n", app->player.name, h->name, h->map,
+                        seconds / 60, seconds % 60);
+}
+
+// record [name]: the game joined, recorded from now until the round ends, into demos/
+// (the original's record). stop: the recording stopped, or the demo playing.
+static void cmd_record(Console *con, int argc, char **argv, void *user)
+{
+    App *app = user;
+    if (app->playing || !client_net_joined(&app->net)) {
+        console_print(con, "record: join a game first\n");
+        return;
+    }
+    demo_stop_recording(app);
+    snprintf(app->record_name, sizeof app->record_name, "%s", argc > 1 ? argv[1] : "");
+    app->record_asked = true; // begun in the loop, once the frame's packets are in
+}
+
+static void cmd_stop(Console *con, int argc, char **argv, void *user)
+{
+    (void)argc, (void)argv;
+    App *app = user;
+    app->record_asked = false;
+    if (demo_recording(&app->recorder)) demo_stop_recording(app);
+    else if (app->playing) demo_stop_playback(app);
+    else console_print(con, "no demo is being recorded or played\n");
+}
+
+// playdemo <name>: a demo from demos/ played, by its name without the extension, or a
+// path to one.
+static void cmd_playdemo(Console *con, int argc, char **argv, void *user)
+{
+    App *app = user;
+    if (argc != 2) {
+        console_print(con, "usage: playdemo <name>\n");
+        return;
+    }
+    snprintf(app->play_name, sizeof app->play_name, "%s", argv[1]); // opened in the loop, where the world is
+}
+
+// demo_pause: the demo playing held, or let go (F6). demo_fast: run at eight times its
+// speed, or back at its own (F8, the original's).
+static void cmd_demo_pause(Console *con, int argc, char **argv, void *user)
+{
+    (void)con, (void)argc, (void)argv;
+    App *app = user;
+    if (app->playing) app->demo_paused = !app->demo_paused;
+}
+
+static void cmd_demo_fast(Console *con, int argc, char **argv, void *user)
+{
+    (void)argc, (void)argv;
+    App *app = user;
+    if (app->playing) cvar_set(con, "demo_speed", app->demo_speed->number > 1.0f ? "1" : "8");
+}
+
+// The demo's records up to its next tick: its packets heard, and at each frame's end
+// what they began taken (net_take). False at the demo's end.
+static void net_take(App *app);
+static bool demo_feed(App *app)
+{
+    const uint8_t *data;
+    size_t size;
+    for (;;) {
+        switch (demo_play_next(&app->player, &data, &size, &app->demo_tick)) {
+        case DEMO_NEXT_PACKET: client_net_feed(&app->net, app->console, app->game, data, size); break;
+        case DEMO_NEXT_FRAME: net_take(app); break;
+        case DEMO_NEXT_TICK: app->demo_ticked = true; return true;
+        default: return false;
+        }
+        if (!app->game) return false; // a map that couldn't be loaded
+    }
+}
+
+// My soldier as the demo's tick left it. It stepped on my command, so my shots flew as
+// they flew; then its owned half is put back as it was, so it stands (or lies) where it
+// stood whatever the steps made of it, and its look, loadout and typing are as recorded.
+static void demo_apply_self(App *app)
+{
+    const DemoTick *t = &app->demo_tick;
+    Soldier *s = &app->game->world.soldiers[app->me];
+    if (!t->soldier || !s->active) return;
+    s->look = t->self.look;
+    s->gear = t->self.gear;
+    s->primary_choice = t->self.primary_choice;
+    s->secondary_choice = t->self.secondary_choice;
+    s->typing = t->self.typing;
+    if (t->self.life == s->life) soldier_copy_owned(app->game->ctx.anims, s, &t->self);
+}
+
+// The ticks of the demo playing that have run.
+static uint32_t demo_at(const App *app) { return app->player.tick - (app->demo_ticked ? 1 : 0); }
+
+// The demo playing taken to its tick `to` (the original's demo_tick): on from here when
+// it lies ahead, else from its start again, the world made anew from its first Map. The
+// ticks between run in the frames that follow as fast as they go, unseen and unheard.
+static void demo_seek(App *app, int64_t to)
+{
+    if (!app->playing) return;
+    to = to < 0 ? 0 : to > (int64_t)app->player.header.ticks ? (int64_t)app->player.header.ticks : to;
+    if ((uint32_t)to < demo_at(app)) {
+        demo_play_rewind(&app->player);
+        client_net_play(&app->net, app->player.header.slot);
+        app->demo_ticked = false;
+        if (!demo_feed(app)) {
+            demo_stop_playback(app);
+            return;
+        }
+    }
+    app->seek_to = (uint32_t)to;
+    app->seeking = app->seek_to > demo_at(app);
+}
+
+// demo_tick <tick>: the demo playing taken to that tick, 60 a second. demo_tick_r
+// <ticks>: that many on, or back with a minus (the arrows: ten seconds).
+static void cmd_demo_tick(Console *con, int argc, char **argv, void *user)
+{
+    App *app = user;
+    bool relative = strcmp(argv[0], "demo_tick_r") == 0;
+    if (argc != 2) {
+        console_print(con, relative ? "usage: demo_tick_r <ticks>, minus for back\n" : "usage: demo_tick <tick>\n");
+        return;
+    }
+    if (!app->playing) return;
+    int64_t n = strtoll(argv[1], NULL, 10);
+    demo_seek(app, relative ? (int64_t)(app->seeking ? app->seek_to : demo_at(app)) + n : n);
+}
+
 // connect <address[:port]> / disconnect: the line to a server. The join and what comes
 // down the line are the console's to report (net/client_net.c).
 static void cmd_connect(Console *con, int argc, char **argv, void *user)
@@ -614,6 +850,7 @@ static void cmd_connect(Console *con, int argc, char **argv, void *user)
         console_print(con, "usage: connect <address[:port]>\n");
         return;
     }
+    demo_stop_playback(app);
     char address[128];
     snprintf(address, sizeof address, "%s", argv[1]);
     uint16_t port = NET_DEFAULT_PORT;
@@ -640,6 +877,8 @@ static void cmd_disconnect(Console *con, int argc, char **argv, void *user)
 {
     (void)argc, (void)argv;
     App *app = user;
+    demo_stop_recording(app);
+    demo_stop_playback(app);
     client_net_disconnect(&app->net, con);
     host_stop(app);
 }
@@ -662,6 +901,7 @@ static void cmd_host(Console *con, int argc, char **argv, void *user)
         console_print(con, "already hosting on port %d\n", app->host->settings.port);
         return;
     }
+    demo_stop_playback(app);
     if (client_net_joined(&app->net)) client_net_disconnect(&app->net, con);
     HostSettings s = {
         .port = (uint16_t)app->sv_port->integer,
@@ -865,7 +1105,7 @@ static bool console_open(App *app, int argc, char *argv[])
         }
     }
     app->hud_demo = cvar_register(con, "hud_demo", "0", 0, "fill the HUD with sample data: page 1, 2 or 3");
-    app->menu_page = cvar_register(con, "ui_menupage", "0", 0, "the main menu's page at start, 0 servers to 6 graphics (for screenshots)");
+    app->menu_page = cvar_register(con, "ui_menupage", "0", 0, "the main menu's page at start, 0 servers to 7 graphics (for screenshots)");
     // the server's, for Local Play; saved, as the menu sets them
     app->sv_port = cvar_register(con, "sv_port", "23073", CVAR_ARCHIVE, "the UDP port a game hosted here listens on");
     app->sv_maps = cvar_register(con, "sv_maps", "", CVAR_ARCHIVE, "the maps in rotation, space-separated; the first plays first");
@@ -881,11 +1121,20 @@ static bool console_open(App *app, int argc, char *argv[])
     app->bots_difficulty = cvar_register(con, "bots_difficulty", "100", CVAR_ARCHIVE, "300 stupid, 200 poor, 100 normal, 50 hard, 10 impossible");
     app->bots_chat = cvar_register(con, "bots_chat", "1", CVAR_ARCHIVE, "whether the bots talk");
     app->votepercent = cvar_register(con, "sv_votepercent", "60", CVAR_ARCHIVE, "the percentage of players whose yes passes a vote");
+    app->demo_autorecord = cvar_register(con, "demo_autorecord", "0", CVAR_ARCHIVE, "1: a demo of every round joined, into demos/");
+    app->demo_speed = cvar_register(con, "demo_speed", "1", 0, "a demo's playback speed: 1 its own, 0.5 half, 8 eight times");
+    console_add_command(con, "record", cmd_record, app, "record the game joined, until the round ends, into demos/: record [name]");
+    console_add_command(con, "stop", cmd_stop, app, "stop the demo being recorded, or played");
+    console_add_command(con, "playdemo", cmd_playdemo, app, "play a demo from demos/: playdemo <name>");
+    console_add_command(con, "demo_pause", cmd_demo_pause, app, "pause the demo playing, or go on");
+    console_add_command(con, "demo_fast", cmd_demo_fast, app, "the demo playing at eight times its speed, or back at its own");
+    console_add_command(con, "demo_tick", cmd_demo_tick, app, "take the demo playing to a tick, 60 a second: demo_tick <tick>");
+    console_add_command(con, "demo_tick_r", cmd_demo_tick, app, "take the demo playing on, or back with a minus: demo_tick_r <ticks>");
     console_add_command(con, "quit", cmd_quit, app, "leave the game");
     console_add_command(con, "screenshot", cmd_screenshot, app, "write the 60th frame from now to a PNG, then quit");
     console_add_command(con, "escmenu", cmd_menu, app, "the escape menu");
     console_add_command(con, "weaponsmenu", cmd_menu, app, "the weapons menu");
-    console_add_command(con, "freecam", cmd_freecam, app, "the free camera while dead or watching; jump does the same");
+    console_add_command(con, "freecam", cmd_freecam, app, "the free camera while dead or watching, or a demo plays; jump does the same");
     console_add_command(con, "teammenu", cmd_menu, app, "the team menu");
     console_add_command(con, "fragsmenu", cmd_menu, app, "the scoreboard");
     console_add_command(con, "statsmenu", cmd_menu, app, "the weapon stats");
@@ -1011,6 +1260,7 @@ static void apply_cvars(App *app)
     // the sky's colours: the map's, or mine; the minimap carries them too, so it is built again on a change
     if (map_view_force_background(&app->render.map_view, app->forcebg->integer != 0, cvar_color(app->forcebg_color1), cvar_color(app->forcebg_color2)))
         map_view_build_minimap(&app->render.map_view, window_rect(app).height);
+    if (app->playing) return; // my soldier is the demo's recorder, dressed and armed as it was
     Soldier *me = &app->game->world.soldiers[app->me];
     me->look = look_from_cvars(app);
     me->gear = (Gear)clampi(app->gear->integer, GEAR_JETS, GEAR_ROPE);
@@ -1112,22 +1362,28 @@ static void window_close(App *app)
 static void player_name(const App *app, int i, char *name, size_t size)
 {
     const char *heard = app->net.stream.names[i];
-    if (i == app->me) snprintf(name, size, "%s", app->player_name->value);
+    if (i == app->me) snprintf(name, size, "%s", app->playing ? app->player.header.name : app->player_name->value);
     else if (heard[0]) snprintf(name, size, "%s", heard);
     else snprintf(name, size, "Player %d", i + 1);
 }
 
 // The next player to watch, from the one watched: alive, no spectator, and a teammate
-// unless I am watching from outside (GetCameraTarget). False with nobody to watch.
+// unless I am watching from outside (GetCameraTarget). False with nobody to watch. A
+// demo's watcher is outside, and its recorder, alive or dead, is among those watched.
 static bool camera_next(App *app, bool backwards)
 {
     const World *w = &app->game->world;
     const Soldier *me = &w->soldiers[app->me];
-    bool outside = me->team == TEAM_SPECTATOR || !team_game(app);
+    bool outside = app->playing || me->team == TEAM_SPECTATOR || !team_game(app);
     int from = app->camera_follow < 0 ? app->me : app->camera_follow;
     for (int n = 1; n <= MAX_PLAYERS; n++) {
         int j = ((from + (backwards ? -n : n)) % MAX_PLAYERS + MAX_PLAYERS) % MAX_PLAYERS;
         const Soldier *s = &w->soldiers[j];
+        if (j == app->me && app->playing && s->active && s->team != TEAM_SPECTATOR) {
+            app->camera_follow = -1;
+            app->free_camera = false;
+            return true;
+        }
         if (j == app->me || !s->active || s->dead || s->team == TEAM_SPECTATOR) continue;
         if (!outside && s->team != me->team) continue;
         app->camera_follow = j;
@@ -1152,8 +1408,8 @@ static void cmd_freecam(Console *con, int argc, char **argv, void *user)
     (void)con, (void)argc, (void)argv;
     App *app = user;
     const Soldier *me = &app->game->world.soldiers[app->me];
-    if (!me->active || !(me->dead || me->team == TEAM_SPECTATOR) || app->menus.menus[MENU_LIMBO].active) return;
-    camera_free(app);
+    bool watching = me->active && (me->dead || me->team == TEAM_SPECTATOR) && !app->menus.menus[MENU_LIMBO].active;
+    if (watching || app->playing) camera_free(app);
 }
 
 static void snapshot_tick(App *app)
@@ -1233,21 +1489,27 @@ static void tick(App *app)
 {
     World *w = &app->game->world;
     bool online = client_net_joined(&app->net);
+    // a demo playing: the tick shown is the demo's, and my command and soldier its recorder's
+    bool playing = app->playing;
     Command cmds[MAX_PLAYERS] = {0};
-    w->soldiers[app->me].typing = app->hud_data.chat_type != HUD_CHAT_NONE; // the dots over my head, for the others
+    if (!playing) w->soldiers[app->me].typing = app->hud_data.chat_type != HUD_CHAT_NONE; // the dots over my head, for the others
+    if (playing) app->net.stream.view_at = app->demo_tick.view;
     if (online) client_stream_begin_tick(&app->net.stream, app->game, app->me, app->interp->integer);
+    uint32_t view = w->tick; // the tick on show, for a demo being recorded
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Soldier *s = &w->soldiers[i];
         s->remote = online && i != app->me;
         if (s->remote) cmds[i] = stream_command(s, client_stream_quiet(&app->net.stream, i));
     }
-    cmds[app->me] = input_command(&app->input, ++app->seq);
+    Command input = input_command(&app->input, ++app->seq);
+    cmds[app->me] = playing ? app->demo_tick.cmd : input;
     // scoped before the tick: the shot snaps the sniper view back within it
     const Soldier *shooter = &w->soldiers[app->me];
     bool scoped = shooter->active && !shooter->dead && shooter->aim_dist < DEFAULT_AIM_DIST;
     game_tick(app->game, cmds);
+    if (playing) demo_apply_self(app);
     track_shot(app, scoped);
-    if (app->game->match.state != MATCH_PAUSED) { // paused, the sparks hang too
+    if (app->game->match.state != MATCH_PAUSED && !app->seeking) { // paused, the sparks hang too; a seek makes none
         render_tick(&app->render, &app->game->ctx, &app->game->world, &app->game->events);
         // the map's weather over the view (WeatherEffects.pas), while r_weathereffects is
         // on; none is made as a round ends, as the original's UpdateFrame makes none then
@@ -1257,8 +1519,12 @@ static void tick(App *app)
     }
     // the listener is whom the camera follows: me, the player I watch while dead, or the free camera
     int followed = app->free_camera ? -1 : app->camera_follow >= 0 ? app->camera_follow : app->me;
-    audio_tick(&app->audio, app->game, app->me, followed, app->camera.pos, &app->render.sparks);
+    if (!app->seeking) audio_tick(&app->audio, app->game, app->me, followed, app->camera.pos, &app->render.sparks);
     if (online) client_net_tick(&app->net, app->game);
+    if (demo_recording(&app->recorder)) {
+        const Soldier *s = &w->soldiers[app->me];
+        demo_record_tick(&app->recorder, view, &cmds[app->me], app->input.cursor, s->active ? s : NULL);
+    }
     rope_debug_tick(app);
     input_clear(&app->input);
     snapshot_tick(app);
@@ -1278,16 +1544,18 @@ static void tick(App *app)
     bool limbo = app->menus.menus[MENU_LIMBO].active, esc = app->menus.menus[MENU_ESC].active;
     bool first_life = me->active && !spectator && app->seen_life < 0;
     if (me->active && !spectator) app->seen_life = me->life;
-    if ((first_life || (dead && !app->was_dead)) && !app->limbo_lock && !limbo && !esc) {
-        menus_show(&app->menus, MENU_LIMBO, true, hud_mode(app), 1);
+    if (!playing) { // a demo's recorder picks nothing here
+        if ((first_life || (dead && !app->was_dead)) && !app->limbo_lock && !limbo && !esc) {
+            menus_show(&app->menus, MENU_LIMBO, true, hud_mode(app), 1);
+        }
+        const Buttons moving = BUTTON_LEFT | BUTTON_RIGHT | BUTTON_JUMP | BUTTON_CROUCH | BUTTON_PRONE | BUTTON_JET | BUTTON_FIRE | BUTTON_THROW;
+        if (limbo && !dead && (cmds[app->me].buttons & moving)) menus_show(&app->menus, MENU_LIMBO, false, hud_mode(app), 1);
+        if (spectator && team_game(app) && !app->team_asked && !esc) {
+            menus_show(&app->menus, MENU_TEAM, true, hud_mode(app), 1);
+            app->team_asked = true;
+        }
     }
-    const Buttons moving = BUTTON_LEFT | BUTTON_RIGHT | BUTTON_JUMP | BUTTON_CROUCH | BUTTON_PRONE | BUTTON_JET | BUTTON_FIRE | BUTTON_THROW;
-    if (limbo && !dead && (cmds[app->me].buttons & moving)) menus_show(&app->menus, MENU_LIMBO, false, hud_mode(app), 1);
     app->was_dead = dead;
-    if (spectator && team_game(app) && !app->team_asked && !esc) {
-        menus_show(&app->menus, MENU_TEAM, true, hud_mode(app), 1);
-        app->team_asked = true;
-    }
 
     // Watching (LocalInput.pas, "change camera when dead"): as I die the camera stays on
     // my body, as the original's CameraFollowSprite stays on mine; joining as a spectator,
@@ -1296,10 +1564,21 @@ static void tick(App *app)
     // team's in a team game); jump, or the freecam command, is the free camera, which the
     // cursor pushes; and fire with nobody to follow is that too. Alive, the camera is
     // mine again.
-    Buttons pressed = (Buttons)(cmds[app->me].buttons & ~app->camera_keys);
-    app->camera_keys = cmds[app->me].buttons;
+    // A demo playing is watched from outside, by my own keys and at any time: fire and jet
+    // go round the players and its recorder, jump is the free camera.
+    Buttons keys = playing ? input.buttons : cmds[app->me].buttons;
+    Buttons pressed = (Buttons)(keys & ~app->camera_keys);
+    app->camera_keys = keys;
     bool watching = me->active && (me->dead || spectator);
-    if (watching) {
+    if (playing) {
+        if (!menus_any_active(&app->menus)) {
+            if (pressed & BUTTON_JUMP) camera_free(app);
+            else if ((pressed & (BUTTON_FIRE | BUTTON_JET)) && !camera_next(app, (pressed & BUTTON_JET) != 0)) {
+                app->camera_follow = -1;
+                app->free_camera = false;
+            }
+        }
+    } else if (watching) {
         if (!app->was_watching) {
             app->camera_follow = -1;
             app->free_camera = false;
@@ -1600,6 +1879,15 @@ static void hud_data_build(App *app)
     d->me = app->me;
     d->camera_follow = app->camera_follow;
     d->free_camera = app->free_camera;
+    // the demo being recorded, or played
+    d->recording = demo_recording(&app->recorder);
+    snprintf(d->demo_name, sizeof d->demo_name, "%s", d->recording ? app->recorder.name : "");
+    d->demo_playing = app->playing;
+    d->demo_tick = demo_at(app);
+    d->demo_seeking = app->seeking;
+    d->demo_ticks = app->player.header.ticks;
+    d->demo_paused = app->demo_paused;
+    d->demo_speed = app->demo_speed->number;
     // the weapons menu's green lines: what the next spawn gets, picked last life or in the
     // config, as the original's SelWeapon and cl_player_secwep
     d->selected_weapon = me->primary_choice;
@@ -1793,11 +2081,53 @@ static bool world_reload(App *app, const char *map)
     return true;
 }
 
+// What the line's messages began, taken: after each frame's poll, and as a demo plays at
+// each of its frames' ends.
+static void net_take(App *app)
+{
+    if (client_net_take_map(&app->net)) {
+        // a round on the server's map: the world made anew for its snapshots, my slot its
+        if (!world_reload(app, app->net.map)) {
+            fprintf(stderr, "could not load the server's map '%s'\n", app->net.map);
+            app->quit = true;
+        }
+        app->me = app->net.slot;
+        app->round_recorded = false;
+    }
+    // The round is over (ClientHandleMapChange): the scoreboard comes up and stays
+    // through the countdown, the weapons menu and the stats go, and with no teams the
+    // camera goes to the winner, the cursor to the middle.
+    if (client_net_take_map_change(&app->net)) {
+        app->hud_data.frags_menu = true;
+        app->hud_data.stats_menu = false;
+        menus_show(&app->menus, MENU_LIMBO, false, hud_mode(app), 1);
+        if (!team_game(app)) {
+            int best = -1;
+            for (int i = 0; i < MAX_PLAYERS; i++) {
+                const Soldier *s = &app->game->world.soldiers[i];
+                if (s->active && s->team != TEAM_SPECTATOR && (best < 0 || s->kills > app->game->world.soldiers[best].kills)) best = i;
+            }
+            if (best >= 0 && best != app->me) app->camera_follow = best;
+            if (!app->menus.menus[MENU_ESC].active) app->input.cursor = vec2_scale(app->input.view, 0.5f);
+        }
+    }
+    // a vote begun: its box comes up (ClientHandleVoteOn), the stats go
+    if (app->net.vote_seq != app->vote_seen) {
+        app->vote_seen = app->net.vote_seq;
+        app->vote_hidden = false;
+        app->hud_data.stats_menu = false;
+    }
+    MsgChat heard;
+    while (client_net_take_chat(&app->net, &heard)) chat_heard(app, heard.slot, heard.team, (ChatKind)heard.kind, heard.color, heard.text);
+}
+
 int main(int argc, char *argv[])
 {
     App app = {0};
 
     if (!client_net_init(&app.net)) fprintf(stderr, "ENet wouldn't start: no connecting\n");
+    app.net.tap = demo_tap; // what the line brings, into the demo being recorded
+    app.net.tap_user = &app;
     browser_init(&app.browser);
     http_init();
     http_set_agent("soldatreloaded/" SOLDATRELOADED_VERSION);
@@ -1863,38 +2193,22 @@ int main(int argc, char *argv[])
             console_execute(app.console, "disconnect");
         }
         browser_pump(&app.browser, app.time); // the server list, while the menu asks for it
+        if (app.play_name[0]) { // its first frames, up to its first tick, at once: its world made
+            demo_start_playback(&app);
+            if (app.playing && !demo_feed(&app)) demo_stop_playback(&app);
+        }
         client_net_poll(&app.net, app.console, app.game);
-        if (client_net_take_map(&app.net)) {
-            // a round on the server's map: the world made anew for its snapshots, my slot its
-            if (!world_reload(&app, app.net.map)) {
-                fprintf(stderr, "could not load the server's map '%s'\n", app.net.map);
-                app.quit = true;
-            }
-            app.me = app.net.slot;
+        net_take(&app);
+        // A demo: begun as `record` asked, or by demo_autorecord once a round; stopped
+        // when the line is lost; the frame's packets marked as all in, before its ticks.
+        if (!app.playing && client_net_joined(&app.net) && app.net.round && !demo_recording(&app.recorder) &&
+            (app.record_asked || (app.demo_autorecord->integer && !app.round_recorded))) {
+            demo_start_recording(&app, app.record_asked ? app.record_name : NULL);
+            app.record_asked = false;
+            app.round_recorded = true;
         }
-        // The round is over (ClientHandleMapChange): the scoreboard comes up and stays
-        // through the countdown, the weapons menu and the stats go, and with no teams the
-        // camera goes to the winner, the cursor to the middle.
-        if (client_net_take_map_change(&app.net)) {
-            app.hud_data.frags_menu = true;
-            app.hud_data.stats_menu = false;
-            menus_show(&app.menus, MENU_LIMBO, false, hud_mode(&app), 1);
-            if (!team_game(&app)) {
-                int best = -1;
-                for (int i = 0; i < MAX_PLAYERS; i++) {
-                    const Soldier *s = &app.game->world.soldiers[i];
-                    if (s->active && s->team != TEAM_SPECTATOR && (best < 0 || s->kills > app.game->world.soldiers[best].kills)) best = i;
-                }
-                if (best >= 0 && best != app.me) app.camera_follow = best;
-                if (!app.menus.menus[MENU_ESC].active) app.input.cursor = vec2_scale(app.input.view, 0.5f);
-            }
-        }
-        // a vote begun: its box comes up (ClientHandleVoteOn), the stats go
-        if (app.net.vote_seq != app.vote_seen) {
-            app.vote_seen = app.net.vote_seq;
-            app.vote_hidden = false;
-            app.hud_data.stats_menu = false;
-        }
+        if (demo_recording(&app.recorder) && !client_net_joined(&app.net)) demo_stop_recording(&app);
+        demo_record_frame(&app.recorder);
         // the map window asks the server for the map it shows, as it opens and as it pages
         {
             bool open = app.menus.menus[MENU_MAP].active && client_net_joined(&app.net);
@@ -1905,8 +2219,6 @@ int main(int argc, char *argv[])
             if (!open) app.map_query_index = -1;
             app.map_window_open = open;
         }
-        MsgChat heard;
-        while (client_net_take_chat(&app.net, &heard)) chat_heard(&app, heard.slot, heard.team, (ChatKind)heard.kind, heard.color, heard.text);
         // the menu goes as a server takes us, and comes back when the line is lost
         if (app.net.state != app.net_state_seen) {
             if (app.net.state == CLIENT_NET_JOINED) mainmenu_show(&app.mainmenu, false);
@@ -1917,8 +2229,35 @@ int main(int argc, char *argv[])
         app.camera.viewport = window_rect(&app);
         input_sample(&app.input, screen_to_world(&app.camera, cursor(&app)));
 
-        int ticks = ticks_owed(&app, dt);
-        for (int i = 0; i < ticks; i++) tick(&app);
+        // A demo plays at demo_speed, held while paused or while the escape menu is up (the
+        // original's); each tick runs on the demo's records up to it. A seek runs its ticks
+        // as fast as they go, a slice of the frame at a time so the window keeps answering;
+        // then the demo goes on from there at its pace.
+        if (app.playing && app.seeking) {
+            Uint64 began = SDL_GetPerformanceCounter(), budget = SDL_GetPerformanceFrequency() / 40;
+            while (app.seeking && SDL_GetPerformanceCounter() - began < budget) {
+                if (!app.demo_ticked && !demo_feed(&app)) {
+                    demo_stop_playback(&app);
+                    break;
+                }
+                tick(&app);
+                app.demo_ticked = false;
+                if (demo_at(&app) >= app.seek_to) app.seeking = false;
+            }
+            app.accumulator = 0;
+        }
+        double speed = 1.0;
+        if (app.playing) speed = app.demo_paused || app.menus.menus[MENU_ESC].active ? 0.0 : clampf(app.demo_speed->number, 0.0f, 10.0f);
+        if (app.seeking) speed = 0.0; // the seek has the ticks
+        int ticks = ticks_owed(&app, dt * speed);
+        for (int i = 0; i < ticks; i++) {
+            if (app.playing && !app.demo_ticked && !demo_feed(&app)) {
+                demo_stop_playback(&app);
+                break;
+            }
+            tick(&app);
+            app.demo_ticked = false;
+        }
         client_net_flush(&app.net); // what the ticks said goes out now, not a tick late
 
         // the world ticks every pass; a frame is drawn only once the last is old enough
@@ -1932,12 +2271,17 @@ int main(int argc, char *argv[])
             Vec2 target = app.frame.focus;
             if (app.camera_follow >= 0 && app.frame.soldiers[app.camera_follow].active) target = app.frame.soldiers[app.camera_follow].pos;
             const RenderSoldier *watched = &app.frame.soldiers[app.camera_follow >= 0 ? app.camera_follow : app.me];
+            // the cursor, drawn and led by the camera: a demo's recorder's own, while the
+            // camera is on the recorder and no menu wants mine
+            Vec2 shown_cursor = app.input.cursor;
+            if (app.playing && app.camera_follow < 0 && !app.free_camera && !menus_any_active(&app.menus)) shown_cursor = app.demo_tick.cursor;
+            Vec2 lead = vec2_scale(shown_cursor, app.camera.viewport.height / GAME_HEIGHT);
             const Bullet *tracked = app.tracking ? my_shot(&app, app.tracking_shot) : NULL;
             if (tracked) { // ahead of my scoped shot, where it is drawn, by five ticks of its flight
                 Vec2 at = vec2_add(tracked->old_pos, vec2_scale(vec2_sub(tracked->pos, tracked->old_pos), alpha));
                 app.camera.pos = vec2_add(at, vec2_scale(tracked->vel, 5.0f));
             } else if (!app.free_camera) {
-                camera_follow(&app.camera, target, cursor(&app), watched->aim_dist, since_frame);
+                camera_follow(&app.camera, target, lead, watched->aim_dist, since_frame);
             } else { // the cursor pushes the free camera, per frame at the tick's rate so it glides
                 Vec2 off = vec2_sub(app.input.cursor, vec2_scale(app.input.view, 0.5f));
                 if (fabsf(off.x) > 10.0f || fabsf(off.y) > 10.0f) {
@@ -1950,15 +2294,19 @@ int main(int argc, char *argv[])
                 render_draw(&app.render, &app.frame, &app.camera, app.render_options, grenade_color(app.grenade_color), app.time);
                 hud_data_build(&app);
                 interface_draw(&app.hud, &app.hud_data, &app.menus, &app.frame, &app.game->ctx, &app.render.map_view,
-                               &app.camera, app.input.cursor, app.camera.viewport, cvar_color(app.cursor_color),
+                               &app.camera, shown_cursor, app.camera.viewport, cvar_color(app.cursor_color),
                                cvar_color(app.crosshair_color), clampi(app.cursor_size->integer, 50, 200) / 100.0f,
                                clampi(app.crosshair_size->integer, 50, 200) / 100.0f);
             } else { // the menu on a background of its own
                 gfx_clear((Rgba){0, 0, 0, 255});
                 Rect r = app.camera.viewport;
+                bool demos = app.mainmenu.page == MAIN_DEMOS; // demos/ read as its page opens, so a new one shows
+                if (demos && !app.demos_shown) app.demo_count = demo_list(app.demos, (int)(sizeof app.demos / sizeof app.demos[0]));
+                app.demos_shown = demos;
                 mainmenu_draw(&app.mainmenu, app.console, &app.hud, &app.render.gostek, &app.game->ctx,
                               app.input.cursor, GAME_HEIGHT * r.width / r.height, GAME_HEIGHT / r.height, app.time,
-                              console_log_line(app.console, 0), client_net_joined(&app.net), app.host != NULL, app.maps, app.map_count, &app.browser);
+                              console_log_line(app.console, 0), client_net_joined(&app.net), app.host != NULL, app.maps, app.map_count, &app.browser,
+                              app.demos, app.demo_count);
                 char command[256];
                 if (mainmenu_take_command(&app.mainmenu, command, sizeof command)) console_execute(app.console, command);
             }
@@ -1976,6 +2324,8 @@ int main(int argc, char *argv[])
         SDL_Delay(SLEEP_AFTER_FRAME_MS);
     }
 
+    demo_stop_recording(&app);
+    demo_play_close(&app.player);
     if (app.host) {
         client_net_disconnect(&app.net, app.console);
         host_stop(&app);

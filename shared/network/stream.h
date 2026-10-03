@@ -179,6 +179,7 @@ typedef struct ClientStream {
     WireQueue out;       // my decisions, for the server
     uint32_t event_ack;  // the newest of my events the server has applied
     uint32_t event_last; // the newest of the server's events applied here
+    uint32_t view_at;    // the tick the next begin_tick shows, its clock passed over, 0 for the clock's: a demo's, as recorded
     uint16_t round;      // the round I am in (MsgMap); snapshots of another are dropped
     uint32_t dropped;    // snapshots that couldn't be read
     uint32_t stale;      // snapshots of another round

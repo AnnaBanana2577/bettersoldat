@@ -80,3 +80,4 @@ void script_tests(void);
 void query_tests(void);
 void lobby_tests(void);
 void launcher_tests(void);
+void demo_tests(void);
