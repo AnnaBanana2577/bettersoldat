@@ -23,12 +23,14 @@
 #include "game/game.h"
 #include "network/transport.h"
 
+#define HOST_MAX_MAPS 128 // the server's list of maps, at most
+
 typedef struct HostSettings {
     uint16_t port;
     char ip[128];                    // the address to listen on; empty for every one (sv_ip)
     char data[512];
     char map[NET_MAP_SIZE];          // the first round's
-    char maps[CONSOLE_VALUE_SIZE];   // the rotation, space-separated; empty plays `map` again
+    char maps[HOST_MAX_MAPS * 24];   // the rotation, space-separated; empty plays `map` again
     char hostname[NET_NAME_SIZE];
     MatchMode mode;                  // MATCH_MODE_COUNT for the map's own
     int time_limit;                  // minutes; 0 for the default

@@ -2,8 +2,8 @@
 
 // The server's lists, by address: who is banned (until when, as whom, why), who is muted
 // (their chat goes to nobody), and who may run the admin commands (connections.h). A
-// dedicated server keeps them in config/server/: banlist.cfg and mutelist.cfg, which it
-// writes as admins ban and unban, mute and unmute, and admins.cfg, which only the
+// dedicated server keeps them in config/server/: banlist.txt and mutelist.txt, which it
+// writes as admins ban and unban, mute and unmute, and admins.txt, which only the
 // server's owner writes. Each is a line per entry, words in "quotes" where they may hold
 // spaces, // for a comment:
 //

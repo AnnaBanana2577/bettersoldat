@@ -15,8 +15,8 @@
 void lists_tests(void)
 {
     files_remove_tree(DIR);
-    files_make_parents(DIR "/admins.cfg");
-    files_write(DIR "/admins.cfg", "// the owner's\nadmin 10.0.0.7 \"Boss\"\n", 38);
+    files_make_parents(DIR "/admins.txt");
+    files_write(DIR "/admins.txt", "// the owner's\nadmin 10.0.0.7 \"Boss\"\n", 38);
 
     uint32_t a, b, c;
     CHECK(lists_address("1.2.3.4", &a) && lists_address("5.6.7.8", &b) && lists_address("10.0.0.7", &c) && !lists_address("1.2.3", &a) &&
@@ -26,9 +26,20 @@ void lists_tests(void)
     lists_address_text(a, text, sizeof text);
     CHECK(strcmp(text, "1.2.3.4") == 0, "and write back the same (%s)", text);
 
-    static Lists l, again;
+    static Lists l, again, fresh;
     lists_load(&l, DIR, NULL);
-    CHECK(l.admin_count == 1 && lists_admin(&l, c) && !lists_admin(&l, a), "admins.cfg is read: the owner's admin, by address");
+    CHECK(l.admin_count == 1 && lists_admin(&l, c) && !lists_admin(&l, a), "admins.txt is read: the owner's admin, by address");
+    CHECK(files_exists(DIR "/banlist.txt") && files_exists(DIR "/mutelist.txt"),
+          "the lists that weren't there are made, so an owner finds them");
+
+    // a first start: every list made, the owner's admins.txt a template that lists nobody
+    files_remove_tree(DIR "/fresh");
+    lists_load(&fresh, DIR "/fresh", NULL);
+    CHECK(files_exists(DIR "/fresh/banlist.txt") && files_exists(DIR "/fresh/mutelist.txt") &&
+              files_exists(DIR "/fresh/admins.txt"),
+          "a first start makes all three lists");
+    lists_load(&fresh, DIR "/fresh", NULL);
+    CHECK(fresh.ban_count == 0 && fresh.mute_count == 0 && fresh.admin_count == 0, "and read back, they list nobody");
     int64_t now = (int64_t)time(NULL);
     lists_ban(&l, a, 0, "Major", "Cheating \"a lot\"");
     lists_ban(&l, b, now + 600, "Minor", "Spam");

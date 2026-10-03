@@ -39,14 +39,17 @@
 #ifndef SOLDATRELOADED_VERSION
 #define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
 #endif
-// The config: the defaults the game ships (replaced by each update), then the admin's
-// own, which the server never writes; or, from before config/, the one config.cfg.
+// The config: the defaults the game ships (replaced by each update), then the owner's own
+// in config/server/, which the server makes on its first start with what each is for, and
+// never writes again but the lists of bans and mutes. A server set up before config/ had
+// one config.cfg: it becomes settings.cfg, once.
 #define CONFIG_DEFAULT_SETTINGS "config/defaults/settings.server.cfg"
 #define CONFIG_SETTINGS "config/server/settings.cfg"
 #define CONFIG_OLD "config.cfg"
-#define CONFIG_LISTS "config/server" // banlist.cfg, mutelist.cfg, admins.cfg (lists.h)
+#define CONFIG_LISTS "config/server" // banlist.txt, mutelist.txt, admins.txt (lists.h)
 #define CONFIG_DEFAULT_WEAPONS "config/defaults/weapons.server.cfg" // the game's own numbers, as `weapon` lines
 #define CONFIG_WEAPONS "config/server/weapons.cfg"                // a weapons mod, over them
+#define CONFIG_MAPLIST "config/server/maplist.txt"                // the rotation, a map to a line
 #define SLEEP_MS 1 // between passes of the loop, so it never spins flat out
 
 typedef struct Server {
@@ -122,6 +125,79 @@ static bool file_exists(const char *path)
     FILE *f = fopen(path, "rb");
     if (f) fclose(f);
     return f != NULL;
+}
+
+static const char SETTINGS_HEADER[] =
+    "// This server's settings, over config/defaults/settings.server.cfg, which every update\n"
+    "// replaces: a `set` line for each you want otherwise, as that file writes them. Read as\n"
+    "// the server starts; the command line (+sv_hostname \"...\") goes over both.\n";
+
+// The files of config/server/ the owner writes, made where missing with what each is for,
+// so they are found from the first start (lists.c makes the lists'). A config.cfg from
+// before config/ is the settings, copied once; it stays, as a game's own install shares it
+// with the client, which moves it aside itself.
+static void config_make_missing(void)
+{
+    static const struct {
+        const char *path, *text;
+    } FILES[] = {
+        {CONFIG_SETTINGS, "//\n"
+                          "// set sv_hostname \"My server\"\n"
+                          "// set sv_password \"secret\"\n"
+                          "// set sv_public \"1\"\n"},
+        {CONFIG_MAPLIST, "// The maps in rotation, one to a line, played in turn after the first (the `map`\n"
+                         "// setting). sv_maps, when it is set (in settings.cfg or on the command line), is the\n"
+                         "// rotation instead; with neither, the map is played again. A map that isn't in\n"
+                         "// data/maps/ is passed over.\n"
+                         "//\n"
+                         "// ctf_Ash\n"
+                         "// ctf_Kampf\n"},
+        {CONFIG_WEAPONS, "// A weapons mod: `weapon` lines in the form config/defaults/weapons.server.cfg shows, with\n"
+                         "// only the weapons and the fields you change. Every player who joins is sent them, so the\n"
+                         "// mod plays the same for all.\n"
+                         "//\n"
+                         "// weapon \"Desert Eagles\" damage 2.2 ammo 9\n"},
+    };
+    for (size_t i = 0; i < sizeof FILES / sizeof FILES[0]; i++) {
+        if (file_exists(FILES[i].path) || !files_make_parents(FILES[i].path)) continue;
+        FILE *f = fopen(FILES[i].path, "wb");
+        if (!f) continue;
+        if (!strcmp(FILES[i].path, CONFIG_SETTINGS)) {
+            fputs(SETTINGS_HEADER, f);
+            uint64_t size = 0;
+            char *old = files_read(CONFIG_OLD, &size);
+            if (old) {
+                fputs("\n// From config.cfg, where they were before config/:\n\n", f);
+                fwrite(old, 1, (size_t)size, f);
+                free(old);
+                fclose(f);
+                continue;
+            }
+        }
+        fputs(FILES[i].text, f);
+        fclose(f);
+    }
+}
+
+// The rotation maplist.txt holds: its maps, a word each, space-separated into `out`.
+static void maplist_read(char *out, size_t size)
+{
+    out[0] = '\0';
+    char *text = files_read(CONFIG_MAPLIST, NULL);
+    if (!text) return;
+    size_t n = 0;
+    for (char *line = strtok(text, "\r\n"); line; line = strtok(NULL, "\r\n")) {
+        char *comment = strstr(line, "//");
+        if (comment) *comment = '\0';
+        for (char *p = line; *p;) {
+            while (*p == ' ' || *p == '\t' || *p == ',') p++;
+            char *start = p;
+            while (*p && *p != ' ' && *p != '\t' && *p != ',') p++;
+            if (p > start && n + (size_t)(p - start) + 2 < size)
+                n += (size_t)snprintf(out + n, size - n, "%s%.*s", n ? " " : "", (int)(p - start), start);
+        }
+    }
+    free(text);
 }
 
 static void cmd_quit(Console *con, int argc, char **argv, void *user)
@@ -252,7 +328,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
 
     sv->data = cvar_register(con, "data", "./data", 0, "what the game plays by: maps/, anims/, objects/, bots/");
     sv->map = cvar_register(con, "map", "Arena", 0, "the map to load");
-    sv->maps = cvar_register(con, "sv_maps", "", 0, "the maps in rotation, space-separated; empty plays the map again");
+    sv->maps = cvar_register(con, "sv_maps", "", 0, "the maps in rotation, space-separated, over config/server/maplist.txt; with neither the map plays again");
     sv->port = cvar_register(con, "sv_port", "23073", 0, "the UDP port to listen on");
     sv->ip = cvar_register(con, "sv_ip", "", 0, "the address to listen on; empty for every one");
     sv->hostname = cvar_register(con, "sv_hostname", "Soldat Reloaded server", 0, "the server's name, on the scoreboard");
@@ -287,7 +363,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     console_add_command(con, "unmute", cmd_admin, sv, "unmute <player, address or name>");
     console_add_command(con, "bans", cmd_admin, sv, "the ban list");
     console_add_command(con, "mutes", cmd_admin, sv, "the mute list");
-    console_add_command(con, "admins", cmd_admin, sv, "the admins (config/server/admins.cfg)");
+    console_add_command(con, "admins", cmd_admin, sv, "the admins (config/server/admins.txt)");
     console_add_command(con, "weapon", cmd_weapon, sv, "a weapons mod's line: weapon <name> <field> <value> [<field> <value>...]");
     console_add_command(con, "weaponlist", cmd_weaponlist, sv, "every weapon's numbers, as the lines that set them");
     console_add_command(con, "addbot", cmd_addbot, sv, "add a bot: addbot [name]");
@@ -298,9 +374,9 @@ static bool console_open(Server *sv, int argc, char *argv[])
     console_add_command(con, "script_reload", cmd_script_reload, sv, "read the script again, from the start");
     console_add_command(con, "lua", cmd_lua, sv, "run a line of Lua in the script: lua <code>");
 
+    config_make_missing();
     if (file_exists(CONFIG_DEFAULT_SETTINGS)) console_execute_file(con, CONFIG_DEFAULT_SETTINGS);
     if (file_exists(CONFIG_SETTINGS)) console_execute_file(con, CONFIG_SETTINGS);
-    else if (file_exists(CONFIG_OLD)) console_execute_file(con, CONFIG_OLD); // a server set up before config/
     if (file_exists(CONFIG_DEFAULT_WEAPONS)) console_execute_file(con, CONFIG_DEFAULT_WEAPONS);
     if (file_exists(CONFIG_WEAPONS)) console_execute_file(con, CONFIG_WEAPONS);
     console_execute_args(con, argc, argv);
@@ -394,7 +470,9 @@ static HostSettings settings_from_cvars(const Server *sv)
     snprintf(s.data, sizeof s.data, "%s", sv->data->value);
     snprintf(s.ip, sizeof s.ip, "%s", sv->ip->value);
     snprintf(s.map, sizeof s.map, "%s", sv->map->value);
-    snprintf(s.maps, sizeof s.maps, "%s", sv->maps->value);
+    // the rotation: sv_maps when it is set, else maplist.txt's
+    if (sv->maps->value[0]) snprintf(s.maps, sizeof s.maps, "%s", sv->maps->value);
+    else maplist_read(s.maps, sizeof s.maps);
     snprintf(s.hostname, sizeof s.hostname, "%s", sv->hostname->value);
     snprintf(s.lists_dir, sizeof s.lists_dir, "%s", CONFIG_LISTS); // the bans, mutes and admins, kept
     s.weapons_mod = sv->weapons_mod;

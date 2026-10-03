@@ -342,7 +342,7 @@ static void update_tests(void)
     }
     files_write(SCRATCH "/install/config.cfg", "mine", 4);
     files_write(SCRATCH "/install/config/client/settings.cfg", "my settings", 11);
-    files_write(SCRATCH "/install/config/server/banlist.cfg", "my bans", 7);
+    files_write(SCRATCH "/install/config/server/banlist.txt", "my bans", 7);
     files_write(SCRATCH "/install/mods/mine/sfx/ak74-fire.wav", "my gun", 6);
     files_write(SCRATCH "/install/scripts/main.lua", "a player's script", 17);
 
@@ -372,7 +372,7 @@ static void update_tests(void)
     CHECK(holds("game.exe", "new game") && holds("bin/server.exe", "new server") && holds("version.txt", "2\n"),
           "the new game, the program in bin/, and its version");
     CHECK(holds("config/defaults/settings.client.cfg", "new defaults"), "and the new defaults with it");
-    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.cfg", "my bans") &&
+    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.txt", "my bans") &&
               holds("mods/mine/sfx/ak74-fire.wav", "my gun") && holds("config.cfg", "mine") &&
               holds("scripts/main.lua", "a player's script"),
           "the player's config, mod and script and the server's lists are left alone");
@@ -450,7 +450,7 @@ static void update_tests(void)
           error);
     CHECK(!files_exists("game.exe") && !files_exists("soldatreloaded.exe") && !files_exists("soldatreloaded.exe.old"),
           "and the names it had are gone, with what they were moved aside to");
-    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.cfg", "my bans") &&
+    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.txt", "my bans") &&
               holds("mods/mine/sfx/ak74-fire.wav", "my gun") && holds("config.cfg", "mine") &&
               holds("scripts/main.lua", "a player's script"),
           "but not the player's own files");

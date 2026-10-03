@@ -41,8 +41,8 @@ typedef struct Connection {
     int messages;       // heard from it this second (MessagesASecNum)
     int flood_warnings; // seconds it was heard from too often; one forgiven every five minutes (FloodWarnings)
     int chat_warnings;  // lines of chat outstanding; one forgiven a second (ChatWarnings)
-    bool admin;         // may run the admin commands: on admins.cfg, or logged in with sv_adminpassword
-    bool muted;         // its chat reaches nobody (mutelist.cfg)
+    bool admin;         // may run the admin commands: on admins.txt, or logged in with sv_adminpassword
+    bool muted;         // its chat reaches nobody (mutelist.txt)
 } Connection;
 
 // The votes as the original runs them (Game.pas StartVote, CountVote, TimerVote): twenty

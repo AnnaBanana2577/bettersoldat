@@ -7,9 +7,9 @@
 #include "files.h"             // the launcher's, for the directory
 #include "network/transport.h" // ENet, for the addresses
 
-#define BANLIST "banlist.cfg"
-#define MUTELIST "mutelist.cfg"
-#define ADMINS "admins.cfg"
+#define BANLIST "banlist.txt"
+#define MUTELIST "mutelist.txt"
+#define ADMINS "admins.txt"
 #define LIST_WORDS 6
 
 static void copy(char *out, size_t size, const char *s) { snprintf(out, size, "%s", s ? s : ""); }
@@ -57,6 +57,8 @@ static int words(char *line, char *word[LIST_WORDS])
 
 static void path_of(const Lists *l, const char *file, char *out, size_t size) { snprintf(out, size, "%s/%s", l->dir, file); }
 
+static void make_missing(const Lists *l);
+
 // Each line of a list's file that begins with `verb`, to `take`.
 static void read_list(Lists *l, const char *file, const char *verb, void (*take)(Lists *, char **, int))
 {
@@ -103,6 +105,7 @@ void lists_load(Lists *l, const char *dir, Console *console)
     read_list(l, BANLIST, "ban", take_ban);
     read_list(l, MUTELIST, "mute", take_mute);
     read_list(l, ADMINS, "admin", take_admin);
+    make_missing(l);
     if (console && (l->ban_count || l->mute_count || l->admin_count))
         console_print(console, "%d bans, %d mutes and %d admins from %s\n", l->ban_count, l->mute_count, l->admin_count, l->dir);
 }
@@ -161,6 +164,27 @@ static void save_mutes(const Lists *l)
         fprintf(f, "mute %s \"%s\"\n", ip, name);
     }
     fclose(f);
+}
+
+// Each list's file that isn't there, made with its header, so an owner finds them all in
+// config/server/ from the first start: the bans and mutes as the server writes them,
+// empty, and admins.txt for the owner to fill.
+static void make_missing(const Lists *l)
+{
+    char path[600];
+    path_of(l, BANLIST, path, sizeof path);
+    if (!files_exists(path)) save_bans(l);
+    path_of(l, MUTELIST, path, sizeof path);
+    if (!files_exists(path)) save_mutes(l);
+    path_of(l, ADMINS, path, sizeof path);
+    if (files_exists(path)) return;
+    FILE *f = begin_file(l, ADMINS,
+                         "// The admins, by address: they may /kick, /ban, /mute and /map from the chat (and /admins,\n"
+                         "// /bans, /mutes to list them). The server only reads this file, as it starts. A player\n"
+                         "// may also be an admin until they leave by saying /login with sv_adminpassword.\n"
+                         "//\n"
+                         "// admin 1.2.3.4 \"Major\"\n");
+    if (f) fclose(f);
 }
 
 const Ban *lists_banned(Lists *l, uint32_t host, int64_t now)

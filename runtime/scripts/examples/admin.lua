@@ -1,6 +1,6 @@
 -- Lets the names given pause the game and skip the map from the chat: /pause, /unpause and
 -- /skip (docs/scripting.md). A name is anyone's to take, so for real admins see
--- config/server/admins.cfg; this is for a game among friends. Taken up in scripts/main.lua:
+-- config/server/admins.txt; this is for a game among friends. Taken up in scripts/main.lua:
 --
 --   require("examples.admin")({names = {"Major", "Kruger"}})
 --

@@ -84,11 +84,17 @@ set otherwise in your own `config/server/settings.cfg`, or given on the command 
 server +sv_hostname "My server" +sv_maps "ctf_Ash ctf_Kampf" +sv_password secret
 ```
 
-Beside it in `config/server/`: `weapons.cfg`, a weapons mod (the form is in
-`config/defaults/weapons.server.cfg`), sent to every player who joins; `admins.cfg`, the
-addresses of the admins, who may `/kick`, `/ban`, `/mute` and `/map` from the chat (or
-set `sv_adminpassword` and `/login`); and `banlist.cfg` and `mutelist.cfg`, which the
-server keeps as players are banned and muted.
+The server makes `config/server/` on its first start, each file saying what it holds and
+how, and never touches one that is there. The `.cfg` files are console lines it runs; the
+`.txt` files are lists it reads, and the bans and mutes it writes:
+
+| file | holds |
+|---|---|
+| `settings.cfg` | your settings over `config/defaults/settings.server.cfg` |
+| `maplist.txt` | the rotation, a map to a line (`sv_maps`, when set, goes over it); a map the server hasn't got is passed over |
+| `weapons.cfg` | a weapons mod (the form is in `config/defaults/weapons.server.cfg`), sent to every player who joins |
+| `admins.txt` | the addresses of the admins, who may `/kick`, `/ban`, `/mute` and `/map` from the chat (or set `sv_adminpassword` and `/login`) |
+| `banlist.txt`, `mutelist.txt` | the bans and mutes, which the server keeps as players are banned and muted |
 
 `sv_public 1` lists it in the game's server browser, once its UDP port (23073 by
 default) can be reached from outside. A script in `scripts/main.lua` runs with it, yours to

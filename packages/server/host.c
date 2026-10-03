@@ -5,10 +5,10 @@
 #include <string.h>
 #include <time.h>
 
+#include "files.h" // the launcher's
 #include "rounds.h"
 
 #define MAX_STALL 0.25 // a stall never turns into a burst of ticks
-#define HOST_MAX_MAPS 128
 
 static void bot_say(void *user, int slot, const char *text) { connections_say_as(&((Host *)user)->connections, slot, text); }
 
@@ -111,18 +111,33 @@ bool host_open(Host *h, Console *console, const HostSettings *settings)
     net_answer_queries(&h->link, answer_query, h);
 
     // the server's list of maps (the original's MapsList): the rotation as given, or
-    // every map under data/ when there is none; the map window pages it, a vote picks from it
+    // every map under data/ when there is none; the map window pages it, a vote picks from it.
+    // A map of the rotation the server hasn't got is passed over, in the rotation too: it
+    // would stop the server at the round that came to it.
     h->maps = calloc(HOST_MAX_MAPS, sizeof *h->maps);
     if (h->maps) {
         const char *p = settings->maps;
+        size_t kept = 0;
         while (*p && h->map_count < HOST_MAX_MAPS) {
             while (*p == ' ' || *p == ',' || *p == '\t') p++;
             if (!*p) break;
             const char *start = p;
             while (*p && *p != ' ' && *p != ',' && *p != '\t') p++;
-            snprintf(h->maps[h->map_count++], sizeof h->maps[0], "%.*s", (int)(p - start), start);
+            char name[64], path[600];
+            snprintf(name, sizeof name, "%.*s", (int)(p - start), start);
+            snprintf(path, sizeof path, "%s/%s.pms", h->connections.maps_dir, name);
+            if (!files_exists(path)) {
+                if (h->console) console_print(h->console, "the rotation's %s isn't in %s: passed over\n", name,
+                                              h->connections.maps_dir);
+                continue;
+            }
+            snprintf(h->maps[h->map_count++], sizeof h->maps[0], "%s", name);
+            kept += (size_t)snprintf(h->settings.maps + kept, sizeof h->settings.maps - kept, "%s%s", kept ? " " : "", name);
         }
-        if (h->map_count == 0) h->map_count = list_files(h->connections.maps_dir, ".pms", h->maps, HOST_MAX_MAPS);
+        if (h->map_count == 0) {
+            h->settings.maps[0] = '\0';
+            h->map_count = list_files(h->connections.maps_dir, ".pms", h->maps, HOST_MAX_MAPS);
+        }
         h->connections.maps = (const char (*)[64])h->maps;
         h->connections.map_count = h->map_count;
     }
