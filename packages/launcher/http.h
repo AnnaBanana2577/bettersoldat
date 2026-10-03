@@ -38,3 +38,11 @@ typedef void (*HttpProgress)(void *user, uint64_t done, uint64_t total);
 // `url` into the file `path`, hashed as it arrives: its SHA-256 and size come back.
 HttpResult http_download(const char *url, const char *path, uint8_t sha256[32], uint64_t *size, HttpProgress progress,
                          void *user, char *error, size_t error_size);
+
+// `length` bytes of `url` from `from`, into `out`, by an HTTP range: all of them, or
+// HTTP_FAILED (a server that sends the whole file instead is one). file:// URLs serve
+// ranges too.
+HttpResult http_get_range(const char *url, uint64_t from, size_t length, void *out, char *error, size_t error_size);
+
+// Every byte the requests have received so far, of every body: what an update cost.
+uint64_t http_received(void);

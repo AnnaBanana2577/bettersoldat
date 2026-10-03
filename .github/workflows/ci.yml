@@ -32,7 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # What SDL2 builds against on Linux: X11, Wayland, OpenGL and the sound systems.
+      # What SDL2 builds against on Linux: X11, Wayland, OpenGL and the sound systems; and
+      # Info-ZIP, which packs the zips with the executables' bit (xmake.lua)
       - name: system libraries
         if: matrix.platform == 'linux'
         run: |
@@ -42,7 +43,8 @@ jobs:
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
             libxss-dev libxfixes-dev libxrender-dev libxkbcommon-dev \
             libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev \
-            libasound2-dev libpulse-dev libdbus-1-dev libudev-dev libdrm-dev libgbm-dev
+            libasound2-dev libpulse-dev libdbus-1-dev libudev-dev libdrm-dev libgbm-dev \
+            zip
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
@@ -65,6 +67,5 @@ jobs:
           name: packages-${{ matrix.platform }}
           path: |
             build/release/*.zip
-            build/release/*.tar.gz
             build/release/latest-*.txt
           if-no-files-found: error

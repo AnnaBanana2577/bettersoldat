@@ -69,21 +69,23 @@ does not match is refused, so any release that changes the protocol will not tal
 the one before it. Say so in the tag's message, every time.
 
 A tag is the version; what ships beside it is the client, the server, the launcher and
-the contents of `runtime/` (`data/`, `mods/default/`, `config/defaults/` and `scripts/`), unpacked flat so that the config and the
-art sit beside the executable: the packages `xmake dist` makes (see xmake.lua). The tag
-alone is not a release until those exist.
+the contents of `runtime/` (`data/`, `mods/default/`, `config/defaults/` and
+`scripts/`), unpacked flat so that the config and the art sit beside the executable: the
+packages `xmake dist` makes (see xmake.lua). The tag alone is not a release until those
+exist.
 
 Players start the launcher (`Soldat Reloaded.exe`, `soldatreloaded-launcher` on
 Linux), at the top of the install, which keeps their copy at the newest release
 (launcher/update.h) and starts `bin/client.exe`; `bin/server.exe` is the dedicated
 server, and the server package's own sits at its top, the one executable there. Each
-release carries, for each platform, the game (`soldatreloaded-<version>-<platform>`, what a player downloads)
-and a manifest naming every file of an install by its hash; the launcher compares the
-install with it and downloads the small update package (`-patch`, the executables and
-`config/defaults/`) when only those differ, and the full package when anything in
-`data/`, `mods/default/` or `scripts/` does. `config/defaults/` and `mods/default/` are the release's and replaced with it;
-`config/client/`, `config/server/` and any other mod in `mods/` are the player's and the server owner's, in no
-package, and never touched. So:
+release carries, for each platform, the game (`soldatreloaded-<version>-<platform>.zip`,
+what a player downloads) and a manifest naming every file of an install by its hash; the
+launcher compares the install with it and brings what differs, those files alone, out
+of the game's zip where it lies, or the zip whole when most of it changed. So a release
+costs a player what it changed. `config/defaults/`, `mods/default/` and
+`scripts/examples/` are the release's and kept as it has them; `config/client/`,
+`config/server/`, any other mod in `mods/` and `scripts/main.lua` are the player's and the
+server owner's, in no manifest, and never touched. So:
 
 - A release that adds a cvar registers it in code with its default (`cvar_register`), and
   puts it in `runtime/config/defaults/` with its comment. A player's own files hold only what

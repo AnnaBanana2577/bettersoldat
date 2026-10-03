@@ -21,6 +21,7 @@
 #define change_directory _chdir
 #define current_directory _getcwd
 #else
+#include <sys/stat.h>
 #include <unistd.h>
 #define change_directory chdir
 #define current_directory getcwd
@@ -71,6 +72,7 @@ static void manifest_tests(void)
         "version 1.2.3\n"
         "\n"
         "package update e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 10 pkg-update.zip\n"
+        "package full e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 20 pkg.zip\n"
         "file e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 Soldat Reloaded.exe\n"
         "file ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad 3 data/maps/ctf_Ash.pms";
     Manifest m;
@@ -78,8 +80,8 @@ static void manifest_tests(void)
     bool ok = manifest_parse(&m, text, strlen(text), error, sizeof error);
     CHECK(ok, "a manifest parses: %s", ok ? "" : error);
     CHECK(ok && !strcmp(m.version, "1.2.3") && m.count == 2, "its version and its two files");
-    CHECK(ok && !strcmp(m.update.path, "pkg-update.zip") && m.update.size == 10 && !m.full.path[0],
-          "the update package, and no full one");
+    CHECK(ok && !strcmp(m.full.path, "pkg.zip") && m.full.size == 20,
+          "its package, an older release's smaller one passed over");
     const ManifestFile *f = ok ? manifest_find(&m, "Soldat Reloaded.exe") : NULL;
     CHECK(f && f->size == 0 && f->sha256[0] == 0xe3, "a path with a space is the rest of the line");
     CHECK(ok && manifest_find(&m, "data/maps/ctf_Ash.pms") && !manifest_find(&m, "ctf_Ash.pms"),
@@ -259,30 +261,25 @@ static void entry_line(char *line, size_t size, const char *kind, const char *fi
     snprintf(line, size, "%s %s %llu %s\n", kind, hex, (unsigned long long)bytes, name);
 }
 
-// A release of `files` as `xmake dist` makes one: the two zips under download/v<version>/
-// (the update package the top-level files and config/, the full one all) and the
-// manifest under latest/download/.
+// A release of `files` as `xmake dist` makes one: the package, a zip under
+// download/v<version>/ with everything in it under one directory, and the manifest under
+// latest/download/.
 static void release(const char *root, const char *version, const Source *files, int count)
 {
     char path[512], line[512];
     files_remove_tree(root);
-    char full[512], update[512];
-    snprintf(full, sizeof full, "%s/download/v%s/pkg-full.zip", root, version);
-    snprintf(update, sizeof update, "%s/download/v%s/pkg-update.zip", root, version);
-    files_make_parents(full);
+    char package[512];
+    snprintf(package, sizeof package, "%s/download/v%s/pkg.zip", root, version);
+    files_make_parents(package);
     for (int i = 0; i < count; i++) {
         snprintf(path, sizeof path, "pkg/%s", files[i].path);
-        size_t n = strlen(files[i].text);
-        mz_zip_add_mem_to_archive_file_in_place(full, path, files[i].text, n, NULL, 0, MZ_DEFAULT_LEVEL);
-        if (manifest_in_update(files[i].path))
-            mz_zip_add_mem_to_archive_file_in_place(update, path, files[i].text, n, NULL, 0, MZ_DEFAULT_LEVEL);
+        mz_zip_add_mem_to_archive_file_in_place(package, path, files[i].text, strlen(files[i].text), NULL, 0,
+                                                MZ_DEFAULT_LEVEL);
     }
 
     char text[4096];
     size_t at = (size_t)snprintf(text, sizeof text, "version %s\n", version);
-    entry_line(line, sizeof line, "package full", full, "pkg-full.zip");
-    at += (size_t)snprintf(text + at, sizeof text - at, "%s", line);
-    entry_line(line, sizeof line, "package update", update, "pkg-update.zip");
+    entry_line(line, sizeof line, "package full", package, "pkg.zip");
     at += (size_t)snprintf(text + at, sizeof text - at, "%s", line);
     for (int i = 0; i < count; i++) {
         snprintf(path, sizeof path, "%s/source/%s", root, files[i].path);
@@ -296,6 +293,28 @@ static void release(const char *root, const char *version, const Source *files, 
 
 static void enter(const char *path) { CHECK(change_directory(path) == 0, "the test can enter %s", path); }
 
+// A megabyte of letters, no two the same from one `seed` to another: art, as far as an
+// update can tell, and too much of the package to pass unnoticed in what one downloads.
+static const char *art(char *out, size_t size, uint32_t seed)
+{
+    for (size_t i = 0; i + 1 < size; i++) {
+        seed = seed * 1664525u + 1013904223u;
+        out[i] = (char)('a' + (seed >> 24) % 26);
+    }
+    out[size - 1] = '\0';
+    return out;
+}
+
+// How many bytes an update brought, and what the package of `version` weighs.
+static uint64_t package_size(const char *here, const char *version)
+{
+    char path[1400];
+    uint64_t size = 0;
+    snprintf(path, sizeof path, "%s/" SCRATCH "/releases/download/v%s/pkg.zip", here, version);
+    files_size(path, &size);
+    return size;
+}
+
 static void update_tests(void)
 {
     char here[1024], releases[1200], version[32], error[512];
@@ -304,16 +323,19 @@ static void update_tests(void)
         if (*c == '\\') *c = '/';
     snprintf(releases, sizeof releases, "file://%s%s/" SCRATCH "/releases", here[0] == '/' ? "" : "/", here);
     UpdateOptions options = {.releases = releases, .platform = "test"};
+    static char big[1 << 20], bigger[1 << 20];
+    art(big, sizeof big, 1);
+    art(bigger, sizeof bigger, 2);
 
     // version 1, installed by hand: the game's defaults, and beside them the player's own
-    // config, the server owner's lists and a config.cfg from before config/
+    // config, the server owner's lists, their script and a config.cfg from before config/
     const Source v1[] = {{"version.txt", "1\n"}, {"game.exe", "old game"}, {"data/a.txt", "art"},
                          {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "defaults"},
-                         {"bin/server.exe", "old server"}};
-    release(SCRATCH "/releases", "1", v1, 6);
+                         {"bin/server.exe", "old server"}, {"mods/default/big.png", big}};
+    release(SCRATCH "/releases", "1", v1, 7);
     files_remove_tree(SCRATCH "/install");
     files_make_directory(SCRATCH "/install");
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 7; i++) {
         char path[256];
         snprintf(path, sizeof path, SCRATCH "/install/%s", v1[i].path);
         files_write(path, v1[i].text, strlen(v1[i].text));
@@ -322,7 +344,7 @@ static void update_tests(void)
     files_write(SCRATCH "/install/config/client/settings.cfg", "my settings", 11);
     files_write(SCRATCH "/install/config/server/banlist.cfg", "my bans", 7);
     files_write(SCRATCH "/install/mods/mine/sfx/ak74-fire.wav", "my gun", 6);
-    files_write(SCRATCH "/install/scripts/server.lua", "a player's script", 17);
+    files_write(SCRATCH "/install/scripts/main.lua", "a player's script", 17);
 
     if (change_directory(SCRATCH "/install") != 0) {
         CHECK(false, "the scratch install can be entered");
@@ -333,39 +355,48 @@ static void update_tests(void)
           "an install with no manifest.txt that matches the release is current (%d: %s)", outcome, error);
     CHECK(files_exists(UPDATE_MANIFEST), "and is given its manifest.txt");
 
-    // version 2 changes the game, a program in bin/ and a default: the update package
+    // version 2 changes the game, a program in bin/ and a default: those alone come down,
+    // out of the package where it lies
     const Source v2[] = {{"version.txt", "2\n"}, {"game.exe", "new game"}, {"data/a.txt", "art"},
                          {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "new defaults"},
-                         {"bin/server.exe", "new server"}};
+                         {"bin/server.exe", "new server"}, {"mods/default/big.png", big}};
     enter(here);
-    release(SCRATCH "/releases", "2", v2, 6);
-    remove(SCRATCH "/releases/download/v2/pkg-full.zip"); // so only the update package can serve
+    release(SCRATCH "/releases", "2", v2, 7);
     enter(SCRATCH "/install");
+    uint64_t before = http_received();
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
-    CHECK(outcome == UPDATE_UPDATED && !strcmp(version, "2"), "a new game comes in the update package (%d: %s)",
-          outcome, error);
+    uint64_t brought = http_received() - before, weighs = package_size(here, "2");
+    CHECK(outcome == UPDATE_UPDATED && !strcmp(version, "2"), "a new game comes in (%d: %s)", outcome, error);
+    CHECK(brought * 10 < weighs, "as its files alone: %llu bytes of the package's %llu", (unsigned long long)brought,
+          (unsigned long long)weighs);
     CHECK(holds("game.exe", "new game") && holds("bin/server.exe", "new server") && holds("version.txt", "2\n"),
           "the new game, the program in bin/, and its version");
     CHECK(holds("config/defaults/settings.client.cfg", "new defaults"), "and the new defaults with it");
     CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.cfg", "my bans") &&
-              holds("mods/mine/sfx/ak74-fire.wav", "my gun") &&
-              holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
-          "the player's config and mod, the server's lists and a script are left alone");
+              holds("mods/mine/sfx/ak74-fire.wav", "my gun") && holds("config.cfg", "mine") &&
+              holds("scripts/main.lua", "a player's script"),
+          "the player's config, mod and script and the server's lists are left alone");
     CHECK(!files_exists(UPDATE_STAGING), "nothing is left in .update");
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_CURRENT, "then it is current (%d: %s)", outcome, error);
 
-    // version 3 changes an asset: the full package
+    // version 3 changes most of the package's weight: it comes whole
     const Source v3[] = {{"version.txt", "3\n"}, {"game.exe", "new game"}, {"data/a.txt", "new art"},
                          {"data/b.txt", "more art"}, {"data/c.txt", "a new map"},
-                         {"config/defaults/settings.client.cfg", "new defaults"}, {"bin/server.exe", "new server"}};
+                         {"config/defaults/settings.client.cfg", "new defaults"}, {"bin/server.exe", "new server"},
+                         {"mods/default/big.png", bigger}};
     enter(here);
-    release(SCRATCH "/releases", "3", v3, 7);
+    release(SCRATCH "/releases", "3", v3, 8);
     enter(SCRATCH "/install");
+    before = http_received();
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
+    brought = http_received() - before;
+    weighs = package_size(here, "3");
     CHECK(outcome == UPDATE_UPDATED && holds("data/a.txt", "new art") && holds("data/c.txt", "a new map") &&
-              holds("version.txt", "3\n"),
-          "changed and new data come in the full package (%d: %s)", outcome, error);
+              holds("mods/default/big.png", bigger) && holds("version.txt", "3\n"),
+          "changed and new art come in (%d: %s)", outcome, error);
+    CHECK(brought >= weighs, "most of the package changed, the package whole: %llu bytes of its %llu",
+          (unsigned long long)brought, (unsigned long long)weighs);
     CHECK(holds("config/client/settings.cfg", "my settings") && holds("config.cfg", "mine"),
           "which doesn't replace the player's config");
 
@@ -385,13 +416,14 @@ static void update_tests(void)
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_REPAIRED && holds("game.exe", "new game"), "the executables are always hashed");
 
-    // a download that isn't what the release lists is refused, and nothing is moved
+    // a package that isn't what the release lists is refused, its files and whole, and
+    // nothing is moved
     enter(here);
-    files_write(SCRATCH "/releases/download/v3/pkg-update.zip", "not a zip", 9);
+    files_write(SCRATCH "/releases/download/v3/pkg.zip", "not a zip", 9);
     enter(SCRATCH "/install");
     files_write("game.exe", "NEW GAME", 8);
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
-    CHECK(outcome == UPDATE_FAILED && holds("game.exe", "NEW GAME"), "a damaged download changes nothing");
+    CHECK(outcome == UPDATE_FAILED && holds("game.exe", "NEW GAME"), "a damaged package changes nothing");
 
     // no release to ask: the install as it is
     options.releases = "file:///nowhere/at/all";
@@ -408,9 +440,10 @@ static void update_tests(void)
     files_write("soldatreloaded.exe.old", "oldest game", 11);
     const Source v4[] = {{"version.txt", "4\n"}, {"client.exe", "new game"}, {"data/a.txt", "new art"},
                          {"data/b.txt", "more art"}, {"data/c.txt", "a new map"},
-                         {"config/defaults/settings.client.cfg", "new defaults"}, {"bin/server.exe", "new server"}};
+                         {"config/defaults/settings.client.cfg", "new defaults"}, {"bin/server.exe", "new server"},
+                         {"mods/default/big.png", bigger}};
     enter(here);
-    release(SCRATCH "/releases", "4", v4, 7);
+    release(SCRATCH "/releases", "4", v4, 8);
     enter(SCRATCH "/install");
     outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
     CHECK(outcome == UPDATE_UPDATED && holds("client.exe", "new game"), "a renamed game comes in (%d: %s)", outcome,
@@ -418,8 +451,8 @@ static void update_tests(void)
     CHECK(!files_exists("game.exe") && !files_exists("soldatreloaded.exe") && !files_exists("soldatreloaded.exe.old"),
           "and the names it had are gone, with what they were moved aside to");
     CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.cfg", "my bans") &&
-              holds("mods/mine/sfx/ak74-fire.wav", "my gun") &&
-              holds("config.cfg", "mine") && holds("scripts/server.lua", "a player's script"),
+              holds("mods/mine/sfx/ak74-fire.wav", "my gun") && holds("config.cfg", "mine") &&
+              holds("scripts/main.lua", "a player's script"),
           "but not the player's own files");
 
     enter(here);
@@ -436,91 +469,93 @@ static bool latest_visit(const char *name, void *user)
     return false;
 }
 
-// Whether a tar.gz's first gzip member begins the tar. The launchers before 0.7.2 read no
-// further than it, so one whose first member is empty (as xmake's own archiver writes)
-// leaves them nothing to unpack.
-static bool first_member_is_tar(const char *path)
+// Whether every file `m` names is under `into`, where it says, of its size and hash; those
+// `only` lets through, if it is given. How many are missing and how many not as listed.
+static void compare(const Manifest *m, const char *into, bool (*only)(const char *path), int *missing, int *wrong,
+                    const char **first)
 {
-    uint8_t gz[1 << 16], block[512];
-    FILE *f = fopen(path, "rb");
-    size_t size = f ? fread(gz, 1, sizeof gz, f) : 0;
-    if (f) fclose(f);
-    if (size < 18 || gz[0] != 0x1f || gz[1] != 0x8b || gz[2] != 8) return false;
-    uint8_t flags = gz[3];
-    size_t at = 10;
-    if (flags & 4) at += 2 + (size_t)(gz[at] | gz[at + 1] << 8); // FEXTRA
-    for (int field = 8; field <= 16; field *= 2)                 // FNAME, FCOMMENT: zero-ended
-        if (flags & field)
-            while (at < size && gz[at++]) {}
-    if (flags & 2) at += 2; // FHCRC
-    if (at >= size) return false;
-
-    mz_stream s = {0};
-    s.next_in = gz + at;
-    s.avail_in = (unsigned int)(size - at);
-    s.next_out = block;
-    s.avail_out = sizeof block;
-    if (mz_inflateInit2(&s, -MZ_DEFAULT_WINDOW_BITS) != MZ_OK) return false;
-    int result = mz_inflate(&s, MZ_NO_FLUSH);
-    mz_inflateEnd(&s);
-    return (result == MZ_OK || result == MZ_STREAM_END) && s.avail_out == 0 && !memcmp(block + 257, "ustar", 5);
+    *missing = *wrong = 0;
+    *first = "none";
+    for (int i = 0; i < m->count; i++) {
+        const ManifestFile *file = &m->files[i];
+        if (only && !only(file->path)) continue;
+        char path[512];
+        uint8_t digest[32];
+        uint64_t bytes = 0;
+        snprintf(path, sizeof path, "%s/%s", into, file->path);
+        if (!files_exists(path)) {
+            if (!(*missing)++ && !*wrong) *first = file->path;
+        } else if (!files_size(path, &bytes) || bytes != file->size || !files_sha256(path, digest, NULL, NULL) ||
+                   memcmp(digest, file->sha256, sizeof digest)) {
+            if (!(*wrong)++ && !*missing) *first = file->path;
+        }
+    }
 }
 
-// The packages of build/release/, if `xmake dist` has made them, as a launcher takes them:
-// each is what latest-<plat>.txt lists, and unpacked (archive_extract, which drops the
-// package's own directory) holds every file the manifest names where it says, of its size
-// and hash: the full package all of them, the update package those it carries. The release
-// job runs this after packing, so each platform's packages are checked before they ship.
+// The package of build/release/, if `xmake dist` has made it, as a launcher takes it: what
+// latest-<plat>.txt lists; unpacked (archive_extract, which drops the package's own
+// directory) every file the manifest names, where it says and as it says, the executables
+// executable; and, as an update brings them, the code's files alone out of it where it lies,
+// for a sliver of its weight. The release job runs this after packing, so each platform's
+// package is checked before it ships.
 static void release_tests(void)
 {
-    char latest[256] = "", error[256];
+    char latest[256] = "", error[256], here[1024];
     for_each_file(RELEASE, latest_visit, latest);
-    if (!latest[0]) {
+    if (!latest[0] || !current_directory(here, sizeof here)) {
         printf("no release in " RELEASE " to check; `xmake dist` makes one\n");
         return;
     }
+    for (char *c = here; *c; c++)
+        if (*c == '\\') *c = '/';
     Manifest m;
     if (!manifest_load(&m, latest, error, sizeof error)) {
         CHECK(false, "%s reads: %s", latest, error);
         return;
     }
-    const ManifestFile *packages[2] = {&m.full, &m.update};
-    for (int p = 0; p < 2; p++) {
-        const ManifestFile *package = packages[p];
-        char archive[512], into[128];
-        snprintf(archive, sizeof archive, RELEASE "/%s", package->path);
-        uint8_t digest[32];
-        uint64_t bytes = 0;
-        CHECK(files_sha256(archive, digest, NULL, NULL) && files_size(archive, &bytes) && bytes == package->size &&
-                  !memcmp(digest, package->sha256, sizeof digest),
-              "%s is the package %s lists", package->path, latest);
-        if (strstr(package->path, ".tar.gz"))
-            CHECK(first_member_is_tar(archive), "%s is whole in its first gzip member, as launchers before 0.7.2 read it",
-                  package->path);
+    char archive[512];
+    uint8_t digest[32];
+    uint64_t bytes = 0;
+    snprintf(archive, sizeof archive, RELEASE "/%s", m.full.path);
+    CHECK(files_sha256(archive, digest, NULL, NULL) && files_size(archive, &bytes) && bytes == m.full.size &&
+              !memcmp(digest, m.full.sha256, sizeof digest),
+          "%s is the package %s lists", m.full.path, latest);
 
-        snprintf(into, sizeof into, SCRATCH "/release-%d", p);
-        files_remove_tree(into);
-        CHECK(archive_extract(archive, into, NULL, NULL, error, sizeof error), "%s unpacks (%s)", package->path, error);
-        int missing = 0, wrong = 0;
-        const char *first = "none";
-        for (int i = 0; i < m.count; i++) {
-            const ManifestFile *file = &m.files[i];
-            if (package == &m.update && !manifest_in_update(file->path)) continue;
-            char path[512];
-            snprintf(path, sizeof path, "%s/%s", into, file->path);
-            if (!files_exists(path)) {
-                if (!missing++ && !wrong) first = file->path;
-            } else if (!files_size(path, &bytes) || bytes != file->size || !files_sha256(path, digest, NULL, NULL) ||
-                       memcmp(digest, file->sha256, sizeof digest)) {
-                if (!wrong++ && !missing) first = file->path;
-            }
-        }
-        CHECK(missing == 0 && wrong == 0, "%s unpacks as an install: %d files missing, %d not as listed (first %s)",
-              package->path, missing, wrong, first);
-        snprintf(archive, sizeof archive, "%s/manifest.txt", into);
-        CHECK(files_exists(archive), "and carries its manifest.txt");
-        files_remove_tree(into);
-    }
+    int missing, wrong;
+    const char *first;
+    files_remove_tree(SCRATCH "/release");
+    CHECK(archive_extract(archive, SCRATCH "/release", NULL, NULL, error, sizeof error), "%s unpacks (%s)", m.full.path,
+          error);
+    compare(&m, SCRATCH "/release", NULL, &missing, &wrong, &first);
+    CHECK(missing == 0 && wrong == 0, "%s unpacks as an install: %d files missing, %d not as listed (first %s)",
+          m.full.path, missing, wrong, first);
+    CHECK(files_exists(SCRATCH "/release/manifest.txt"), "and carries its manifest.txt");
+#ifndef _WIN32
+    struct stat st;
+    CHECK(stat(SCRATCH "/release/bin/client", &st) == 0 && (st.st_mode & 0100) &&
+              stat(SCRATCH "/release/bin/server", &st) == 0 && (st.st_mode & 0100),
+          "its executables are executable");
+#endif
+    files_remove_tree(SCRATCH "/release");
+
+    // what an update of the code brings: those files, by range, from the package as it lies
+    bool *wanted = calloc((size_t)m.count + 1, sizeof *wanted);
+    char url[1400];
+    snprintf(url, sizeof url, "file://%s%s/" RELEASE "/%s", here[0] == '/' ? "" : "/", here, m.full.path);
+    for (int i = 0; wanted && i < m.count; i++) wanted[i] = manifest_always_hashed(m.files[i].path);
+    files_make_directory(SCRATCH "/code");
+    enter(SCRATCH "/code");
+    uint64_t before = http_received();
+    bool ok = wanted && update_apply(&m, wanted, url, NULL, error, sizeof error);
+    uint64_t brought = http_received() - before;
+    enter(here);
+    CHECK(ok, "its code comes out of it alone (%s)", ok ? "" : error);
+    compare(&m, SCRATCH "/code", manifest_always_hashed, &missing, &wrong, &first);
+    CHECK(missing == 0 && wrong == 0 && brought * 4 < m.full.size,
+          "for %llu bytes of its %llu: %d files missing, %d not as listed (first %s)", (unsigned long long)brought,
+          (unsigned long long)m.full.size, missing, wrong, first);
+    files_remove_tree(SCRATCH "/code");
+    free(wanted);
     manifest_free(&m);
 }
 

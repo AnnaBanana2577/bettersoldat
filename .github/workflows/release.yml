@@ -4,9 +4,9 @@
 #   ci        the game built, packed and tested on Windows and Linux (ci.yml), its packages kept
 #   release   a GitHub release named after the tag, with the tag's own message as its notes
 #             (docs/git.md, Releases), given what `xmake dist` made: for each platform the
-#             game (soldatreloaded-<version>-<platform>), its update package (the same,
-#             -patch), the server's (-server), and latest-<platform>.txt, the manifest the
-#             launcher reads
+#             game (soldatreloaded-<version>-<platform>.zip), which the launcher brings an
+#             update's files out of, the server's (-server), and latest-<platform>.txt,
+#             the manifest the launcher reads
 #   announce  the release on Discord (discord-notify.yml)
 #
 # Each needs the one before, so a tag whose version is wrong, or whose tests fail, makes no
@@ -70,7 +70,6 @@ jobs:
           draft: true
           files: |
             release/*.zip
-            release/*.tar.gz
             release/latest-*.txt
           fail_on_unmatched_files: true
 

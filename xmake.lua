@@ -44,8 +44,8 @@ add_requires("stb")
 -- elsewhere. The client needs neither.
 add_requires("lua 5.4.x", {configs = {shared = false}})
 add_requires("libcurl", {configs = {shared = false, mbedtls = not is_plat("windows", "macosx")}})
--- The launcher downloads with the same curl, and unpacks the packages with miniz: a zip
--- on Windows, and the deflate inside a Linux tar.gz.
+-- The launcher downloads with the same curl, and reads the packages with miniz: a zip,
+-- whole or by range, and the deflate inside a tar.gz, as releases before had them.
 add_requires("miniz")
 
 -- The game's icon, runtime/data/icon.ico, built into an executable on Windows: the one
@@ -178,53 +178,42 @@ target("tests")
     set_rundir("$(projectdir)")
     add_tests("default")
 
--- The release packages (xpack), each laid out as an install under one directory named
+-- The release packages (xpack): zips, each laid out as an install under one directory named
 -- after it, soldatreloaded-<version>-<plat>-<arch>/: the launcher drops that directory as
--- it unpacks (launcher/archive.h), so a package without it would scatter. Windows gets
--- zips; Linux tar.gzs, which keep the executable bit that a zip would lose. What an
--- install holds is runtime/'s data/, mods/default/, config/defaults/ and scripts/, flat,
+-- it unpacks (launcher/archive.h), so a package without it would scatter. A zip says where
+-- each file in it lies, so the launcher brings an update's files alone out of it, by range
+-- (launcher/update.h); on Linux it keeps the executables' bit, as Info-ZIP writes it. What
+-- an install holds is runtime/'s data/, mods/default/, config/defaults/ and scripts/, flat,
 -- which is how the game expects to find them (docs/git.md, Releases).
 --
 --   soldatreloaded          the game, a player's: everything, the server among it so anyone
 --                           can host; the launcher, what a player starts, at the top, and
 --                           the client and the server in bin/; and manifest.txt, what it
---                           all is
---   soldatreloaded-patch    the launcher, bin/, the top-level files and config/defaults/:
---                           version.txt, manifest.txt and the licence. What the launcher
---                           downloads when nothing in data/, mods/default/ or scripts/
---                           changed
+--                           all is, which an update is brought out of
 --   soldatreloaded-server   a headless server's: the server at the top, its one executable;
 --                           data/ and no mods/, no art and no sound
 --
--- `xmake dist` packs them in that order, into build/release/, beside the manifest the
--- launcher reads; the formats are launcher/manifest.h's, what the launcher does with them
--- update.h's. The full package leaves its manifest in build/.xpack/manifest.txt for the
--- update package, which carries the same, and for latest-<plat>-<arch>.txt.
+-- `xmake dist` packs them into build/release/, beside the manifest the launcher reads:
+-- the game's, with the package named in it. The formats are launcher/manifest.h's.
 local function release_package(name, suffix, bindir)
     xpack(name)
-        set_formats(is_plat("windows", "mingw") and "zip" or "targz") -- the mingw cross-build's exes are Windows'
+        set_formats("zip")
         set_basename("soldatreloaded-$(version)-$(plat)-$(arch)" .. suffix)
         set_prefixdir("soldatreloaded-$(version)-$(plat)-$(arch)" .. suffix)
         set_bindir(bindir)
         add_installfiles("license.md")
         add_installfiles("runtime/(config/defaults/**)") -- the game's; the player's own are made by the game
-        -- A tar.gz packed again by tar itself. xmake's archiver gzips its own output file
-        -- (empty, just made) before the tar, so its tar.gz is two gzip members, an empty one
-        -- first, and the launchers shipped before 0.7.2 read only the first. The install's
-        -- root is the package's directory (set_prefixdir), so the archive's is too.
-        after_package(function (package)
-            if package:format() ~= "targz" then return end
-            local archivefile = path.absolute(package:outputfile())
-            os.tryrm(archivefile)
-            os.vrunv("tar", {"-czf", archivefile, package:prefixdir()}, {curdir = package:install_rootdir()})
-        end)
+        -- the server's scripts: the examples, the release's; main.lua, which runs them, the
+        -- owner's from the day it is unpacked, so no manifest names it (update.h)
+        add_installfiles("runtime/(scripts/**)")
 end
 
 -- What every package's install is given last, as xpack lays it out: version.txt, and on
 -- Linux the executables' bit, which nothing else is sure to keep; xpack's debug symbols go,
--- a player having no use for them. The full package writes its manifest, every file of the
--- install but the manifest itself, by hash; the update package carries the same. (Each step
--- runs in a sandbox of its own, batchcmds:call's, so what it needs is local to it.)
+-- a player having no use for them. The game's package writes its manifest, every file of
+-- the install but the manifest itself and scripts/main.lua, by hash, and leaves it in
+-- build/.xpack/manifest.txt for latest-<plat>-<arch>.txt. (Each step runs in a sandbox of
+-- its own, batchcmds:call's, so what it needs is local to it.)
 local function finish_install(manifest)
     after_installcmd(function (package, batchcmds)
         local stash = path.join(import("core.project.config").builddir(), ".xpack", "manifest.txt")
@@ -239,13 +228,13 @@ local function finish_install(manifest)
             end
         end
 
-        -- "file <sha256> <bytes> <path>", for each but manifest.txt. The player's own files
-        -- (config/client/, config/server/, their mods) are in no package, so in no manifest.
+        -- "file <sha256> <bytes> <path>". The player's own files (config/client/,
+        -- config/server/, their mods, scripts/main.lua) are in no manifest.
         local function write_manifest(installdir, version, stash)
             local names = {}
             for _, file in ipairs(os.files(path.join(installdir, "**"))) do
                 local name = path.relative(file, installdir):gsub("\\", "/")
-                if name ~= "manifest.txt" then table.insert(names, name) end
+                if name ~= "manifest.txt" and name ~= "scripts/main.lua" then table.insert(names, name) end
             end
             table.sort(names)
             local lines = {"// What this install holds, which the launcher checks it against.", "version " .. version}
@@ -256,11 +245,6 @@ local function finish_install(manifest)
             local text = table.concat(lines, "\n") .. "\n"
             io.writefile(path.join(installdir, "manifest.txt"), text)
             io.writefile(stash, text)
-        end
-
-        local function copy_manifest(installdir, stash)
-            assert(os.isfile(stash), "the full package is packed first: run `xmake dist`")
-            os.cp(stash, path.join(installdir, "manifest.txt"))
         end
 
         -- the game's executables in bin/, where there is one; the launcher, what a player
@@ -277,10 +261,8 @@ local function finish_install(manifest)
             end
         end
         batchcmds:call(finish, {package:installdir(), package:version(), executables, not package:is_plat("windows", "mingw")})
-        if manifest == "write" then
+        if manifest then
             batchcmds:call(write_manifest, {package:installdir(), package:version(), stash})
-        elseif manifest == "copy" then
-            batchcmds:call(copy_manifest, {package:installdir(), stash})
         end
     end)
 end
@@ -294,22 +276,15 @@ release_package("soldatreloaded", "", "bin")
         add_installfiles("runtime/(data/icon.png)")
     end
     add_installfiles("runtime/(mods/default/**)") -- the game's; a player's mods beside it are theirs
-    add_installfiles("runtime/(scripts/**)")      -- the server's scripts, the example among them
-    finish_install("write")
-
-release_package("soldatreloaded-patch", "-patch", "bin")
-    add_targets("client", "server", "launcher")
-    finish_install("copy")
+    finish_install(true)
 
 release_package("soldatreloaded-server", "-server", ".")
     add_targets("server")
     add_installfiles("runtime/(data/**)|icon.ico|icon.png")
-    add_installfiles("runtime/(scripts/**)")
-    finish_install()
+    finish_install(false)
 
--- xmake dist: the three packages, in build/release/, and latest-<plat>-<arch>.txt, the
--- manifest the launcher reads: the full package's, with the two packages it can download
--- named beside it.
+-- xmake dist: the two packages, in build/release/, and latest-<plat>-<arch>.txt, the
+-- manifest the launcher reads: the game's, with its package named in it.
 task("dist")
     set_category("action")
     set_menu({usage = "xmake dist", description = "package the client and the server for this platform"})
@@ -319,23 +294,18 @@ task("dist")
 
         config.load()
         local outputdir = path.join(config.builddir(), "release")
-        -- built once, and packed as built: each package carries the same executables, which
-        -- the manifest they share names by hash
+        -- built once, and packed as built: each package carries the executables the
+        -- manifest names by hash
         os.execv(os.programfile(), {"build", "-y", "client", "server", "launcher"})
-        for _, name in ipairs({"soldatreloaded", "soldatreloaded-patch", "soldatreloaded-server"}) do
+        for _, name in ipairs({"soldatreloaded", "soldatreloaded-server"}) do
             os.execv(os.programfile(), {"pack", "-y", "--autobuild=n", "-o", outputdir, name})
         end
 
         local version, plat, arch = project.version(), config.plat(), config.arch()
-        local stem = path.join(outputdir, ("soldatreloaded-%s-%s-%s"):format(version, plat, arch))
-        local extension = (plat == "windows" or plat == "mingw") and ".zip" or ".tar.gz"
-        local function entry(kind, archive)
-            return ("package %s %s %d %s"):format(kind, hash.sha256(archive), os.filesize(archive), path.filename(archive))
-        end
+        local package = path.join(outputdir, ("soldatreloaded-%s-%s-%s.zip"):format(version, plat, arch))
         local lines = io.readfile(path.join(config.builddir(), ".xpack", "manifest.txt")):split("\n")
         table.remove(lines, 1) -- its comment, for one of the release's own
-        table.insert(lines, 2, entry("update", stem .. "-patch" .. extension))
-        table.insert(lines, 3, entry("full", stem .. extension))
+        table.insert(lines, 2, ("package full %s %d %s"):format(hash.sha256(package), os.filesize(package), path.filename(package)))
         local latest = path.join(outputdir, ("latest-%s-%s.txt"):format(plat, arch))
         io.writefile(latest, ("// Soldat Reloaded %s for %s %s, for the launcher (launcher/update.h).\n"):format(version, plat, arch)
                              .. table.concat(lines, "\n") .. "\n")

@@ -14,8 +14,11 @@
 
 static const char *ca_bundle;
 static char agent[96] = "soldatreloaded-launcher/" SOLDATRELOADED_VERSION;
+static uint64_t received; // every body's bytes, for http_received
 
 void http_set_agent(const char *text) { snprintf(agent, sizeof agent, "%s", text); }
+
+uint64_t http_received(void) { return received; }
 
 bool http_init(void)
 {
@@ -94,6 +97,7 @@ static size_t body_write(char *data, size_t one, size_t n, void *user)
     b->data = grown;
     memcpy(b->data + b->size, data, n);
     b->size += n;
+    received += n;
     b->data[b->size] = '\0';
     (void)one;
     return n;
@@ -200,6 +204,7 @@ static size_t download_write(char *data, size_t one, size_t n, void *user)
     }
     sha256_feed(&d->hash, data, n);
     d->size += n;
+    received += n;
     (void)one;
     return n;
 }
@@ -247,4 +252,57 @@ HttpResult http_download(const char *url, const char *path, uint8_t sha256[32], 
     sha256_finish(&d.hash, sha256);
     *size = d.size;
     return HTTP_OK;
+}
+
+// --- a part of a file ------------------------------------------------------------------
+
+typedef struct Part {
+    uint8_t *out;
+    size_t want, got;
+    CURL *curl;
+    bool whole; // the server sent the whole file, not the part
+} Part;
+
+static size_t part_write(char *data, size_t one, size_t n, void *user)
+{
+    Part *p = user;
+    long status = 0;
+    curl_easy_getinfo(p->curl, CURLINFO_RESPONSE_CODE, &status);
+    if (status >= 300) return n;
+    // 206 is the part; 200, or more than was asked, is a server that ignores ranges
+    if (status == 200 || p->got + n > p->want) {
+        p->whole = true;
+        return 0;
+    }
+    memcpy(p->out + p->got, data, n);
+    p->got += n;
+    received += n;
+    (void)one;
+    return n;
+}
+
+HttpResult http_get_range(const char *url, uint64_t from, size_t length, void *out, char *error, size_t error_size)
+{
+    char curl_error[CURL_ERROR_SIZE], range[64];
+    CURL *curl = open_request(url, curl_error);
+    if (!curl) {
+        snprintf(error, error_size, "curl couldn't start");
+        return HTTP_FAILED;
+    }
+    Part p = {.out = out, .want = length, .curl = curl};
+    snprintf(range, sizeof range, "%llu-%llu", (unsigned long long)from, (unsigned long long)(from + length - 1));
+    curl_easy_setopt(curl, CURLOPT_RANGE, range);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, part_write);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &p);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
+    HttpResult result = finish(curl, curl_easy_perform(curl), curl_error, error, error_size);
+    if (p.whole) {
+        snprintf(error, error_size, "the server sends the whole file, not a part of it");
+        return HTTP_FAILED;
+    }
+    if (result == HTTP_OK && p.got != length) {
+        snprintf(error, error_size, "%zu bytes came of the %zu asked for", p.got, length);
+        return HTTP_FAILED;
+    }
+    return result;
 }

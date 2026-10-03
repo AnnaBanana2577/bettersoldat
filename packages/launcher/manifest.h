@@ -4,15 +4,16 @@
 // writes and the launcher checks an install against. Text, a line to a fact:
 //
 //   version 0.5.0
-//   package update <sha256> <bytes> soldatreloaded-0.5.0-windows-x64-patch.zip
 //   package full <sha256> <bytes> soldatreloaded-0.5.0-windows-x64.zip
 //   file <sha256> <bytes> data/maps/ctf_Ash.pms
 //
 // The path or name is the rest of the line, so it may hold spaces ("Soldat
 // Reloaded.exe"); blank lines and // comments are skipped. The installed copy
 // (manifest.txt, inside the packages) has the version and the files; the release's
-// (latest-<platform>.txt, beside the packages) adds where to get them. The player's own
-// config (config/client/, config/server/, an old config.cfg) is never listed: it is theirs.
+// (latest-<platform>.txt, beside the package) adds where to get it ("package update", an
+// older release's second, smaller package, is read and passed over). The player's own
+// files (config/client/, config/server/, their mods, scripts/main.lua) are never listed:
+// they are theirs.
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -29,7 +30,7 @@ typedef struct ManifestFile {
 
 typedef struct Manifest {
     char version[MANIFEST_VERSION_SIZE];
-    ManifestFile update, full; // the packages, by name; an empty path when not given
+    ManifestFile full; // the package, by name; an empty path when not given
     ManifestFile *files;
     int count, capacity;
 } Manifest;
@@ -51,6 +52,6 @@ bool manifest_safe_path(const char *path);
 
 // Whether a path is at the top of the install, with no directory.
 bool manifest_top_level(const char *path);
-// Whether the update package holds a path: the top-level files, the executables in bin/ and
-// config/ (the defaults the game ships there, which change with the code, not with the art).
-bool manifest_in_update(const char *path);
+// Whether a path is always hashed, manifest.txt or no (update.h): the top-level files, the
+// executables in bin/ and config/, which change with the code, where the art doesn't.
+bool manifest_always_hashed(const char *path);

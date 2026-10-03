@@ -25,7 +25,7 @@ bool manifest_safe_path(const char *path)
 
 bool manifest_top_level(const char *path) { return !strchr(path, '/'); }
 
-bool manifest_in_update(const char *path)
+bool manifest_always_hashed(const char *path)
 {
     return manifest_top_level(path) || strncmp(path, "bin/", 4) == 0 || strncmp(path, "config/", 7) == 0;
 }
@@ -89,8 +89,8 @@ bool manifest_parse(Manifest *m, const char *text, size_t size, char *error, siz
             ok = n > 8 && n - 8 < sizeof m->version && snprintf(m->version, sizeof m->version, "%s", line + 8) > 0;
         else if (!strncmp(line, "file ", 5))
             ok = parse_entry(line + 5, &f) && add_file(m, &f);
-        else if (!strncmp(line, "package update ", 15))
-            ok = parse_entry(line + 15, &m->update) && manifest_top_level(m->update.path);
+        else if (!strncmp(line, "package update ", 15)) // an older release's smaller package: passed over
+            ok = parse_entry(line + 15, &f) && manifest_top_level(f.path);
         else if (!strncmp(line, "package full ", 13))
             ok = parse_entry(line + 13, &m->full) && manifest_top_level(m->full.path);
         else
