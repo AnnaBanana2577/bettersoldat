@@ -77,9 +77,9 @@ static const Rgba COLOR_ABOVECHAT = {0xFD, 0xFD, 0xF9, 0xFF};
 #define COLOR_TEAMCHAT HUD_COLOR_TEAMCHAT
 static const Rgba COLOR_CHARLIEJ = {0xDF, 0xDF, 0x53, 0xFF};
 static const Rgba COLOR_DELTAJ = {0x53, 0xDF, 0x53, 0xFF}; // DELTAJ_MESSAGE_COLOR
-static const Rgba COLOR_OUTOFSCREEN = {0xFF, 0xFF, 0xFF, 0xFF};      // white
-static const Rgba COLOR_OUTOFSCREEN_FLAG = {0xF8, 0xF8, 0x35, 0xFF}; // the carrier
-static const Rgba COLOR_OUTOFSCREEN_DEAD = {0xFF, 0x2E, 0x2E, 0xFF};
+static const Rgba COLOR_OUTOFSCREEN = {0x99, 0xDF, 0x99, 0xFF};      // green: OUTOFSCREEN_MESSAGE_COLOR
+static const Rgba COLOR_OUTOFSCREEN_FLAG = {0xDC, 0xDC, 0x33, 0xFF}; // the carrier: OUTOFSCREENFLAG_MESSAGE_COLOR
+static const Rgba COLOR_OUTOFSCREEN_DEAD = {0x98, 0x33, 0x33, 0xFF}; // OUTOFSCREENDEAD_MESSAGE_COLOR
 
 // What a frame's drawing is relative to: the original's globals for one RenderInterface.
 typedef struct Frame {
@@ -120,6 +120,9 @@ static const char *GUN_ICONS[WEAPON_COUNT] = {
     [WEAPON_KNIFE] = "guns/knife.png",     [WEAPON_CHAINSAW] = "guns/chainsaw.png", [WEAPON_LAW] = "guns/law.png",
     [WEAPON_FLAMER] = "guns/flamer.png",   [WEAPON_BOW] = "guns/bow.png",     [WEAPON_BOW2] = "guns/bow.png",
     [WEAPON_M2] = "guns/m2.png",           [WEAPON_THROWN_KNIFE] = "guns/knife.png",
+    // the grenades' own, as the original's 222 and 210; the cluster grenade itself, which the
+    // original leaves without one, is given its bomblets'
+    [WEAPON_FRAG] = "nade.png",            [WEAPON_CLUSTER_NADE] = "cluster-nade.png", [WEAPON_CLUSTER] = "cluster-nade.png",
 };
 
 void interface_load(Interface *hud, const char *base, const ScaleData *scales)
