@@ -9,7 +9,7 @@ static const struct {
 } BUTTONS[] = {
     {"left", BUTTON_LEFT},       {"right", BUTTON_RIGHT},   {"jump", BUTTON_JUMP},   {"crouch", BUTTON_CROUCH},
     {"prone", BUTTON_PRONE},     {"jet", BUTTON_JET},       {"fire", BUTTON_FIRE},   {"throw", BUTTON_THROW},
-    {"reload", BUTTON_RELOAD},   {"change", BUTTON_CHANGE}, {"drop", BUTTON_DROP},   {"suicide", BUTTON_SUICIDE},
+    {"reload", BUTTON_RELOAD},   {"change", BUTTON_CHANGE}, {"drop", BUTTON_DROP},
     {"flagthrow", BUTTON_FLAG_THROW},
 };
 
@@ -36,7 +36,7 @@ static const struct {
 
 static const char *DEFAULT_BINDS = "bind a +left; bind d +right; bind w +jump; bind s +crouch; bind x +prone;"
                                    "bind space +jet; bind mouse1 +fire; bind mouse2 +throw; bind e +throw;"
-                                   "bind r +reload; bind q +change; bind f +drop; bind k +suicide";
+                                   "bind r +reload; bind q +change; bind f +drop";
 
 // "+name" presses a button, "-name" releases it.
 static void button_command(Console *con, int argc, char **argv, void *user)

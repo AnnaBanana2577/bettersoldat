@@ -1855,7 +1855,7 @@ static const Control CONTROLS[] = {
     {"Left", "+left"},           {"Right", "+right"},          {"Jump", "+jump"},           {"Crouch", "+crouch"},
     {"Prone", "+prone"},         {"Jet", "+jet"},              {"Fire", "+fire"},           {"Throw grenade", "+throw"},
     {"Reload", "+reload"},       {"Change weapon", "+change"}, {"Throw weapon", "+drop"},   {"Throw flag", "+flagthrow"},
-    {"Suicide", "+suicide"},     {"Chat", "chat"},             {"Team chat", "teamchat"},   {"Command", "cmd"},
+    {"Chat", "chat"},            {"Team chat", "teamchat"},    {"Command", "cmd"},
     {"Radio", "+radio"},         {"Weapons menu", "weaponsmenu"}, {"Team menu", "teammenu"}, {"Scoreboard", "fragsmenu"},
     {"Weapon stats", "statsmenu"}, {"Minimap", "toggle ui_minimap"},
 };
@@ -1870,9 +1870,9 @@ typedef struct ControlGroup {
 
 static const ControlGroup CONTROL_GROUPS[] = {
     {"MOVEMENT", 0, 6, 0},
-    {"COMBAT", 6, 7, 0},
-    {"TALK", 13, 4, 1},
-    {"MENUS", 17, 5, 1},
+    {"COMBAT", 6, 6, 0},
+    {"TALK", 12, 4, 1},
+    {"MENUS", 16, 5, 1},
 };
 
 // The key bound to `command`, the first if several; "" if none.

@@ -4,7 +4,7 @@
 // ("a", "space", "f1", "mouse1", "mwheelup"...), and a key going down or up runs its
 // bind (console_key). The soldier's buttons are commands for the binds to run:
 //
-//   +left +right +jump +crouch +prone +jet +fire +throw +reload +change +drop +suicide
+//   +left +right +jump +crouch +prone +jet +fire +throw +reload +change +drop
 //   +flagthrow
 //
 // A button is held while any key bound to it is down. One-shot presses (throw, change,
@@ -27,7 +27,6 @@
 // The default binds, Soldat's:
 //   A / D  left / right    W  jump    S  crouch    X  prone    Space  jet
 //   left mouse  fire    right mouse / E  throw    R  reload    Q  change    F  drop
-//   K  suicide
 // And, not a bind: with the weapons menu open, Ctrl+1 to Ctrl+4 pick the secondary
 // (colt, knife, chainsaw, LAW), as the original's do.
 
