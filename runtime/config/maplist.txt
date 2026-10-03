@@ -3,4 +3,3 @@
 // reads it as it starts (sv_maps on the command line goes over it, for that run). A map
 // that isn't in data/maps/ is passed over.
 
-ctf_Blade

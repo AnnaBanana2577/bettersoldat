@@ -50,11 +50,11 @@ void host_cvars_register(Console *con, HostCvars *c)
 const ConsoleFile HOST_CONFIG_FILE = {
     CONFIG_SERVER,
     "// How this install hosts a game: a dedicated server, and the game's Local Play alike.\n"
-    "// Written by the game as it closes and by a server as it starts, every setting with\n"
-    "// what it is, commented out while it holds its default: take a line's // off to set\n"
-    "// it otherwise. The command line (+sv_hostname \"...\") goes over it, and is kept by the\n"
-    "// game, not by a server. The rotation is config/maplist.txt, a map to a line; a\n"
-    "// weapons mod is config/weapons.ini.\n\n",
+    "// Every setting with what it is, commented out while it holds its default: take a\n"
+    "// line's // off to set it otherwise. Yours to edit: the game changes only the line of a\n"
+    "// setting you change on its Local Play page. The command line (+sv_hostname \"...\")\n"
+    "// goes over it, and is kept by the game, not by a server. The rotation is\n"
+    "// config/maplist.txt, a map to a line; a weapons mod is config/weapons.ini.\n\n",
     HOST_CVAR_PREFIXES,
     false,
 };

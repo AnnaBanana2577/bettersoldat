@@ -79,11 +79,10 @@
 #endif
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
 // The config: the defaults are the code's (each cvar's, and the binds input_default_binds
-// and VIEW_BINDS set), config/client.cfg and config/server.cfg over them, then autoexec.cfg; the game
-// writes its own back as it closes (config_save), every setting with what it is.
+// and VIEW_BINDS set), config/client.cfg and config/server.cfg over them; the game writes
+// back into them what changes as it runs (config_save), as it closes.
 
 #define CONFIG_CLIENT "config/client.cfg"     // the game's settings and keys, written as it closes
-#define CONFIG_AUTOEXEC "config/autoexec.cfg" // the player's own commands, run last if there
 #define CONFIG_OLD "config.cfg" // before config/: the one file, read once and moved aside
 #define SCREENSHOT_FRAME 60
 #define RADIO_CALLS 3  // the radio menu's first choices, and each one's second choices
@@ -262,17 +261,18 @@ static bool file_exists(const char *path)
     return f != NULL;
 }
 
-// The game's settings, written whole (console_save_files) to client.cfg, a section for
-// each by what its cvars' names begin with, the rest under the game's; and the hosting
-// settings to server.cfg, which a dedicated server beside it reads and writes too.
-static bool config_save(const Console *con)
+// The game's settings into client.cfg, a section for each by what its cvars' names begin
+// with, the rest under the game's; and the hosting settings into server.cfg, which a
+// dedicated server beside it reads too. Each is made whole where it is missing, and
+// otherwise given only what changed since it was read (console_save_files).
+static bool config_save(Console *con)
 {
 #define CLIENT CONFIG_CLIENT
 #define SECTION(what) "\n// --- " what "\n\n"
     static const char HEADER[] =
-        "// The game's settings, written by the game as it closes, every one with what it is,\n"
-        "// commented out while it holds its default: take a line's // off to set it otherwise.\n"
-        "// Commands of your own go in autoexec.cfg beside it, run last.\n" SECTION("Your soldier: the name, the colours, the hair, the weapons.");
+        "// The game's settings, every one with what it is, commented out while it holds its\n"
+        "// default: take a line's // off to set it otherwise. Yours to edit, while the game runs\n"
+        "// too: the game changes only the line of a setting you change in it, as it closes.\n" SECTION("Your soldier: the name, the colours, the hair, the weapons.");
     static const char *const PLAYER[] = {"cl_player_", NULL};
     static const char *const CONTROLS[] = {"cl_sensitivity", "radio_", NULL};
     static const char *const GRAPHICS[] = {"r_", "ui_", "cl_crosshair_", "cl_cursor_", "cl_grenade_color", NULL};
@@ -1223,10 +1223,12 @@ static bool console_open(App *app, int argc, char *argv[])
     input_default_binds(con);
     console_execute(con, VIEW_BINDS);
     console_mark_defaults(con);
-    // its own, then the hosting settings its Local Play page sets, then the player's own commands
-    const char *const files[] = {CONFIG_CLIENT, CONFIG_SERVER, CONFIG_AUTOEXEC};
+    // its own, then the hosting settings its Local Play page sets; what changes from here on
+    // is what goes back into them (config_save)
+    const char *const files[] = {CONFIG_CLIENT, CONFIG_SERVER};
     for (size_t i = 0; i < sizeof files / sizeof files[0]; i++)
         if (file_exists(files[i])) console_execute_file(con, files[i]);
+    console_mark_loaded(con);
     if (file_exists(CONFIG_OLD)) {
         // a config.cfg from before config/: read once over the files config/ shipped with,
         // written out as them, and kept beside as config.cfg.old

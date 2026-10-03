@@ -300,6 +300,7 @@ static bool console_open(Server *sv, int argc, char *argv[])
     console_add_command(con, "lua", cmd_lua, sv, "run a line of Lua in the script: lua <code>");
 
     if (file_exists(CONFIG_SERVER)) console_execute_file(con, CONFIG_SERVER);
+    console_mark_loaded(con); // what changes from here (an old config.cfg) goes back into it
     if (file_exists(CONFIG_OLD)) {
         // a server set up before config/: read over config/, which is written from it below.
         // A game's install shares it with the client, which moves it aside once it has read it

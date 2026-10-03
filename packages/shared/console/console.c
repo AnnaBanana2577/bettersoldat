@@ -43,6 +43,13 @@ struct Console {
     // commented out, and the player's as they are.
     Bind baseline_binds[CONSOLE_MAX_BINDS];
     int baseline_bind_count;
+
+    // The settings as the player's files left them (console_mark_loaded): what differs
+    // from them is what console_save_files writes back.
+    char (*loaded)[CONSOLE_VALUE_SIZE]; // each cvar's value, by its place; NULL before the mark
+    int loaded_cvar_count;
+    Bind loaded_binds[CONSOLE_MAX_BINDS];
+    int loaded_bind_count;
 };
 
 // --- names ---------------------------------------------------------------------------
@@ -667,6 +674,16 @@ void console_mark_defaults(Console *con)
     con->baseline_bind_count = con->bind_count;
 }
 
+void console_mark_loaded(Console *con)
+{
+    if (!con->loaded) con->loaded = malloc(sizeof *con->loaded * CONSOLE_MAX_CVARS);
+    if (!con->loaded) return; // with no mark, what is off its default is written
+    for (int i = 0; i < con->cvar_count; i++) copy(con->loaded[i], sizeof con->loaded[i], con->cvars[i].value);
+    con->loaded_cvar_count = con->cvar_count;
+    memcpy(con->loaded_binds, con->binds, sizeof con->binds);
+    con->loaded_bind_count = con->bind_count;
+}
+
 // `text` into `path` whole, if it differs from what the file holds.
 static bool write_text(const char *path, const Text *text)
 {
@@ -717,7 +734,215 @@ static int name_order(const char *a, const char *b)
     return tolower((unsigned char)*a) - tolower((unsigned char)*b);
 }
 
-bool console_save_files(const Console *con, const ConsoleFile *files, int count)
+// Whether cvar `i` changed since the mark (console_mark_loaded): with none, whether it is
+// off its default; one made since, or never registered, always.
+static bool cvar_changed(const Console *con, int i)
+{
+    const Cvar *cv = &con->cvars[i];
+    if (!con->loaded) return (cv->flags & CVAR_USER) || strcmp(cv->value, cv->default_value) != 0;
+    return i >= con->loaded_cvar_count || strcmp(cv->value, con->loaded[i]) != 0;
+}
+
+static const Bind *bind_in(const Bind *binds, int count, const char *key)
+{
+    for (int i = 0; i < count; i++)
+        if (name_eq(binds[i].key, key)) return &binds[i];
+    return NULL;
+}
+
+// Whether `key` is bound otherwise than at the mark (as the game binds it, with none).
+static bool bind_changed(const Console *con, const char *key)
+{
+    const Bind *was = con->loaded ? bind_in(con->loaded_binds, con->loaded_bind_count, key)
+                                  : bind_in(con->baseline_binds, con->baseline_bind_count, key);
+    const Bind *now = bind_find(con, key);
+    return !was != !now || (was && strcmp(was->text, now->text) != 0);
+}
+
+// A setting to write into a file that is there: the line it goes on, and what it says.
+typedef struct Change {
+    bool bind;
+    char name[CONSOLE_VALUE_SIZE];
+    char text[CONSOLE_TEXT_SIZE]; // the command
+    bool idle;                    // commented out
+    bool remove;                  // no line: a key let go that the game doesn't bind
+    const char *help;
+    int live, dormant; // the file's last line setting it, and the last commented out; -1 for none
+} Change;
+
+// What a line of a settings file sets, if it is one command that does: a cvar ("seta name
+// value", "set name value", "name value") or a key ("bind key ...", "unbind key"), into
+// `name`; whether it is commented out, and where its own comment begins.
+static bool setting_of(const char *line, size_t len, bool *bind, char *name, size_t name_size, bool *commented,
+                       size_t *comment_at)
+{
+    size_t i = 0;
+    while (i < len && isspace((unsigned char)line[i])) i++;
+    *commented = i + 1 < len && line[i] == '/' && line[i + 1] == '/';
+    if (*commented)
+        for (i += 2; i < len && isspace((unsigned char)line[i]); i++) {}
+    size_t body = comment_start(line + i, len - i);
+    *comment_at = i + body;
+    if (body == 0 || body >= CONSOLE_TEXT_SIZE) return false;
+    char text[CONSOLE_TEXT_SIZE];
+    memcpy(text, line + i, body);
+    text[body] = '\0';
+    Args a;
+    const char *rest = next_command(text, &a);
+    while (*rest == ';' || isspace((unsigned char)*rest)) rest++;
+    if (*rest || a.argc < 2) return false; // one command, and one of the console's
+    if (name_eq(a.argv[0], "set") || name_eq(a.argv[0], "seta")) {
+        if (a.argc < 3) return false;
+        *bind = false;
+        copy(name, name_size, a.argv[1]);
+    } else if (name_eq(a.argv[0], "bind") || name_eq(a.argv[0], "unbind")) {
+        *bind = true;
+        copy(name, name_size, a.argv[1]);
+    } else if (a.argc == 2 && !*commented) {
+        *bind = false;
+        copy(name, name_size, a.argv[0]);
+    } else {
+        return false;
+    }
+    return true;
+}
+
+// A line of a file being written into: `len` bytes at `at`, without its newline.
+typedef struct Line {
+    const char *at;
+    size_t len;
+} Line;
+
+// `changes` written into a file's `lines`, the rest of them as they are, into `out`.
+static void patch_lines(const Line *lines, int line_count, const char *newline, Change *changes, int change_count, Text *out)
+{
+    for (int l = 0; l < line_count; l++) {
+        bool bind, commented;
+        char name[CONSOLE_VALUE_SIZE];
+        size_t comment_at;
+        if (!setting_of(lines[l].at, lines[l].len, &bind, name, sizeof name, &commented, &comment_at)) continue;
+        for (int c = 0; c < change_count; c++) {
+            if (changes[c].bind != bind || !name_eq(changes[c].name, name)) continue;
+            if (commented) changes[c].dormant = l;
+            else changes[c].live = l;
+        }
+    }
+    for (int l = 0; l < line_count; l++) {
+        int c = 0;
+        while (c < change_count && (changes[c].live >= 0 ? changes[c].live : changes[c].dormant) != l) c++;
+        if (c == change_count) { // the player's line, as they wrote it
+            text_append(out, lines[l].at, lines[l].len);
+            text_append(out, newline, strlen(newline));
+            continue;
+        }
+        if (changes[c].remove) continue;
+        // the line's own comment kept, past the command
+        bool bind, commented;
+        char name[CONSOLE_VALUE_SIZE];
+        size_t comment_at = lines[l].len;
+        setting_of(lines[l].at, lines[l].len, &bind, name, sizeof name, &commented, &comment_at);
+        size_t keep = comment_at;
+        while (keep < lines[l].len && isspace((unsigned char)lines[l].at[keep])) keep++;
+        char command[CONSOLE_TEXT_SIZE];
+        snprintf(command, sizeof command, "%s%s", changes[c].idle ? "// " : "", changes[c].text);
+        if (keep < lines[l].len) text_printf(out, "%-44s %.*s", command, (int)(lines[l].len - keep), lines[l].at + keep);
+        else text_printf(out, "%s", command);
+        text_append(out, newline, strlen(newline));
+    }
+    bool first = true;
+    for (int c = 0; c < change_count; c++) { // what the file has no line for, at its end
+        if (changes[c].remove || changes[c].live >= 0 || changes[c].dormant >= 0) continue;
+        if (first && out->len && !text_ends_with(out, "\n")) text_append(out, newline, strlen(newline));
+        first = false;
+        Text line = {0};
+        setting_line(&line, changes[c].idle, changes[c].text, changes[c].help);
+        if (line.data) {
+            if (line.len && line.data[line.len - 1] == '\n') line.len--;
+            text_append(out, line.data, line.len);
+            text_append(out, newline, strlen(newline));
+        }
+        free(line.data);
+    }
+}
+
+// What changed since the mark, of what the file at `path` keeps, into the file as it
+// stands (`old`).
+static bool patch_file(const Console *con, const ConsoleFile *files, int count, const char *path, const char *old,
+                       size_t old_size)
+{
+    Change *changes = malloc(sizeof *changes * (CONSOLE_MAX_CVARS + 2 * CONSOLE_MAX_BINDS));
+    if (!changes) return false;
+    int n = 0;
+    bool binds = false;
+    for (int f = 0; f < count; f++) binds = binds || (files[f].binds && !strcmp(files[f].path, path));
+    for (int i = 0; i < con->cvar_count; i++) {
+        const Cvar *cv = &con->cvars[i];
+        int f = file_of(files, count, cv->name);
+        if (!cvar_saved(cv) || f < 0 || strcmp(files[f].path, path) != 0 || !cvar_changed(con, i)) continue;
+        Change *c = &changes[n++];
+        *c = (Change){.idle = !(cv->flags & CVAR_USER) && !strcmp(cv->value, cv->default_value), .help = cv->help,
+                      .live = -1, .dormant = -1};
+        copy(c->name, sizeof c->name, cv->name);
+        snprintf(c->text, sizeof c->text, "seta %s \"%s\"", cv->name, cv->value);
+    }
+    if (binds) {
+        // each key bound now or at the mark whose binding changed
+        const Bind *was = con->loaded ? con->loaded_binds : con->baseline_binds;
+        int was_count = con->loaded ? con->loaded_bind_count : con->baseline_bind_count;
+        for (int s = 0; s < 2; s++) {
+            const Bind *set = s == 0 ? con->binds : was;
+            for (int k = 0; k < (s == 0 ? con->bind_count : was_count); k++) {
+                const char *key = set[k].key;
+                bool listed = false;
+                for (int c = 0; c < n && !listed; c++) listed = changes[c].bind && name_eq(changes[c].name, key);
+                if (listed || !bind_changed(con, key)) continue;
+                const Bind *now = bind_find(con, key);
+                const Bind *game = bind_in(con->baseline_binds, con->baseline_bind_count, key);
+                Change *c = &changes[n++];
+                *c = (Change){.bind = true, .live = -1, .dormant = -1};
+                copy(c->name, sizeof c->name, key);
+                if (now) snprintf(c->text, sizeof c->text, "bind %s \"%s\"", now->key, now->text);
+                else snprintf(c->text, sizeof c->text, "unbind %s", key);
+                c->idle = now && game && !strcmp(now->text, game->text); // as the game binds it
+                c->remove = !now && !game;
+            }
+        }
+    }
+    if (n == 0) { // nothing to say to it
+        free(changes);
+        return true;
+    }
+
+    // the file's lines, and the newline it uses
+    int cap = 64, line_count = 0;
+    Line *lines = malloc(sizeof *lines * (size_t)cap);
+    const char *newline = "\n";
+    for (const char *p = old, *end = old + old_size; lines && p < end;) {
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        size_t len = (size_t)((nl ? nl : end) - p);
+        if (nl && len > 0 && p[len - 1] == '\r') len--, newline = "\r\n";
+        if (line_count == cap) {
+            Line *more = realloc(lines, sizeof *lines * (size_t)(cap *= 2));
+            if (!more) free(lines);
+            lines = more;
+            if (!lines) break;
+        }
+        lines[line_count++] = (Line){p, len};
+        p = nl ? nl + 1 : end;
+    }
+    bool ok = lines != NULL;
+    if (ok) {
+        Text out = {0};
+        patch_lines(lines, line_count, newline, changes, n, &out);
+        ok = write_text(path, &out);
+        free(out.data);
+    }
+    free(lines);
+    free(changes);
+    return ok;
+}
+
+bool console_save_files(Console *con, const ConsoleFile *files, int count)
 {
     // the saved cvars, by name, so each file reads in the same order every time
     int order[CONSOLE_MAX_CVARS], n = 0;
@@ -733,6 +958,13 @@ bool console_save_files(const Console *con, const ConsoleFile *files, int count)
         bool written = false; // an entry before it named its file, which holds them all
         for (int e = 0; e < first && !written; e++) written = !strcmp(files[e].path, files[first].path);
         if (written) continue;
+        size_t old_size = 0;
+        char *old = (char *)file_read_all(files[first].path, &old_size);
+        if (old) { // the player's: only what changed goes into it
+            ok = patch_file(con, files, count, files[first].path, old, old_size) && ok;
+            free(old);
+            continue;
+        }
         Text t = {0};
         for (int f = first; f < count; f++) {
             if (strcmp(files[f].path, files[first].path) != 0) continue;
@@ -770,6 +1002,7 @@ bool console_save_files(const Console *con, const ConsoleFile *files, int count)
         ok = write_text(files[first].path, &t) && ok;
         free(t.data);
     }
+    if (ok) console_mark_loaded(con); // what is written is what the files say now
     return ok;
 }
 
@@ -941,4 +1174,9 @@ Console *console_create(ConsolePrintFn print, void *print_user)
     return con;
 }
 
-void console_destroy(Console *con) { free(con); }
+void console_destroy(Console *con)
+{
+    if (!con) return;
+    free(con->loaded);
+    free(con);
+}

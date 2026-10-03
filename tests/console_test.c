@@ -257,6 +257,58 @@ static void saving_files(void)
     console_destroy(con);
 }
 
+// A settings file that is there is the player's: only what changed since it was read goes
+// into it, on its own line, and every other line stays as they wrote it, an edit made
+// while the game ran included.
+static void saving_into_files(void)
+{
+    const char *path = "build/console_test_mine.cfg";
+    const ConsoleFile files[] = {{path, "// mine\n", NULL, true}};
+    write_text(path, "// my notes\r\n"
+                     "seta snd_volume \"20\"                        // the volume\r\n"
+                     "// seta fov \"90\"                            // the field of view\r\n"
+                     "echo hello\r\n"
+                     "// bind a \"+attack\"\r\n"
+                     "bind q \"say hi\"\r\n");
+    Console *con = console_create(NULL, NULL);
+    cvar_register(con, "fov", "90", CVAR_ARCHIVE, "the field of view");
+    cvar_register(con, "snd_volume", "50", CVAR_ARCHIVE, "the volume");
+    cvar_register(con, "gamma", "1", CVAR_ARCHIVE, "the brightness");
+    console_execute(con, "bind a +attack; bind b jump");
+    console_mark_defaults(con);
+    console_execute_file(con, path);
+    console_mark_loaded(con);
+    CHECK(console_save_files(con, files, 1), "saved with nothing changed");
+    size_t size = 0;
+    char *s = (char *)file_read_all(path, &size);
+    CHECK(s && strstr(s, "echo hello\r\n") && !strstr(s, "// mine"), "with nothing changed it is left as it was:\n%s", s ? s : "");
+    free(s);
+
+    // meanwhile the player edits a line by hand, and changes others in the game
+    write_text(path, "// my notes\r\n"
+                     "seta snd_volume \"20\"                        // the volume\r\n"
+                     "// seta fov \"90\"                            // the field of view\r\n"
+                     "echo hello\r\n"
+                     "// bind a \"+attack\"\r\n"
+                     "bind q \"say hi\"\r\n"
+                     "seta gamma \"2\"\r\n");
+    console_execute(con, "fov 110; snd_volume 50; bind a fire; unbind q; bind b crouch; seta mine 3");
+    CHECK(console_save_files(con, files, 1), "saved with changes");
+    s = (char *)file_read_all(path, &size);
+    CHECK(s && strstr(s, "// my notes\r\n") && strstr(s, "echo hello\r\n") && strstr(s, "seta gamma \"2\"\r\n"),
+          "the player's lines stay, the one edited meanwhile too:\n%s", s ? s : "");
+    CHECK(s && strstr(s, "\r\nseta fov \"110\"") && strstr(s, "// the field of view\r\n") &&
+              strstr(s, "// seta snd_volume \"50\"") && !strstr(s, "seta snd_volume \"20\""),
+          "a setting changed goes on its own line, its comment kept, commented out at its default:\n%s", s ? s : "");
+    CHECK(s && strstr(s, "\r\nbind a \"fire\"") && !strstr(s, "bind q") && strstr(s, "bind b \"crouch\"") &&
+              strstr(s, "seta mine \"3\""),
+          "a key bound otherwise on the game's line, one let go gone, new ones at the end:\n%s", s ? s : "");
+    CHECK(s && !strstr(s, "\r\n\n") && !strstr(s, "gamma \"1\""), "in the file's own newlines, the edit not undone");
+    free(s);
+    remove(path);
+    console_destroy(con);
+}
+
 void console_tests(void)
 {
     colours();
@@ -265,4 +317,5 @@ void console_tests(void)
     binds_and_saving();
     saving_in_place();
     saving_files();
+    saving_into_files();
 }

@@ -138,6 +138,11 @@ bool console_save(const Console *con, const char *path);
 // Run after the code's binds, before the player's files.
 void console_mark_defaults(Console *con);
 
+// The player's files are in: every setting and bind as it stands now is what they say, so
+// what changes from here on (the menus, the console, the command line) is what
+// console_save_files writes back. Run after the files, before the command line.
+void console_mark_loaded(Console *con);
+
 // One of the files the settings are kept in: the saved cvars whose names begin with one of
 // `prefixes` (NULL-ended), or with `prefixes` NULL every one no other file claims; and the
 // keys, if `binds`.
@@ -148,15 +153,22 @@ typedef struct ConsoleFile {
     bool binds;
 } ConsoleFile;
 
-// Writes each of `files` whole, after its header (entries sharing a path are sections of
-// one file, in their order): a `seta` for each saved cvar it keeps, by
-// name, with the cvar's help beside it, commented out while it holds its registered
-// default; and in the binds' file each of the game's keys commented out while bound as
-// the game binds it, a `bind` where the player bound it otherwise, an `unbind` where they
-// let it go, and a `bind` for each key they bound that the game doesn't. A cvar never
-// registered here (CVAR_USER) is another program's, or the player's: it is written as set.
-// A file whose text is already that isn't touched. False if one can't be written.
-bool console_save_files(const Console *con, const ConsoleFile *files, int count);
+// The settings files, each the player's to edit. One that isn't there yet is written whole,
+// after its header (entries sharing a path are sections of one file, in their order): a
+// `seta` for each saved cvar it keeps, by name, with the cvar's help beside it, commented
+// out while it holds its registered default; and in the binds' file each of the game's
+// keys commented out while bound as the game binds it, a `bind` where the player bound it
+// otherwise, an `unbind` where they let it go, and a `bind` for each key they bound that
+// the game doesn't. A cvar never registered here (CVAR_USER) is another program's, or the
+// player's: it is written as set.
+//
+// One that is there is read again and only what changed since console_mark_loaded (or,
+// with no mark, what isn't at its default) is written into it, each on the line that sets
+// it (the live one, else the one commented out), commented out or not as above, the line's
+// own comment kept; one with no line goes at the end. Every other line stays as the
+// player wrote it, while the game ran too. The mark is then taken again. False if one
+// can't be written.
+bool console_save_files(Console *con, const ConsoleFile *files, int count);
 
 // --- cvars ---------------------------------------------------------------------------
 

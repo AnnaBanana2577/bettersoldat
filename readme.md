@@ -67,12 +67,13 @@ it. The game runs `client.cfg` and `server.cfg`; a server runs `server.cfg`:
 |---|---|
 | `client.cfg` | the game's: your soldier, the mouse and the radio, the window and the HUD, the sound, the server to join, the mod, and your keys |
 | `server.cfg` | how this install hosts a game, Local Play and a dedicated server alike |
-| `autoexec.cfg` | commands of your own, run last (make it yourself) |
 
-The game writes its files as it closes, every setting with what it is beside it,
-commented out while it holds the game's default: take a line's `//` off and change its
-value to set it otherwise. A setting you haven't changed follows the game's default, so a
-new default reaches you with the update that brings it.
+Each holds every setting with what it is beside it, commented out while it holds the
+game's default: take a line's `//` off and change its value to set it otherwise. They are
+yours to edit, while the game runs too: as it closes, the game changes only the line of a
+setting you changed in it (in the menus or the console), and leaves every other line as
+you wrote it. A setting you haven't changed follows the game's default, so a new default
+reaches you with the update that brings it.
 
 ## Mods
 
@@ -90,8 +91,8 @@ isn't a mod's to change: everyone in a game has to have the same.
 
 The release's `-server` package is a headless server: the game, the maps and nothing to
 draw. Unpack it and run `server` (`server.exe` on Windows; in the game's own folder it is
-`bin/server`); its settings are in `config/server.cfg`, which it writes as it starts with
-every `sv_*` and `bots_*` setting and what it is, the game's default commented out (take a
+`bin/server`); its settings are in `config/server.cfg`, which it makes on its first start
+with every `sv_*` and `bots_*` setting and what it is, the game's default commented out (take a
 line's `//` off to set it otherwise), or given on the command line, which goes over it:
 
 ```
