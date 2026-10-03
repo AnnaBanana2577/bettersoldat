@@ -13,8 +13,8 @@
 -- (mods/default/ and a player's own beside it); config/ and scripts/. runtime/ holds them
 -- as an install lays them out, so that is runtime/ under xmake run (set_rundir) and the
 -- package's own directory once unpacked, and nothing is passed on the command line. What
--- the game writes there as it plays (config/client/, config/server/, demos/) and a
--- player's mods are the player's, and not the project's.
+-- the game writes there as it plays (config/, demos/) and a player's mods are the
+-- player's, and not the project's.
 
 set_project("soldatreloaded")
 set_version("0.7.2")
@@ -100,7 +100,7 @@ target("client")
     add_rules("icon")
     add_deps("shared")
     add_files("packages/client/**.c", "packages/server/connections.c", "packages/server/lists.c", "packages/server/rounds.c",
-              "packages/server/bots.c", "packages/server/host.c")
+              "packages/server/bots.c", "packages/server/host.c", "packages/server/host_cvars.c")
     -- the launcher's HTTPS, for the server browser's list from the lobby (client/net/browser.c)
     add_files("packages/launcher/http.c", "packages/launcher/files.c", "packages/launcher/sha256.c")
     add_includedirs("packages/client", "packages/server", "packages/launcher")
@@ -185,7 +185,8 @@ target("tests")
     set_default(false)
     add_deps("shared")
     add_files("tests/*.c", "packages/server/connections.c", "packages/server/lists.c", "packages/server/rounds.c",
-              "packages/server/bots.c", "packages/server/host.c", "packages/server/script.c", "packages/server/lobby.c")
+              "packages/server/bots.c", "packages/server/host.c", "packages/server/script.c", "packages/server/lobby.c",
+              "packages/server/host_cvars.c", "packages/server/weapons_ini.c")
     add_files("packages/launcher/*.c|main.c")
     -- the client's line and its demos, for the demo's round trip (tests/demo_test.c)
     add_files("packages/client/net/client_net.c", "packages/client/net/demo.c")
@@ -202,8 +203,8 @@ target("tests")
 -- it unpacks (launcher/archive.h), so a package without it would scatter. A zip says where
 -- each file in it lies, so the launcher brings an update's files alone out of it, by range
 -- (launcher/update.h); on Linux it keeps the executables' bit, as Info-ZIP writes it. What
--- an install holds is runtime/'s data/, mods/default/, config/defaults/ and scripts/, flat,
--- which is how the game expects to find them (docs/git.md, Releases).
+-- an install holds is runtime/'s data/, mods/default/ and scripts/, flat, which is how
+-- the game expects to find them (docs/git.md, Releases); the game's package its config/ too.
 --
 --   soldatreloaded          the game, a player's: everything, the server among it so anyone
 --                           can host; the launcher, what a player starts, at the top, and
@@ -221,7 +222,6 @@ local function release_package(name, suffix, bindir)
         set_prefixdir("soldatreloaded-$(version)-$(plat)-$(arch)" .. suffix)
         set_bindir(bindir)
         add_installfiles("license.md")
-        add_installfiles("runtime/(config/defaults/**)") -- the game's; the player's own are made by the game
         -- the server's scripts: the examples, the release's (main.lua, which runs them, is the
         -- owner's: in the game's package, which the launcher leaves be once changed, and in
         -- the server's none, as unpacking a release over a server would put it back as it
@@ -251,7 +251,7 @@ local function finish_install(manifest)
 
         -- "file <sha256> <bytes> <path>", every file the release ships: what the launcher does
         -- with each, by where it lies, is its own (launcher/update.h). The player's own files
-        -- (config/client/, config/server/, their mods) are in no manifest.
+        -- (config/, their mods) are in no manifest.
         local function write_manifest(installdir, version, stash)
             local names = {}
             for _, file in ipairs(os.files(path.join(installdir, "**"))) do
@@ -298,6 +298,10 @@ release_package("soldatreloaded", "", "bin")
         add_installfiles("runtime/(data/icon.png)")
     end
     add_installfiles("runtime/(mods/default/**)") -- the game's; a player's mods beside it are theirs
+    -- the settings, at their defaults: the player's once changed, which the launcher then leaves
+    -- be (launcher/update.h). Not in the server's package, unpacked over a server by hand: it
+    -- makes its own there
+    add_installfiles("runtime/(config/*)")
     add_installfiles("runtime/(scripts/main.lua)") -- the owner's once they change it (launcher/update.h)
     finish_install(true)
 

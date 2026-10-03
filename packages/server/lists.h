@@ -2,7 +2,7 @@
 
 // The server's lists, by address: who is banned (until when, as whom, why), who is muted
 // (their chat goes to nobody), and who may run the admin commands (connections.h). A
-// dedicated server keeps them in config/server/: banlist.txt and mutelist.txt, which it
+// dedicated server keeps them in config/: banlist.txt and mutelist.txt, which it
 // writes as admins ban and unban, mute and unmute, and admins.txt, which only the
 // server's owner writes. Each is a line per entry, words in "quotes" where they may hold
 // spaces, // for a comment:
@@ -48,7 +48,7 @@ typedef struct Lists {
     int admin_count;
 } Lists;
 
-// The lists from `dir` (config/server), or none to keep them in memory alone. A file
+// The lists from `dir` (config), or none to keep them in memory alone. A file
 // that isn't there is an empty list.
 void lists_load(Lists *l, const char *dir, Console *console);
 

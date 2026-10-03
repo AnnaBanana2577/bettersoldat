@@ -27,7 +27,7 @@ bool manifest_top_level(const char *path) { return !strchr(path, '/'); }
 
 bool manifest_always_hashed(const char *path)
 {
-    return manifest_top_level(path) || strncmp(path, "bin/", 4) == 0 || strncmp(path, "config/", 7) == 0;
+    return manifest_top_level(path) || strncmp(path, "bin/", 4) == 0;
 }
 
 // "<sha256> <bytes> <rest of the line>"
@@ -155,7 +155,7 @@ const ManifestFile *manifest_find(const Manifest *m, const char *path)
 
 bool manifest_protected(const char *path)
 {
-    static const char *const DIRS[] = {"bin/", "data/", "mods/default/", "config/defaults/", "scripts/examples/"};
+    static const char *const DIRS[] = {"bin/", "data/", "mods/default/", "scripts/examples/"};
     if (manifest_top_level(path)) return true;
     for (size_t i = 0; i < sizeof DIRS / sizeof DIRS[0]; i++)
         if (strncmp(path, DIRS[i], strlen(DIRS[i])) == 0) return true;

@@ -13,7 +13,7 @@
 // (latest-<platform>.txt, beside the package) adds where to get it ("package update", an
 // older release's second, smaller package, is read and passed over). It lists every file a
 // release ships; what the launcher does with each, by where it lies, is update.h's. The
-// player's own files (config/client/, config/server/, their mods) are never listed.
+// player's own files (their mods, demos/) are never listed.
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -53,11 +53,11 @@ bool manifest_safe_path(const char *path);
 // Whether a path is at the top of the install, with no directory.
 bool manifest_top_level(const char *path);
 // Whether a path is always hashed, manifest.txt or no (update.h): the top-level files, the
-// executables in bin/ and config/, which change with the code, where the art doesn't.
+// executables in bin/, which change with the code, where the art doesn't.
 bool manifest_always_hashed(const char *path);
 
 // Whether a path is the release's to keep as it has it (update.h): the top-level files (the
-// launcher, version.txt), the executables in bin/, the game's data/ and mods/default/, its
-// config/defaults/ and its scripts/examples/. Anything else a release ships is its start of
+// launcher, version.txt), the executables in bin/, the game's data/ and mods/default/ and
+// its scripts/examples/. Anything else a release ships is its start of
 // a file that is then the player's.
 bool manifest_protected(const char *path);

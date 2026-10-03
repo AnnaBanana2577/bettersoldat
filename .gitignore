@@ -8,5 +8,3 @@ build/
 !/runtime/mods/default/
 /runtime/config.cfg
 /runtime/config.cfg.old
-/runtime/config/client/
-/runtime/config/server/

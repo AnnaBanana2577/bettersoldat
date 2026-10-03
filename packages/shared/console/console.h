@@ -21,14 +21,15 @@
 // order at startup is free: exec the config, run the command line, then open the
 // subsystems that register their cvars.
 //
-// The defaults and the player's own are kept apart (config/): the default files run
-// first, console_mark_defaults notes where they left every cvar and bind, the player's
-// files run over them, and console_save_changes writes the player's files back as only
-// what differs from the defaults. So a new default reaches every player who hasn't set
-// that thing otherwise. console_save keeps the older way, one file written back into in
-// place: a line setting a saved cvar or binding a key is updated where it stands when its
-// value changed, a bind's line goes when the key was unbound, and what the file didn't
-// have goes after it, comments and all else kept.
+// The defaults are the code's: each cvar's registered value, and the binds the code sets
+// before console_mark_defaults notes them. The settings files (config/) are written whole
+// by console_save_files, every saved cvar in the file that keeps it with what it is
+// beside it, commented out while it holds its default, and the keys likewise: so a file
+// shows every setting it keeps, and a default changed by a later release reaches every
+// player who hasn't set that thing otherwise. console_save keeps the older way, one file
+// written back into in place: a line setting a saved cvar or binding a key is updated
+// where it stands when its value changed, a bind's line goes when the key was unbound,
+// and what the file didn't have goes after it, comments and all else kept.
 //
 // The built-in commands:
 //   set / seta name value    set (seta also marks it to be saved)
@@ -36,7 +37,8 @@
 //   toggle name              0 <-> 1
 //   vstr name                run the text a cvar holds
 //   echo text...             print
-//   exec file                run a config file (".cfg" added if it has no extension)
+//   exec file                run a config file (".cfg" added if it has no extension); in a
+//                            file, one not there is passed over
 //   bind key [text]          bind a key, or show its bind
 //   unbind key / unbindall
 //   cvarlist / cmdlist / bindlist [prefix]
@@ -132,19 +134,29 @@ void console_execute_args(Console *con, int argc, char **argv);
 // written.
 bool console_save(const Console *con, const char *path);
 
-// The defaults are in: every cvar's value and every bind as they stand now are what a
-// player's own files are told apart from (console_save_changes). Run after the default
-// config files, before the player's.
+// The defaults are in: every bind as it stands now is the game's own (console_save_files).
+// Run after the code's binds, before the player's files.
 void console_mark_defaults(Console *con);
 
-// The player's own files, written whole: into `settings_path` a `seta` for each saved
-// cvar whose value differs from the defaults (or, unmarked, from its registered
-// default); into `binds_path` a `bind` for each key bound otherwise than the defaults
-// bind it, or not at all by them, and an `unbind` for each the defaults bind and the
-// player has let go. Each after its header. A file whose text is already that isn't
-// touched. False if one can't be written.
-bool console_save_changes(const Console *con, const char *settings_path, const char *settings_header, const char *binds_path,
-                          const char *binds_header);
+// One of the files the settings are kept in: the saved cvars whose names begin with one of
+// `prefixes` (NULL-ended), or with `prefixes` NULL every one no other file claims; and the
+// keys, if `binds`.
+typedef struct ConsoleFile {
+    const char *path;
+    const char *header; // what the file is for, at its top
+    const char *const *prefixes;
+    bool binds;
+} ConsoleFile;
+
+// Writes each of `files` whole, after its header (entries sharing a path are sections of
+// one file, in their order): a `seta` for each saved cvar it keeps, by
+// name, with the cvar's help beside it, commented out while it holds its registered
+// default; and in the binds' file each of the game's keys commented out while bound as
+// the game binds it, a `bind` where the player bound it otherwise, an `unbind` where they
+// let it go, and a `bind` for each key they bound that the game doesn't. A cvar never
+// registered here (CVAR_USER) is another program's, or the player's: it is written as set.
+// A file whose text is already that isn't touched. False if one can't be written.
+bool console_save_files(const Console *con, const ConsoleFile *files, int count);
 
 // --- cvars ---------------------------------------------------------------------------
 

@@ -69,10 +69,10 @@ does not match is refused, so any release that changes the protocol will not tal
 the one before it. Say so in the tag's message, every time.
 
 A tag is the version; what ships beside it is the client, the server, the launcher and
-the contents of `runtime/` (`data/`, `mods/default/`, `config/defaults/` and
-`scripts/`), unpacked flat so that the config and the art sit beside the executable: the
-packages `xmake dist` makes (see xmake.lua). The tag alone is not a release until those
-exist.
+the contents of `runtime/` (`data/`, `mods/default/` and `scripts/`), unpacked flat so
+that the art sits beside the executable: the packages `xmake dist` makes (see xmake.lua).
+The game's package ships config/ too, at its defaults. The tag alone is not a
+release until those exist.
 
 Players start the launcher (`Soldat Reloaded.exe`, `soldatreloaded-launcher` on
 Linux), at the top of the install, which keeps their copy at the newest release
@@ -87,22 +87,22 @@ launcher treats each by where it lies, weighing the file on disk against the las
 release's manifest and the new one (launcher/update.h):
 
 - **The release's own**, kept as it has it: the top-level files (the launcher,
-  `version.txt`), `bin/`, `data/`, `mods/default/`, `config/defaults/` and
-  `scripts/examples/`. Missing or otherwise, it is brought, damage repaired; dropped by a
-  release, deleted.
-- **Everything else a release ships** (`scripts/main.lua`): its start of a file that is
-  then the player's. It is made where it never was, brought anew only while it is still
-  as the last release made it, left alone once the player has changed it, stays out once
-  they take it out, and goes with a release that drops it only unchanged.
+  `version.txt`), `bin/`, `data/`, `mods/default/` and `scripts/examples/`. Missing or
+  otherwise, it is brought, damage repaired; dropped by a release, deleted.
+- **Everything else a release ships** (`scripts/main.lua`, `config/`'s settings and lists):
+  its start of a file that is then the player's. It is made where it never was, brought
+  anew only while it is still as the last release made it, left alone once the player (or
+  the game, writing their settings) has changed it, stays out once they take it out, and
+  goes with a release that drops it only unchanged.
 
-`config/client/`, `config/server/` and any other mod in `mods/` are the player's and the
-server owner's, in no manifest, and never touched. So:
+Any other mod in `mods/`, `demos/` and what a server writes beside its own install are the
+player's and the server owner's, in no manifest, and never touched. So:
 
 - A release that adds a cvar registers it in code with its default (`cvar_register`), and
-  puts it in `runtime/config/defaults/` with its comment. A player's own files hold only what
-  they set otherwise, so a new or changed default reaches everyone who hasn't.
-- A new default bind goes in `runtime/config/defaults/binds.client.cfg` and reaches every player
-  who hasn't bound that key otherwise.
+  its help, which the settings files show beside it: a file has its line commented out
+  while it holds the default, so a new or changed default reaches everyone who hasn't set it.
+- A new default bind goes in the code (input_default_binds, or the client's VIEW_BINDS) and
+  reaches every player who hasn't bound that key otherwise.
 - The newest *published* release is the one every launcher moves to, so a release that
   shouldn't go out to players is made a pre-release or left a draft.
 

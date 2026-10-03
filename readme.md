@@ -57,9 +57,20 @@ X to go prone, the right mouse button for the jets, Space to throw a grenade, Q 
 switch weapons, R to reload, Tab for the weapons menu, Escape for the game menu, T to
 chat, Y to chat to your team, V for the radio menu, F1 for the scoreboard.
 
-Settings live in `config/` beside the game: `config/defaults/` holds the game's own, which
-every update replaces, and `config/client/` yours, which the game writes as it closes with
-only what you set otherwise; commands of your own go in `config/client/autoexec.cfg`.
+Settings live in `config/` beside the game, one flat folder the game ships at its defaults
+and writes back as you play; an update changes a file only while it is as the game shipped
+it. The game runs `client.cfg` and `server.cfg`; a server runs `server.cfg`:
+
+| file | holds |
+|---|---|
+| `client.cfg` | the game's: your soldier, the mouse and the radio, the window and the HUD, the sound, the server to join, the mod, and your keys |
+| `server.cfg` | how this install hosts a game, Local Play and a dedicated server alike |
+| `autoexec.cfg` | commands of your own, run last (make it yourself) |
+
+The game writes its files as it closes, every setting with what it is beside it,
+commented out while it holds the game's default: take a line's `//` off and change its
+value to set it otherwise. A setting you haven't changed follows the game's default, so a
+new default reaches you with the update that brings it.
 
 ## Mods
 
@@ -67,7 +78,7 @@ What the game looks and sounds like is in `mods/default/`: the soldiers, weapons
 textures, scenery, interface, sounds and fonts. Every update replaces it, so leave it as
 it is and make a mod beside it instead: a folder in `mods/`, say `mods/mine/`, holding
 only the files you change, at the same paths (`mods/mine/sfx/ak74-fire.wav`). Set
-`cl_mod mine` in the console or `config/client/settings.cfg` and start the game again;
+`cl_mod mine` in the console or `config/client.cfg` and start the game again;
 whatever your mod doesn't have comes from `mods/default/`. No update touches your mods.
 
 What the game plays by — the maps, animations, skeletons and bots — is in `data/`, and
@@ -77,22 +88,22 @@ isn't a mod's to change: everyone in a game has to have the same.
 
 The release's `-server` package is a headless server: the game, the maps and nothing to
 draw. Unpack it and run `server` (`server.exe` on Windows; in the game's own folder it is
-`bin/server`); its settings are the `sv_*` lines of `config/defaults/settings.server.cfg`,
-set otherwise in your own `config/server/settings.cfg`, or given on the command line:
+`bin/server`); its settings are in `config/server.cfg`, which it writes as it starts with
+every `sv_*` and `bots_*` setting and what it is, the game's default commented out (take a
+line's `//` off to set it otherwise), or given on the command line, which goes over it:
 
 ```
 server +sv_hostname "My server" +sv_maps "ctf_Ash ctf_Kampf" +sv_password secret
 ```
 
-The server makes `config/server/` on its first start, each file saying what it holds and
-how, and never touches one that is there. The `.cfg` files are console lines it runs; the
-`.txt` files are lists it reads, and the bans and mutes it writes:
+Beside it in `config/`, made on the first start. The `.cfg` files are console lines the
+server runs, `weapons.ini` its weapons; the `.txt` files are lists it reads, and the bans
+and mutes it writes:
 
 | file | holds |
 |---|---|
-| `settings.cfg` | your settings over `config/defaults/settings.server.cfg` |
+| `weapons.ini` | a weapons mod, as Soldat's weapons.ini has it (a Soldat or OpenSoldat mod works as it is): a section for each weapon, each number it changes; sent to every player who joins |
 | `maplist.txt` | the rotation, a map to a line (`sv_maps`, when set, goes over it); a map the server hasn't got is passed over |
-| `weapons.cfg` | a weapons mod (the form is in `config/defaults/weapons.server.cfg`), sent to every player who joins |
 | `admins.txt` | the addresses of the admins, who may `/kick`, `/ban`, `/mute` and `/map` from the chat (or set `sv_adminpassword` and `/login`) |
 | `banlist.txt`, `mutelist.txt` | the bans and mutes, which the server keeps as players are banned and muted |
 
@@ -129,7 +140,7 @@ under `xmake run`, which holds them as an install lays them out, or an unpacked 
 | `packages/server/` | The headless server: connections, rounds, bots, votes, the Lua scripting and the lobby heartbeat. |
 | `packages/launcher/` | The updater: fetches releases from GitHub, checks every file against the release's hashes, and starts the game. |
 | `tests/` | Headless checks of the simulation on real maps and of the netcode over the loopback. |
-| `runtime/` | What ships beside the executables, laid out as an install: `data/`, the maps, animations, skeletons and bots the game plays by, and `mods/default/`, the art, sounds and fonts it looks and sounds like, both from [opensoldat/base](https://github.com/opensoldat/base); `config/defaults/`, the game's settings and keys; `scripts/`, the server's Lua scripts. What the game writes there as you play (`config/client/`, `config/server/`, `demos/`) and any mod beside `mods/default/` are yours, and git leaves them out. |
+| `runtime/` | What ships beside the executables, laid out as an install: `data/`, the maps, animations, skeletons and bots the game plays by, and `mods/default/`, the art, sounds and fonts it looks and sounds like, both from [opensoldat/base](https://github.com/opensoldat/base); `scripts/`, the server's Lua scripts. What the game writes there as you play (`config/`, `demos/`) and any mod beside `mods/default/` are yours, and git leaves them out. |
 | `docs/` | How it works and how to work on it. |
 
 The docs go deeper:

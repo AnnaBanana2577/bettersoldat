@@ -37,12 +37,10 @@ struct Console {
     void *print_user;
 
     int depth; // text running text: exec, vstr, binds
+    int files; // config files running, one in another
 
-    // What the defaults set (console_mark_defaults): each cvar's value then and the
-    // binds, so console_save_changes writes only what differs from them.
-    bool marked;
-    char baseline[CONSOLE_MAX_CVARS][CONSOLE_VALUE_SIZE];
-    bool has_baseline[CONSOLE_MAX_CVARS];
+    // The game's own binds (console_mark_defaults), which console_save_files writes
+    // commented out, and the player's as they are.
     Bind baseline_binds[CONSOLE_MAX_BINDS];
     int baseline_bind_count;
 };
@@ -426,7 +424,9 @@ bool console_execute_file(Console *con, const char *path)
         return false;
     }
     console_print(con, "execing %s\n", path);
+    con->files++;
     console_execute(con, text);
+    con->files--;
     free(text);
     return true;
 }
@@ -663,11 +663,6 @@ bool console_save(const Console *con, const char *path)
 
 void console_mark_defaults(Console *con)
 {
-    con->marked = true;
-    for (int i = 0; i < con->cvar_count; i++) {
-        copy(con->baseline[i], sizeof con->baseline[i], con->cvars[i].value);
-        con->has_baseline[i] = true;
-    }
     memcpy(con->baseline_binds, con->binds, sizeof con->binds);
     con->baseline_bind_count = con->bind_count;
 }
@@ -687,31 +682,94 @@ static bool write_text(const char *path, const Text *text)
     return ok;
 }
 
-bool console_save_changes(const Console *con, const char *settings_path, const char *settings_header, const char *binds_path,
-                          const char *binds_header)
+// The file of `files` a saved cvar is kept in: the first whose prefixes its name begins
+// with, else the one that takes the rest (no prefixes); -1 for none.
+static int file_of(const ConsoleFile *files, int count, const char *name)
 {
-    Text settings = {0}, binds = {0};
-    text_append(&settings, settings_header, strlen(settings_header));
+    int rest = -1;
+    for (int i = 0; i < count; i++) {
+        if (!files[i].prefixes) {
+            if (rest < 0) rest = i;
+            continue;
+        }
+        for (const char *const *p = files[i].prefixes; *p; p++)
+            if (has_prefix(name, *p)) return i;
+    }
+    return rest;
+}
+
+// A setting's line: `text`, commented out when `idle`, and what it is to its right.
+static void setting_line(Text *t, bool idle, const char *text, const char *help)
+{
+    char line[CONSOLE_TEXT_SIZE];
+    int n = snprintf(line, sizeof line, "%s%s", idle ? "// " : "", text);
+    if (n < 0) return;
+    if (!help || !help[0]) {
+        text_printf(t, "%s\n", line);
+        return;
+    }
+    text_printf(t, "%-44s // %s\n", line, help);
+}
+
+static int name_order(const char *a, const char *b)
+{
+    for (; *a && tolower((unsigned char)*a) == tolower((unsigned char)*b); a++, b++) {}
+    return tolower((unsigned char)*a) - tolower((unsigned char)*b);
+}
+
+bool console_save_files(const Console *con, const ConsoleFile *files, int count)
+{
+    // the saved cvars, by name, so each file reads in the same order every time
+    int order[CONSOLE_MAX_CVARS], n = 0;
     for (int i = 0; i < con->cvar_count; i++) {
-        const Cvar *cv = &con->cvars[i];
-        if (!cvar_saved(cv)) continue;
-        const char *was = con->marked && con->has_baseline[i] ? con->baseline[i] : cv->default_value;
-        if (strcmp(cv->value, was) != 0) text_printf(&settings, "seta %s \"%s\"\n", cv->name, cv->value);
+        if (!cvar_saved(&con->cvars[i])) continue;
+        int at = n++;
+        for (; at > 0 && name_order(con->cvars[order[at - 1]].name, con->cvars[i].name) > 0; at--) order[at] = order[at - 1];
+        order[at] = i;
     }
-    text_append(&binds, binds_header, strlen(binds_header));
-    for (int i = 0; i < con->bind_count; i++) { // bound otherwise, or anew
-        const Bind *b = &con->binds[i];
-        const Bind *was = NULL;
-        for (int k = 0; k < con->baseline_bind_count && !was; k++)
-            if (name_eq(con->baseline_binds[k].key, b->key)) was = &con->baseline_binds[k];
-        if (!was || strcmp(was->text, b->text) != 0) text_printf(&binds, "bind %s \"%s\"\n", b->key, b->text);
+
+    bool ok = true;
+    for (int first = 0; first < count; first++) {
+        bool written = false; // an entry before it named its file, which holds them all
+        for (int e = 0; e < first && !written; e++) written = !strcmp(files[e].path, files[first].path);
+        if (written) continue;
+        Text t = {0};
+        for (int f = first; f < count; f++) {
+            if (strcmp(files[f].path, files[first].path) != 0) continue;
+            text_append(&t, files[f].header, strlen(files[f].header));
+            for (int k = 0; k < n; k++) {
+                const Cvar *cv = &con->cvars[order[k]];
+                if (file_of(files, count, cv->name) != f) continue;
+                // one this program never registered is another's, or the player's own: as set
+                bool idle = !(cv->flags & CVAR_USER) && strcmp(cv->value, cv->default_value) == 0;
+                char text[CONSOLE_TEXT_SIZE];
+                snprintf(text, sizeof text, "seta %s \"%s\"", cv->name, cv->value);
+                setting_line(&t, idle, text, cv->help);
+            }
+            if (files[f].binds) {
+                text_printf(&t, "// The game's own commented out, yours as you bound them, and an unbind for each of\n"
+                                "// the game's you let go.\n");
+                char text[CONSOLE_TEXT_SIZE];
+                for (int k = 0; k < con->baseline_bind_count; k++) { // the game's, as they stand
+                    const Bind *was = &con->baseline_binds[k], *now = bind_find(con, was->key);
+                    if (!now) snprintf(text, sizeof text, "unbind %s", was->key);
+                    else snprintf(text, sizeof text, "bind %s \"%s\"", now->key, now->text);
+                    setting_line(&t, now && strcmp(now->text, was->text) == 0, text, NULL);
+                }
+                for (int i = 0; i < con->bind_count; i++) { // and the player's beside them
+                    const Bind *b = &con->binds[i];
+                    bool the_games = false;
+                    for (int k = 0; k < con->baseline_bind_count && !the_games; k++)
+                        the_games = name_eq(con->baseline_binds[k].key, b->key);
+                    if (the_games) continue;
+                    snprintf(text, sizeof text, "bind %s \"%s\"", b->key, b->text);
+                    setting_line(&t, false, text, NULL);
+                }
+            }
+        }
+        ok = write_text(files[first].path, &t) && ok;
+        free(t.data);
     }
-    for (int k = 0; k < con->baseline_bind_count; k++) // bound by the defaults, and since let go
-        if (!bind_find(con, con->baseline_binds[k].key)) text_printf(&binds, "unbind %s\n", con->baseline_binds[k].key);
-    bool ok = write_text(settings_path, &settings);
-    ok = write_text(binds_path, &binds) && ok;
-    free(settings.data);
-    free(binds.data);
     return ok;
 }
 
@@ -786,6 +844,10 @@ static void cmd_exec(Console *con, int argc, char **argv, void *user)
     for (const char *p = argv[1]; *p; p++)
         if (*p == '/' || *p == '\\') base = p + 1;
     snprintf(path, sizeof path, strchr(base, '.') ? "%s" : "%s.cfg", argv[1]);
+    // a config naming a file not there yet passes it by
+    FILE *f = con->files > 0 ? fopen(path, "rb") : NULL;
+    if (con->files > 0 && !f) return;
+    if (f) fclose(f);
     console_execute_file(con, path);
 }
 

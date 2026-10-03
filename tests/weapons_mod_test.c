@@ -1,6 +1,6 @@
 // Weapons mods: the server's numbers written as what differs from the game's own, in as
-// many messages as fit the datagram and read back the same; the defaults file the game
-// ships is the game's own numbers exactly; and a client joining a modded server takes them.
+// many messages as fit the datagram and read back the same; and a client joining a modded
+// server takes them.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,9 +10,9 @@
 #include "host.h"
 #include "net/client_net.h"
 #include "test.h"
+#include "weapons_ini.h"
 
 #define PORT 40051
-#define DEFAULTS_FILE "runtime/config/defaults/weapons.server.cfg"
 
 // Every weapon's numbers read back from the messages `stats` made.
 static bool round_trip(const WeaponStats stats[WEAPON_COUNT], int *messages, size_t *largest)
@@ -40,40 +40,100 @@ static bool round_trip(const WeaponStats stats[WEAPON_COUNT], int *messages, siz
     return memcmp(heard.stats, stats, sizeof heard.stats) == 0;
 }
 
-// The defaults file's numbers, line by line, against the game's own.
-static int file_differs(void)
+
+
+// Soldat's keys, in WEAPON_FIELDS' order: the test's own copy, so it checks the reader's.
+static const char *const INI_KEYS[] = {"Damage",      "FireInterval", "Ammo",         "ReloadTime",        "Speed",
+                                       "StartUpTime", "Bink",         "MovementAcc",  "BulletSpread",      "Push",
+                                       "InheritedVelocity", "ModifierHead", "ModifierChest", "ModifierLegs"};
+
+static void count_passed(void *user, const char *what)
 {
-    FILE *f = fopen(DEFAULTS_FILE, "rb");
+    (void)what;
+    ++*(int *)user;
+}
+
+// Every number `path` gives, by a reading of its own, is the one weapons_ini_read took:
+// how many it found, or -1 at the first that differs.
+static int ini_matches(const char *path, const WeaponStats stats[WEAPON_COUNT])
+{
+    FILE *f = fopen(path, "rb");
     if (!f) return -1;
-    Weapons own;
-    weapons_default(&own);
-    char line[1024];
-    int lines = 0, wrong = 0;
+    char line[512];
+    int weapon = -1, found = 0;
     while (fgets(line, sizeof line, f)) {
-        if (strncmp(line, "weapon \"", 8) != 0) continue;
-        char *name = line + 8, *end = strchr(name, '"');
-        if (!end) return -1;
-        *end = '\0';
-        WeaponId id = weapon_named(name);
-        lines++;
-        for (char *p = strtok(end + 1, " \r\n"); p; p = strtok(NULL, " \r\n")) {
-            char *value = strtok(NULL, " \r\n");
-            if (!value) break;
-            for (int k = 0; k < WEAPON_FIELD_COUNT; k++) {
-                const NetField *field = &WEAPON_FIELDS[k];
-                if (strcmp(field->name, p) != 0) continue;
-                const uint8_t *at = (const uint8_t *)&own.info[id].stats + field->offset;
-                bool same = field->kind == NET_F32 ? *(const float *)at == (float)atof(value) : *(const int32_t *)at == atoi(value);
-                if (!same) wrong++;
+        line[strcspn(line, "\r\n;")] = '\0';
+        if (line[0] == '[') {
+            char *end = strchr(line, ']');
+            if (end) *end = '\0';
+            weapon = -1;
+            for (int id = 0; id < WEAPON_COUNT; id++)
+                if (weapons_ini_section((WeaponId)id) && !strcmp(weapons_ini_section((WeaponId)id), line + 1)) weapon = id;
+            continue;
+        }
+        char *eq = strchr(line, '=');
+        if (weapon < 0 || !eq) continue;
+        *eq = '\0';
+        for (int k = 0; k < WEAPON_FIELD_COUNT; k++) {
+            if (strcmp(line, INI_KEYS[k]) != 0) continue;
+            const uint8_t *at = (const uint8_t *)&stats[weapon] + WEAPON_FIELDS[k].offset;
+            bool same = WEAPON_FIELDS[k].kind == NET_F32 ? *(const float *)at == (float)atof(eq + 1)
+                                                         : *(const int32_t *)at == atoi(eq + 1);
+            if (!same) {
+                fclose(f);
+                return -1;
             }
+            found++;
         }
     }
     fclose(f);
-    return lines == WEAPON_COUNT - 3 ? wrong : -1; // the three that follow others aren't listed
+    return found;
+}
+
+static void weapons_ini_tests(void)
+{
+    Weapons own;
+    weapons_default(&own);
+    WeaponStats base[WEAPON_COUNT], read[WEAPON_COUNT];
+    weapons_stats(&own, base);
+
+    const char *path = "build/weapons-test.ini";
+    remove(path);
+    memcpy(read, base, sizeof read);
+    char name[64] = "x";
+    CHECK(weapons_ini_template(path) && weapons_ini_read(path, read, name, sizeof name, NULL, NULL) &&
+              memcmp(read, base, sizeof read) == 0 && name[0] == '\0',
+          "the template, all commented out, reads as the game's own");
+
+    static const char SOLDAT[] = "; a Soldat mod\r\n"
+                                 "[Info]\r\nName=Test Mod\r\nVersion=1\r\n"
+                                 "[Barret M82A1]\r\nDamage=4.45\r\nBulletStyle=1\r\nFireInterval=230 // slower\r\n"
+                                 "[Punch]\r\nAmmo=2\r\nRecoil=0\r\n"
+                                 "[Grenade]\r\nSpeed=1.5\r\n"
+                                 "[No Such Gun]\r\nDamage=1\r\n"
+                                 "[Ak-74]\r\nWobble=3\r\n";
+    FILE *f = fopen(path, "wb");
+    if (f) fwrite(SOLDAT, 1, sizeof SOLDAT - 1, f), fclose(f);
+    memcpy(read, base, sizeof read);
+    int passed = 0;
+    CHECK(weapons_ini_read(path, read, name, sizeof name, count_passed, &passed), "a Soldat weapons.ini reads");
+    CHECK(read[WEAPON_BARRETT].damage == 4.45f && read[WEAPON_BARRETT].fire_interval == 230 && read[WEAPON_NONE].ammo == 2 &&
+              read[WEAPON_FRAG].speed == 1.5f && read[WEAPON_BARRETT].ammo == base[WEAPON_BARRETT].ammo &&
+              read[WEAPON_AK74].damage == base[WEAPON_AK74].damage && !strcmp(name, "Test Mod"),
+          "by Soldat's names for the weapons, the rest the game's own");
+    CHECK(passed == 2, "the section and the key it doesn't know are told of, Soldat's own passed over (%d)", passed);
+    remove(path);
+
+    memcpy(read, base, sizeof read);
+    int found = weapons_ini_read("runtime/config/weapons.ini", read, name, sizeof name, NULL, NULL)
+                    ? ini_matches("runtime/config/weapons.ini", read) : -1;
+    CHECK(found == 20 * WEAPON_FIELD_COUNT, "the shipped weapons.ini (%s) gives every number as it has it (%d)", name, found);
 }
 
 void weapons_mod_tests(void)
 {
+    weapons_ini_tests();
+
     Weapons own;
     weapons_default(&own);
     WeaponStats stats[WEAPON_COUNT];
@@ -92,7 +152,6 @@ void weapons_mod_tests(void)
     CHECK(round_trip(stats, &messages, &largest) && messages > 1 && largest <= NET_MTU,
           "a mod changing everything is split to fit the datagram and read back the same (%d messages, the largest %zu bytes)",
           messages, largest);
-    CHECK(file_differs() == 0, "%s holds the game's own numbers for every weapon a mod may change", DEFAULTS_FILE);
 
     // a client joining a modded server takes its numbers
     CHECK(net_init(), "ENet starts");

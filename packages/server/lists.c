@@ -167,7 +167,7 @@ static void save_mutes(const Lists *l)
 }
 
 // Each list's file that isn't there, made with its header, so an owner finds them all in
-// config/server/ from the first start: the bans and mutes as the server writes them,
+// config/ from the first start: the bans and mutes as the server writes them,
 // empty, and admins.txt for the owner to fill.
 static void make_missing(const Lists *l)
 {

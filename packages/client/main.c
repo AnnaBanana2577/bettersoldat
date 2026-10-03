@@ -17,9 +17,9 @@
 // runtime/ in development (xmake run starts it there) and the game's own once shipped, so
 // both are found by the same relative paths. data/ is what the game plays by, the same for
 // everyone in a game; mods/ what it looks and sounds like, mods/default/ and over it the
-// player's pick (mod.h). config/defaults/ holds every saved cvar at its default and every
-// bind, the game's and replaced by each update; config/client/ the player's own, read over
-// them and written on the way out as only what differs (console_save_changes).
+// player's pick (mod.h). config/ holds the settings: the defaults are the code's, and
+// over them config/client.cfg and server.cfg, which the game writes as it closes, every
+// setting with what it is, commented out while it holds its default (config_save, console_save_files).
 //
 //   client [+data <dir>] [+map <name>] [+<cvar> <value>] [+<command> <args>...]
 //
@@ -30,10 +30,10 @@
 // the cvars it reads: `+bots_random_noteam 3 +host`). The world stays the local sandbox
 // until the server's state comes down the line.
 //
-// The binds below are the fallback for a missing config/defaults; its are the ones
-// that count. V is the radio menu (+radio), opened and shut by a press: a call by its
+// The binds below and input_default_binds's are the game's own, which the player's
+// files bind over. V is the radio menu (+radio), opened and shut by a press: a call by its
 // number, then a place by its, said to the team from the radio_* cvars. Alt with a
-// letter is a taunt in the config (say, say_team). The view's: Escape the menu, Tab the
+// letter is a taunt (say, say_team). The view's: Escape the menu, Tab the
 // weapons, M the teams, F1 the scoreboard, F2 the weapon stats, F3 the minimap
 // (ui_minimap), F5 the FPS line (ui_info), F7 the names (ui_playernames). F9 is a window or
 // fullscreen (togglewindow), Ctrl+F9 the wireframe (r_wireframe), F10 the debug overlay
@@ -68,6 +68,7 @@
 
 #include "audio/audio.h"
 #include "host.h" // the server's, built in for Local Play
+#include "host_cvars.h"
 #include "rounds.h"
 #include "ui/consoles.h"
 #include "ui/feed.h"
@@ -78,14 +79,12 @@
 #define SOLDATRELOADED_VERSION "dev" // xmake.lua sets it from set_version
 #endif
 #define MAX_FRAME 0.25 // a stall never turns into a burst of ticks
-// The config (config/defaults/settings.client.cfg says it whole): the defaults the game
-// ships and replaces with every update, then the player's own, which the game writes as
-// it closes with only what differs from the defaults, then their autoexec.
-#define CONFIG_DEFAULT_SETTINGS "config/defaults/settings.client.cfg"
-#define CONFIG_DEFAULT_BINDS "config/defaults/binds.client.cfg"
-#define CONFIG_SETTINGS "config/client/settings.cfg"
-#define CONFIG_BINDS "config/client/binds.cfg"
-#define CONFIG_AUTOEXEC "config/client/autoexec.cfg"
+// The config: the defaults are the code's (each cvar's, and the binds input_default_binds
+// and VIEW_BINDS set), config/client.cfg and config/server.cfg over them, then autoexec.cfg; the game
+// writes its own back as it closes (config_save), every setting with what it is.
+
+#define CONFIG_CLIENT "config/client.cfg"     // the game's settings and keys, written as it closes
+#define CONFIG_AUTOEXEC "config/autoexec.cfg" // the player's own commands, run last if there
 #define CONFIG_OLD "config.cfg" // before config/: the one file, read once and moved aside
 #define SCREENSHOT_FRAME 60
 #define RADIO_CALLS 3  // the radio menu's first choices, and each one's second choices
@@ -106,14 +105,18 @@ static const char *VIEW_BINDS =
     "bind f3 \"toggle ui_minimap\"; bind f4 \"toggle r_swapeffect\"; bind f5 \"toggle ui_info\";"
     "bind f7 \"toggle ui_playernames\"; bind f9 togglewindow; bind ctrl+f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
     "bind f6 demo_pause; bind f8 demo_fast; bind leftarrow \"demo_tick_r -600\"; bind rightarrow \"demo_tick_r 600\";"
-    "bind v +radio; bind t chat; bind y teamchat; bind slash cmd; bind f12 \"say /yes\"; bind f11 \"say /no\"";
+    "bind v +radio; bind t chat; bind y teamchat; bind slash cmd; bind f12 \"say /yes\"; bind f11 \"say /no\";"
+    "bind alt+q \"say_team Cover me!\"; bind alt+w \"say_team Follow me!\"; bind alt+e \"say_team Enemy at our base!\";"
+    "bind alt+r \"say_team Defend the flag!\"; bind alt+t \"say_team Attack!\"; bind alt+z \"say_team Help!\";"
+    "bind alt+x \"say_team Got the flag!\"; bind alt+c \"say_team Flag carrier down!\"; bind alt+a \"say Nice one!\";"
+    "bind alt+s \"say Sorry!\"; bind alt+d \"say Thanks!\"; bind alt+f \"say Damn!\"; bind alt+g \"say Hi!\";"
+    "bind alt+h \"say Bye!\"";
 
 typedef struct App {
     Console *console; // large; on the heap
     Cvar *data;       // what the game plays by: maps/, anims/, objects/, bots/ (data/)
     Cvar *mod_name;   // cl_mod: the mod in mods/ it looks and sounds like
     Mod mod;          // that mod over mods/default/, from the start
-    Cvar *map;
     Cvar *width, *height; // the window
     Cvar *swapeffect;     // vsync
     Cvar *fpslimit, *maxfps; // r_fpslimit: frames no closer than 1/r_maxfps s; off, as fast as they come
@@ -149,11 +152,9 @@ typedef struct App {
     Cvar *hud_demo;       // the HUD full of sample data, to see every part of it: page 1, 2 or 3
     Cvar *menu_page;      // the main menu's page at start: for a screenshot of it
     char screenshot[512]; // a PNG of the 60th frame, then quit
-    // Local Play's: the server's own cvars, which the main menu edits and the config
-    // keeps, so a dedicated server started beside this config plays the same game.
-    Cvar *sv_port, *sv_maps, *sv_hostname, *sv_gamemode, *sv_timelimit, *sv_killlimit;
-    Cvar *bots_noteam, *bots_alpha, *bots_bravo, *bots_difficulty, *bots_chat, *votepercent;
-    Cvar *rope; // sv_rope: whether the rope is allowed in a game hosted here (Local Play)
+    // the map, and Local Play's: the server's own cvars, which the main menu edits and
+    // config/server.cfg keeps, so a dedicated server beside this one plays the same game
+    HostCvars hosting;
     Host *host; // the game hosted here (the `host` command), joined over the loopback; NULL for none
 
     // Demos (net/demo.h): the game joined recorded, or a demo played in its place.
@@ -261,19 +262,34 @@ static bool file_exists(const char *path)
     return f != NULL;
 }
 
-// The player's own config files, written whole: what differs from the defaults.
+// The game's settings, written whole (console_save_files) to client.cfg, a section for
+// each by what its cvars' names begin with, the rest under the game's; and the hosting
+// settings to server.cfg, which a dedicated server beside it reads and writes too.
 static bool config_save(const Console *con)
 {
-    static const char SETTINGS[] =
-        "// Your settings: what you have set otherwise than config/defaults/settings.client.cfg.\n"
-        "// The game writes this file as it closes, so it holds only settings; a line taken out\n"
-        "// goes back to the default. Commands of your own belong in autoexec.cfg, beside it.\n\n";
-    static const char BINDS[] =
-        "// Your keys: what you have bound otherwise than config/defaults/binds.client.cfg, and an\n"
-        "// `unbind` for each default you let go. The game writes this file as it closes; a line\n"
-        "// taken out goes back to the default.\n\n";
-    files_make_parents(CONFIG_SETTINGS);
-    return console_save_changes(con, CONFIG_SETTINGS, SETTINGS, CONFIG_BINDS, BINDS);
+#define CLIENT CONFIG_CLIENT
+#define SECTION(what) "\n// --- " what "\n\n"
+    static const char HEADER[] =
+        "// The game's settings, written by the game as it closes, every one with what it is,\n"
+        "// commented out while it holds its default: take a line's // off to set it otherwise.\n"
+        "// Commands of your own go in autoexec.cfg beside it, run last.\n" SECTION("Your soldier: the name, the colours, the hair, the weapons.");
+    static const char *const PLAYER[] = {"cl_player_", NULL};
+    static const char *const CONTROLS[] = {"cl_sensitivity", "radio_", NULL};
+    static const char *const GRAPHICS[] = {"r_", "ui_", "cl_crosshair_", "cl_cursor_", "cl_grenade_color", NULL};
+    static const char *const AUDIO[] = {"snd_", NULL};
+    static const char *const NONE[] = {NULL};
+    const ConsoleFile files[] = {
+        {CLIENT, HEADER, PLAYER, false},
+        {CLIENT, SECTION("Your controls: the mouse and the radio's calls."), CONTROLS, false},
+        {CLIENT, SECTION("What the game shows: the window, the effects, the HUD."), GRAPHICS, false},
+        {CLIENT, SECTION("What the game sounds like."), AUDIO, false},
+        {CLIENT, SECTION("The rest: the server to join, the lobby, the mod, demos, the netcode."), NULL, false},
+        {CLIENT, SECTION("Your keys."), NONE, true},
+        HOST_CONFIG_FILE,
+    };
+#undef SECTION
+#undef CLIENT
+    return console_save_files(con, files, (int)(sizeof files / sizeof files[0]));
 }
 
 static void cmd_quit(Console *con, int argc, char **argv, void *user)
@@ -950,24 +966,24 @@ static void cmd_host(Console *con, int argc, char **argv, void *user)
     demo_stop_playback(app);
     if (client_net_joined(&app->net)) client_net_disconnect(&app->net, con);
     HostSettings s = {
-        .port = (uint16_t)app->sv_port->integer,
-        .mode = app->sv_gamemode->integer == 1 ? MATCH_DEATHMATCH : app->sv_gamemode->integer == 2 ? MATCH_CTF : MATCH_MODE_COUNT,
-        .time_limit = app->sv_timelimit->integer,
-        .score_limit = app->sv_killlimit->integer,
-        .bots_noteam = clampi(app->bots_noteam->integer, 0, MAX_PLAYERS),
-        .bots_alpha = clampi(app->bots_alpha->integer, 0, MAX_PLAYERS),
-        .bots_bravo = clampi(app->bots_bravo->integer, 0, MAX_PLAYERS),
-        .bots_difficulty = app->bots_difficulty->integer,
-        .bots_chat = app->bots_chat->integer != 0,
-        .vote_percent = app->votepercent->integer,
+        .port = (uint16_t)app->hosting.port->integer,
+        .mode = app->hosting.gamemode->integer == 1 ? MATCH_DEATHMATCH : app->hosting.gamemode->integer == 2 ? MATCH_CTF : MATCH_MODE_COUNT,
+        .time_limit = app->hosting.timelimit->integer,
+        .score_limit = app->hosting.killlimit->integer,
+        .bots_noteam = clampi(app->hosting.bots_noteam->integer, 0, MAX_PLAYERS),
+        .bots_alpha = clampi(app->hosting.bots_alpha->integer, 0, MAX_PLAYERS),
+        .bots_bravo = clampi(app->hosting.bots_bravo->integer, 0, MAX_PLAYERS),
+        .bots_difficulty = app->hosting.bots_difficulty->integer,
+        .bots_chat = app->hosting.bots_chat->integer != 0,
+        .vote_percent = app->hosting.votepercent->integer,
         .quiet = true, // the client's own console says what happens, as online
-        .rope = app->rope->integer != 0,
+        .rope = app->hosting.rope->integer != 0,
     };
     snprintf(s.data, sizeof s.data, "%s", app->data->value);
-    snprintf(s.maps, sizeof s.maps, "%s", app->sv_maps->value);
-    snprintf(s.hostname, sizeof s.hostname, "%s", app->sv_hostname->value);
+    snprintf(s.maps, sizeof s.maps, "%s", app->hosting.maps->value);
+    snprintf(s.hostname, sizeof s.hostname, "%s", app->hosting.hostname->value);
     rounds_next_map(s.maps, "", s.map, sizeof s.map); // the rotation's first, or the map cvar's
-    if (!s.map[0]) snprintf(s.map, sizeof s.map, "%s", app->map->value);
+    if (!s.map[0]) snprintf(s.map, sizeof s.map, "%s", app->hosting.map->value);
 
     app->host = calloc(1, sizeof(Host));
     if (!app->host || !host_open(app->host, con, &s)) {
@@ -1080,7 +1096,7 @@ static void cmd_menu(Console *con, int argc, char **argv, void *user)
 }
 
 // The console and what the client keeps in it, then the binds and settings: the
-// built-in defaults, the config's over them (config/defaults, then the player's own),
+// code's defaults, the player's files over them (config/client.cfg, server.cfg),
 // and the command line over all.
 static bool console_open(App *app, int argc, char *argv[])
 {
@@ -1090,9 +1106,9 @@ static bool console_open(App *app, int argc, char *argv[])
     app->data = cvar_register(con, "data", "./data", 0, "what the game plays by: maps/, anims/, objects/, bots/");
     app->mod_name = cvar_register(con, "cl_mod", "", CVAR_ARCHIVE,
                                   "the mod in mods/ the game looks and sounds like, over mods/default/; empty for none. From the next start");
-    app->map = cvar_register(con, "map", "Arena", 0, "the map to load");
-    app->width = cvar_register(con, "r_screenwidth", "1280", CVAR_ARCHIVE, "the window's width");
-    app->height = cvar_register(con, "r_screenheight", "960", CVAR_ARCHIVE, "the window's height");
+    host_cvars_register(con, &app->hosting); // the map, and Local Play's: a dedicated server's too (host_cvars.h)
+    app->width = cvar_register(con, "r_screenwidth", "1600", CVAR_ARCHIVE, "the window's width");
+    app->height = cvar_register(con, "r_screenheight", "900", CVAR_ARCHIVE, "the window's height");
     app->swapeffect = cvar_register(con, "r_swapeffect", "0", CVAR_ARCHIVE, "wait for the display's refresh (vsync)");
     app->fpslimit = cvar_register(con, "r_fpslimit", "1", CVAR_ARCHIVE, "1: frames are drawn at most r_maxfps a second; 0: as fast as they come");
     app->maxfps = cvar_register(con, "r_maxfps", "500", CVAR_ARCHIVE, "the frames drawn a second at most, while r_fpslimit is on");
@@ -1100,7 +1116,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->server = cvar_register(con, "cl_server", "127.0.0.1:23073", CVAR_ARCHIVE, "the server the main menu joins, host:port");
     app->password = cvar_register(con, "cl_password", "", CVAR_ARCHIVE, "the password the main menu joins with; empty for none");
     app->lobby = cvar_register(con, "cl_lobby", QUERY_LOBBY_URL, CVAR_ARCHIVE, "the lobby the server browser asks for its list");
-    app->sensitivity = cvar_register(con, "cl_sensitivity", "1", CVAR_ARCHIVE, "the mouse's speed");
+    app->sensitivity = cvar_register(con, "cl_sensitivity", "0.4", CVAR_ARCHIVE, "the mouse's speed");
     app->forcebg = cvar_register(con, "r_forcebg", "0", CVAR_ARCHIVE, "1: the sky in r_forcebg_color1 and 2 on every map instead of the map's own colours");
     app->forcebg_color1 = cvar_register(con, "r_forcebg_color1", "000000", CVAR_ARCHIVE, "the forced sky's colour at the top, RRGGBB");
     app->forcebg_color2 = cvar_register(con, "r_forcebg_color2", "000000", CVAR_ARCHIVE, "the forced sky's colour at the bottom, RRGGBB");
@@ -1115,7 +1131,7 @@ static bool console_open(App *app, int argc, char *argv[])
     app->player_names = cvar_register(con, "ui_playernames", "1", CVAR_ARCHIVE, "teammates' names at the screen's edge when out of view (everyone's, spectating), and the ping dot");
     app->console_length =
         cvar_register(con, "ui_console_length", "6", CVAR_ARCHIVE, "how many console lines the HUD shows");
-    app->player_name = cvar_register(con, "cl_player_name", "Player", CVAR_ARCHIVE, "my name");
+    app->player_name = cvar_register(con, "cl_player_name", "Major", CVAR_ARCHIVE, "my name");
     app->grenade_color = cvar_register(con, "cl_grenade_color", "", CVAR_ARCHIVE, "the grenades in this colour, RRGGBB, flat and solid; empty for their own art");
     app->cursor_color = cvar_register(con, "cl_cursor_color", "FFFFFF", CVAR_ARCHIVE, "the menu cursor's colour, RRGGBB");
     app->crosshair_color = cvar_register(con, "cl_crosshair_color", "FFFFFF", CVAR_ARCHIVE, "the aiming crosshair's colour, RRGGBB");
@@ -1126,13 +1142,13 @@ static bool console_open(App *app, int argc, char *argv[])
     app->skin = cvar_register(con, "cl_player_skin", "E6B478", CVAR_ARCHIVE, "the skin's colour, RRGGBB");
     app->hair = cvar_register(con, "cl_player_hair", "000000", CVAR_ARCHIVE, "the hair's colour, RRGGBB");
     app->jet = cvar_register(con, "cl_player_jet", "00008B", CVAR_ARCHIVE, "the jet flame's colour, RRGGBB");
-    app->hair_style = cvar_register(con, "cl_player_hairstyle", "0", CVAR_ARCHIVE,
+    app->hair_style = cvar_register(con, "cl_player_hairstyle", "1", CVAR_ARCHIVE,
                                     "0 army, 1-4 the male's (dreadlocks, punk, Mr. T, normal), 5-6 the waifu's (fringe, bob); the rat and the furry wear only army, punk and Mr. T");
     app->head_style = cvar_register(con, "cl_player_headstyle", "0", CVAR_ARCHIVE,
                                     "0 none, 1-2 the male's (helmet, hat), 3 the waifu's; the rat and the furry wear none");
     app->chain_style = cvar_register(con, "cl_player_chainstyle", "0", CVAR_ARCHIVE, "0 none, 1 dog tags, 2 gold chain");
     app->style = cvar_register(con, "cl_player_style", "0", CVAR_ARCHIVE, "the gostek: 0 male, 1 female, 2 waifu, 3 rat, 4 furry");
-    app->primary = cvar_register(con, "cl_player_wep", "1", CVAR_ARCHIVE, "the primary at the next spawn, 1 to 10");
+    app->primary = cvar_register(con, "cl_player_wep", "7", CVAR_ARCHIVE, "the primary at the next spawn, 1 to 10");
     app->secondary = cvar_register(con, "cl_player_secwep", "1", CVAR_ARCHIVE, "0 USSOCOM, 1 knife, 2 chainsaw, 3 LAW");
     app->gear = cvar_register(con, "cl_player_gear", "0", CVAR_ARCHIVE, "the gear at the next spawn, 0 jets, 1 rope");
     app->smooth = cvar_register(con, "cl_smooth", "100", CVAR_ARCHIVE,
@@ -1143,7 +1159,7 @@ static bool console_open(App *app, int argc, char *argv[])
                                   "1: a line a second on the console: ping, frames in hand, snapshots late and missed, the view clock's nudges, and how far the others were corrected");
     app->rope_debug = cvar_register(con, "cl_rope_debug", "0", 0,
                                     "log each soldier's rope each half second and changes at once, with the snapshots dropped");
-    app->volume = cvar_register(con, "snd_volume", "50", CVAR_ARCHIVE, "the sound's volume, 0 to 100");
+    app->volume = cvar_register(con, "snd_volume", "18", CVAR_ARCHIVE, "the sound's volume, 0 to 100");
     app->effects_battle = cvar_register(con, "snd_effects_battle", "0", CVAR_ARCHIVE, "1: a far shot or blast also plays its distant sound");
     app->effects_explosions = cvar_register(con, "snd_effects_explosions", "0", CVAR_ARCHIVE, "1: a blast next to you rings your ears and muffles the rest for a few seconds");
     const char *calls[RADIO_CALLS] = {"Enemy flagger", "Friendly flagger", "Enemy spotted"};
@@ -1159,21 +1175,6 @@ static bool console_open(App *app, int argc, char *argv[])
     }
     app->hud_demo = cvar_register(con, "hud_demo", "0", 0, "fill the HUD with sample data: page 1, 2 or 3");
     app->menu_page = cvar_register(con, "ui_menupage", "0", 0, "the main menu's page at start, 0 servers to 7 graphics (for screenshots)");
-    // the server's, for Local Play; saved, as the menu sets them
-    app->sv_port = cvar_register(con, "sv_port", "23073", CVAR_ARCHIVE, "the UDP port a game hosted here listens on");
-    app->sv_maps = cvar_register(con, "sv_maps", "", CVAR_ARCHIVE, "the maps in rotation, space-separated; the first plays first");
-    app->sv_hostname = cvar_register(con, "sv_hostname", "Soldat Reloaded server", CVAR_ARCHIVE, "the hosted game's name, on the scoreboard");
-    cvar_register(con, "sv_password", "", CVAR_ARCHIVE, "the hosted game's password; empty for none");
-    app->sv_gamemode = cvar_register(con, "sv_gamemode", "0", CVAR_ARCHIVE, "0 the map's own, 1 deathmatch, 2 capture the flag");
-    app->sv_timelimit = cvar_register(con, "sv_timelimit", "15", CVAR_ARCHIVE, "minutes a round lasts");
-    app->sv_killlimit = cvar_register(con, "sv_killlimit", "10", CVAR_ARCHIVE, "the score that wins a round: kills, or captures in CTF");
-    app->rope = cvar_register(con, "sv_rope", "0", CVAR_ARCHIVE, "1: the rope is allowed in a game hosted here, an experimental gear in place of the jets; 0 gives everyone jets");
-    app->bots_noteam = cvar_register(con, "bots_random_noteam", "0", CVAR_ARCHIVE, "bots in a deathmatch");
-    app->bots_alpha = cvar_register(con, "bots_random_alpha", "0", CVAR_ARCHIVE, "bots on alpha in capture the flag");
-    app->bots_bravo = cvar_register(con, "bots_random_bravo", "0", CVAR_ARCHIVE, "bots on bravo in capture the flag");
-    app->bots_difficulty = cvar_register(con, "bots_difficulty", "100", CVAR_ARCHIVE, "300 stupid, 200 poor, 100 normal, 50 hard, 10 impossible");
-    app->bots_chat = cvar_register(con, "bots_chat", "1", CVAR_ARCHIVE, "whether the bots talk");
-    app->votepercent = cvar_register(con, "sv_votepercent", "60", CVAR_ARCHIVE, "the percentage of players whose yes passes a vote");
     app->demo_autorecord = cvar_register(con, "demo_autorecord", "0", CVAR_ARCHIVE, "1: a demo of every round joined, into demos/");
     app->demo_speed = cvar_register(con, "demo_speed", "1", 0, "a demo's playback speed: 1 its own, 0.5 half, 8 eight times");
     console_add_command(con, "record", cmd_record, app, "record the game joined, until the round ends, into demos/: record [name]");
@@ -1210,25 +1211,25 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "addbot2", cmd_addbot, app, "a bot into bravo of the game hosted here: addbot2 [name]");
     input_init(&app->input, con);
 
+    // the code's binds are the game's own; the player's files run over them
     input_default_binds(con);
     console_execute(con, VIEW_BINDS);
-    // the defaults, then the player's own over them (config/)
-    if (file_exists(CONFIG_DEFAULT_SETTINGS)) console_execute_file(con, CONFIG_DEFAULT_SETTINGS);
-    if (file_exists(CONFIG_DEFAULT_BINDS)) console_execute_file(con, CONFIG_DEFAULT_BINDS);
     console_mark_defaults(con);
-    if (file_exists(CONFIG_SETTINGS) || file_exists(CONFIG_BINDS)) {
-        if (file_exists(CONFIG_SETTINGS)) console_execute_file(con, CONFIG_SETTINGS);
-        if (file_exists(CONFIG_BINDS)) console_execute_file(con, CONFIG_BINDS);
-    } else if (file_exists(CONFIG_OLD)) {
-        // a config.cfg from before config/: read once, the player's part of it written out
-        // as their own files at once, and kept beside as config.cfg.old
+    // its own, then the hosting settings its Local Play page sets, then the player's own commands
+    const char *const files[] = {CONFIG_CLIENT, CONFIG_SERVER, CONFIG_AUTOEXEC};
+    for (size_t i = 0; i < sizeof files / sizeof files[0]; i++)
+        if (file_exists(files[i])) console_execute_file(con, files[i]);
+    if (file_exists(CONFIG_OLD)) {
+        // a config.cfg from before config/: read once over the files config/ shipped with,
+        // written out as them, and kept beside as config.cfg.old
         console_execute_file(con, CONFIG_OLD);
         if (config_save(con)) {
             remove(CONFIG_OLD ".old");
-            if (rename(CONFIG_OLD, CONFIG_OLD ".old") == 0) console_print(con, "config.cfg moved into config/client/; the old one is config.cfg.old\n");
+            if (rename(CONFIG_OLD, CONFIG_OLD ".old") == 0) console_print(con, "config.cfg moved into config/; the old one is config.cfg.old\n");
         }
     }
-    if (file_exists(CONFIG_AUTOEXEC)) console_execute_file(con, CONFIG_AUTOEXEC);
+    // every file there from the first start, as it stands before the command line
+    if (!config_save(con)) fprintf(stderr, "could not write the settings in config/\n");
     console_execute_args(con, argc, argv);
     return true;
 }
@@ -1236,7 +1237,7 @@ static bool console_open(App *app, int argc, char *argv[])
 static void console_close(App *app)
 {
     if (!app->console) return;
-    if (!config_save(app->console)) fprintf(stderr, "could not save %s\n", CONFIG_SETTINGS);
+    if (!config_save(app->console)) fprintf(stderr, "could not write the settings in config/\n");
     console_destroy(app->console);
     app->console = NULL;
 }
@@ -1350,11 +1351,11 @@ static void apply_cvars(App *app)
 static bool game_open(App *app, bool local)
 {
     app->game = calloc(1, sizeof(Game));
-    if (!app->game || !context_load(&app->game->ctx, app->data->value, app->map->value)) return false;
+    if (!app->game || !context_load(&app->game->ctx, app->data->value, app->hosting.map->value)) return false;
 
     Game *g = app->game;
     MatchSettings settings = match_settings_for_map(g->ctx.map);
-    settings.rope = local ? app->rope->integer != 0 : app->net.rope; // sv_rope: the host's word, heard with the map
+    settings.rope = local ? app->hosting.rope->integer != 0 : app->net.rope; // sv_rope: the host's word, heard with the map
     game_init(g, 1, settings);
     app->menus.rope = g->world.rules.rope; // what the boots row of the weapons menu may offer
     g->world.authority = local;
@@ -1893,7 +1894,7 @@ static void hud_data_build(App *app)
         snprintf(d->map_offered, sizeof d->map_offered, "%s", app->maps[app->menus.map_index]);
     } else {
         app->menus.map_count = 1;
-        snprintf(d->map_offered, sizeof d->map_offered, "%s", app->map->value);
+        snprintf(d->map_offered, sizeof d->map_offered, "%s", app->hosting.map->value);
     }
     // the kick window's: who is on, and which is me
     for (int i = 0; i < MAX_PLAYERS; i++) app->menus.players_active[i] = g->world.soldiers[i].active;
@@ -2218,7 +2219,7 @@ int main(int argc, char *argv[])
     }
     if (!game_open(&app, true)) {
         fprintf(stderr, "could not load map '%s' from '%s'\nusage: client +data <dir> +map <name>\n",
-                app.map->value, app.data->value);
+                app.hosting.map->value, app.data->value);
         game_close(&app);
         console_destroy(app.console);
         return 1;

@@ -32,22 +32,22 @@
 // disk weighed against the manifest it came with (manifest.txt) and the release's:
 //
 //   the release's own (manifest_protected: the top-level files, bin/, data/,
-//   mods/default/, config/defaults/, scripts/examples/): brought where it is missing or
+//   mods/default/, scripts/examples/): brought where it is missing or
 //   otherwise, damage repaired; taken away once a release no longer lists it
 //
-//   anything else a release ships (scripts/main.lua): its start of a file that is then the
-//   player's. Made where it is missing and never was, so one taken out stays out; the
+//   anything else a release ships (scripts/main.lua, config/): its start of a file that is
+//   then the player's. Made where it is missing and never was, so one taken out stays out; the
 //   release's new one where it is still as the last release made it, but left as it is
 //   once the player has changed it; taken away once no release lists it only if it is
 //   still as it came
 //
-// The player's own files (config/client/, config/server/, their mods beside mods/default/,
-// demos/, a config.cfg from before config/) are in no manifest, and never touched.
+// The player's own files (their mods beside mods/default/, demos/, a config.cfg from
+// before config/) are in no manifest, and never touched.
 //
 // Hashing every asset on every start would take a second, so the install's
 // manifest.txt is trusted for what it vouches for: a file it lists with the release's
 // hash, and of that size, is taken as it is. The files a release changes most (the
-// top-level files, bin/ and config/) are always hashed, and `thorough` hashes the rest too.
+// top-level files and bin/) are always hashed, and `thorough` hashes the rest too.
 
 #include <stdbool.h>
 #include <stdint.h>

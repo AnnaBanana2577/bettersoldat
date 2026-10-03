@@ -1,0 +1,5 @@
+// The admins, by address: they may /kick, /ban, /mute and /map from the chat (and /admins,
+// /bans, /mutes to list them). The server only reads this file, as it starts. A player
+// may also be an admin until they leave by saying /login with sv_adminpassword.
+//
+// admin 1.2.3.4 "Major"

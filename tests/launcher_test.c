@@ -83,11 +83,11 @@ static void manifest_tests(void)
     CHECK(ok && !strcmp(m.version, "1.2.3") && m.count == 3, "its version and its three files");
     CHECK(manifest_protected("Soldat Reloaded.exe") && manifest_protected("version.txt") &&
               manifest_protected("bin/client.exe") && manifest_protected("data/maps/ctf_Ash.pms") &&
-              manifest_protected("mods/default/sfx/ak74-fire.wav") && manifest_protected("config/defaults/binds.client.cfg") &&
+              manifest_protected("mods/default/sfx/ak74-fire.wav") &&
               manifest_protected("scripts/examples/greeter.lua"),
-          "the release keeps its own as it has them: the top, bin/, data/, mods/default/, its defaults and examples");
+          "the release keeps its own as it has them: the top, bin/, data/, mods/default/, its examples");
     CHECK(!manifest_protected("scripts/main.lua") && !manifest_protected("mods/mine/x.png") &&
-              !manifest_protected("config/server/maplist.txt") && !manifest_protected("scripts/examplesish.lua"),
+              !manifest_protected("config/maplist.txt") && !manifest_protected("config/server.cfg") && !manifest_protected("scripts/examplesish.lua"),
           "and anything else it ships is the player's once they change it");
     CHECK(ok && !strcmp(m.full.path, "pkg.zip") && m.full.size == 20,
           "its package, an older release's smaller one passed over");
@@ -339,7 +339,7 @@ static void update_tests(void)
     // version 1, installed by hand: the game's defaults, and beside them the player's own
     // config, the server owner's lists, their script and a config.cfg from before config/
     const Source v1[] = {{"version.txt", "1\n"}, {"game.exe", "old game"}, {"data/a.txt", "art"},
-                         {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "defaults"},
+                         {"data/b.txt", "more art"}, {"scripts/examples/x.lua", "an example"},
                          {"bin/server.exe", "old server"}, {"mods/default/big.png", big}};
     release(SCRATCH "/releases", "1", v1, 7);
     files_remove_tree(SCRATCH "/install");
@@ -350,8 +350,8 @@ static void update_tests(void)
         files_write(path, v1[i].text, strlen(v1[i].text));
     }
     files_write(SCRATCH "/install/config.cfg", "mine", 4);
-    files_write(SCRATCH "/install/config/client/settings.cfg", "my settings", 11);
-    files_write(SCRATCH "/install/config/server/banlist.txt", "my bans", 7);
+    files_write(SCRATCH "/install/config/client.cfg", "my settings", 11);
+    files_write(SCRATCH "/install/config/banlist.txt", "my bans", 7);
     files_write(SCRATCH "/install/mods/mine/sfx/ak74-fire.wav", "my gun", 6);
     files_write(SCRATCH "/install/scripts/main.lua", "a player's script", 17);
 
@@ -368,7 +368,7 @@ static void update_tests(void)
     // out of the package where it lies
     // and the player's files to be: one theirs already, and new ones
     const Source v2[] = {{"version.txt", "2\n"}, {"game.exe", "new game"}, {"data/a.txt", "art"},
-                         {"data/b.txt", "more art"}, {"config/defaults/settings.client.cfg", "new defaults"},
+                         {"data/b.txt", "more art"}, {"scripts/examples/x.lua", "a new example"},
                          {"bin/server.exe", "new server"}, {"mods/default/big.png", big},
                          {"scripts/main.lua", "the release's script"}, {"scripts/new.lua", "a start"},
                          {"scripts/kept.lua", "as it came"}, {"scripts/edited.lua", "as it came"}};
@@ -383,8 +383,8 @@ static void update_tests(void)
           (unsigned long long)weighs);
     CHECK(holds("game.exe", "new game") && holds("bin/server.exe", "new server") && holds("version.txt", "2\n"),
           "the new game, the program in bin/, and its version");
-    CHECK(holds("config/defaults/settings.client.cfg", "new defaults"), "and the new defaults with it");
-    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.txt", "my bans") &&
+    CHECK(holds("scripts/examples/x.lua", "a new example"), "and the new example with it");
+    CHECK(holds("config/client.cfg", "my settings") && holds("config/banlist.txt", "my bans") &&
               holds("mods/mine/sfx/ak74-fire.wav", "my gun") && holds("config.cfg", "mine") &&
               holds("scripts/main.lua", "a player's script"),
           "the player's config, mod and script and the server's lists are left alone");
@@ -403,7 +403,7 @@ static void update_tests(void)
     // (and new starts of the player's files: one they changed, one they didn't)
     const Source v3[] = {{"version.txt", "3\n"}, {"game.exe", "new game"}, {"data/a.txt", "new art"},
                          {"data/b.txt", "more art"}, {"data/c.txt", "a new map"},
-                         {"config/defaults/settings.client.cfg", "new defaults"}, {"bin/server.exe", "new server"},
+                         {"scripts/examples/x.lua", "a new example"}, {"bin/server.exe", "new server"},
                          {"mods/default/big.png", bigger}, {"scripts/kept.lua", "a better one"},
                          {"scripts/edited.lua", "a better one"}};
     enter(here);
@@ -418,7 +418,7 @@ static void update_tests(void)
           "changed and new art come in (%d: %s)", outcome, error);
     CHECK(brought >= weighs, "most of the package changed, the package whole: %llu bytes of its %llu",
           (unsigned long long)brought, (unsigned long long)weighs);
-    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config.cfg", "mine"),
+    CHECK(holds("config/client.cfg", "my settings") && holds("config.cfg", "mine"),
           "which doesn't replace the player's config");
     CHECK(holds("scripts/kept.lua", "a better one") && holds("scripts/edited.lua", "mine"),
           "one as the last release made it is brought anew; one the player changed is left theirs");
@@ -463,7 +463,7 @@ static void update_tests(void)
     files_write("soldatreloaded.exe.old", "oldest game", 11);
     const Source v4[] = {{"version.txt", "4\n"}, {"client.exe", "new game"}, {"data/a.txt", "new art"},
                          {"data/b.txt", "more art"}, {"data/c.txt", "a new map"},
-                         {"config/defaults/settings.client.cfg", "new defaults"}, {"bin/server.exe", "new server"},
+                         {"scripts/examples/x.lua", "a new example"}, {"bin/server.exe", "new server"},
                          {"mods/default/big.png", bigger}};
     enter(here);
     release(SCRATCH "/releases", "4", v4, 8);
@@ -473,7 +473,7 @@ static void update_tests(void)
           error);
     CHECK(!files_exists("game.exe") && !files_exists("soldatreloaded.exe") && !files_exists("soldatreloaded.exe.old"),
           "and the names it had are gone, with what they were moved aside to");
-    CHECK(holds("config/client/settings.cfg", "my settings") && holds("config/server/banlist.txt", "my bans") &&
+    CHECK(holds("config/client.cfg", "my settings") && holds("config/banlist.txt", "my bans") &&
               holds("mods/mine/sfx/ak74-fire.wav", "my gun") && holds("config.cfg", "mine") &&
               holds("scripts/main.lua", "a player's script"),
           "but not the player's own files");
