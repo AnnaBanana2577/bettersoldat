@@ -245,3 +245,31 @@ bool files_sha256(const char *path, uint8_t digest[32], FilesProgress progress, 
     if (ok) sha256_finish(&s, digest);
     return ok;
 }
+
+bool files_move(const char *from, const char *to)
+{
+#ifdef _WIN32
+    return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+    return rename(from, to) == 0;
+#endif
+}
+
+bool files_own_name(char *out, size_t size)
+{
+#ifdef _WIN32
+    wchar_t exe[MAX_PATH * 4];
+    DWORD n = GetModuleFileNameW(NULL, exe, (DWORD)(sizeof exe / sizeof exe[0]));
+    if (n == 0 || n >= sizeof exe / sizeof exe[0]) return false;
+    const wchar_t *name = wcsrchr(exe, L'\\');
+    name = name ? name + 1 : exe;
+    return WideCharToMultiByte(CP_UTF8, 0, name, -1, out, (int)size, NULL, NULL) > 0;
+#else
+    char exe[PATH_MAX];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (n <= 0) return false;
+    exe[n] = '\0';
+    const char *name = strrchr(exe, '/');
+    return snprintf(out, size, "%s", name ? name + 1 : exe) < (int)size;
+#endif
+}

@@ -6,6 +6,7 @@
 // library's narrow calls serve.
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "sha256.h"
@@ -35,6 +36,13 @@ bool files_remove_tree(const char *path);
 // files_remove_old clears that away on a later run.
 bool files_replace(const char *from, const char *to);
 void files_remove_old(const char *path);
+
+// `from` renamed `to`, over a file there; a running executable may be, on Windows too.
+bool files_move(const char *from, const char *to);
+
+// The running executable's own file name, without its directory: what the launcher is
+// called in the install.
+bool files_own_name(char *out, size_t size);
 
 // rwxr-xr-x, so an executable runs (nothing on Windows).
 void files_set_executable(const char *path);

@@ -9,12 +9,18 @@
 //                           named after it
 //
 // The launcher fetches <releases>/latest/download/latest-<platform>.txt, which GitHub
-// redirects to the newest release's copy, and compares the install with it: a file
-// missing or of the wrong size, or whose hash isn't the manifest's, has to come down.
-// Only those come down. A zip says at its end where each file in it lies, so the
-// launcher reads that, by an HTTP range, and then the files it wants, each by its own
-// range (a read-ahead making neighbours one request): a new executable or a fixed sound
-// costs what it weighs, not the package. When the files wanted are most of the package,
+// redirects to the newest release's copy. Its own file comes first, and alone: where the
+// release's differs, it is brought, the running launcher moved aside to UPDATE_TMP (a
+// running executable may be renamed, though not written over) and the new one put in its
+// name, and the player is asked to start the game again (UPDATE_RESTART), so the rest of
+// the release is always brought by its own launcher, by its rules. The new one deletes
+// UPDATE_TMP as it starts.
+//
+// Then it compares the install with the release: a file missing or of the wrong size, or
+// whose hash isn't the manifest's, has to come down. Only those come down. A zip says at
+// its end where each file in it lies, so the launcher reads that, by an HTTP range, and
+// then the files it wants, each by its own range (a read-ahead making neighbours one
+// request): a new executable or a fixed sound costs what it weighs, not the package. When the files wanted are most of the package,
 // or the server won't send parts, the package is downloaded whole instead, and checked
 // against its hash. Either way the files land in .update/, are each checked against the
 // manifest, and only then moved into place, version.txt last, so an update cut off part
@@ -51,6 +57,11 @@
 #define UPDATE_STAGING ".update"
 #define UPDATE_MANIFEST "manifest.txt"
 #define UPDATE_VERSION "version.txt"
+#ifdef _WIN32
+#define UPDATE_TMP "tmp.exe" // the launcher a new one replaced, which the new one deletes
+#else
+#define UPDATE_TMP "tmp"
+#endif
 
 // What an update says while it works: a line for the window, and how far along.
 typedef struct UpdateReport {
@@ -80,12 +91,14 @@ typedef enum UpdateOutcome {
     UPDATE_REPAIRED,  // it was the latest, with files missing or damaged; now intact
     UPDATE_UNCHECKED, // the releases couldn't be asked (offline, or no list for this platform)
     UPDATE_FAILED,    // `error` says why
+    UPDATE_RESTART,   // the launcher is the release's now, and only it: start it again for the rest
 } UpdateOutcome;
 
 typedef struct UpdateOptions {
     const char *releases; // https://github.com/<owner>/<repo>/releases
     const char *platform; // windows-x64, linux-x86_64
     bool thorough;        // hash every file, not only those manifest.txt doesn't vouch for
+    const char *self;     // the launcher's own file in the install, brought first and alone; NULL for none
 } UpdateOptions;
 
 // The whole of it: the release asked for its manifest, the install compared, and

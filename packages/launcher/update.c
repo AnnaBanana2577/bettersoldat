@@ -261,12 +261,11 @@ static bool fetch_package(const char *url, const ManifestFile *package, const Up
     return true;
 }
 
-bool update_apply(const Manifest *latest, const bool *wanted, const char *url, const UpdateReport *report,
+// The files `wanted` into .update/files/, each by itself or the package whole, and each
+// checked against the release: nothing is moved yet.
+static bool bring(const Manifest *latest, const bool *wanted, const char *url, const char *what, const UpdateReport *report,
                   char *error, size_t error_size)
 {
-    int count = 0;
-    for (int i = 0; i < latest->count; i++) count += wanted[i];
-    if (!count) return true;
     const ManifestFile *package = &latest->full;
     if (!package->path[0]) return fail(error, error_size, "the release names no package");
     if (!files_make_directory(UPDATE_STAGING)) return fail(error, error_size, "%s can't be made", UPDATE_STAGING);
@@ -274,7 +273,8 @@ bool update_apply(const Manifest *latest, const bool *wanted, const char *url, c
 
     char installed[MANIFEST_VERSION_SIZE], why[256];
     read_version(installed, sizeof installed);
-    if (!strcmp(installed, latest->version)) say(report, "Downloading the missing files");
+    if (what) say(report, "Downloading %s", what);
+    else if (!strcmp(installed, latest->version)) say(report, "Downloading the missing files");
     else say(report, "Downloading version %s", latest->version);
     if (!fetch_files(url, package, latest, wanted, report, why, sizeof why)) {
         fprintf(stderr, "launcher: the package whole, not its files alone: %s\n", why);
@@ -292,6 +292,16 @@ bool update_apply(const Manifest *latest, const bool *wanted, const char *url, c
         if (!matches(staged, f, true)) return fail(error, error_size, "%s in the package isn't the release's", f->path);
         advance(report, (uint64_t)i + 1, (uint64_t)latest->count);
     }
+    return true;
+}
+
+bool update_apply(const Manifest *latest, const bool *wanted, const char *url, const UpdateReport *report,
+                  char *error, size_t error_size)
+{
+    int count = 0;
+    for (int i = 0; i < latest->count; i++) count += wanted[i];
+    if (!count) return true;
+    if (!bring(latest, wanted, url, NULL, report, error, error_size)) return false;
 
     // Into place, version.txt last: until it is, the install still says it is the old one.
     say(report, "Installing");
@@ -305,6 +315,35 @@ bool update_apply(const Manifest *latest, const bool *wanted, const char *url, c
                 return fail(error, error_size, "%s can't be replaced: is the game or a server still running?", f->path);
         }
     }
+    files_remove_tree(UPDATE_STAGING);
+    return true;
+}
+
+// The launcher, the release's `self`, brought alone and put in the running one's place,
+// which moves aside to UPDATE_TMP (a running executable may be renamed, though not written
+// over). The new one deletes it as it starts.
+static bool update_self(const Manifest *latest, const ManifestFile *self, const char *url, const UpdateReport *report,
+                        char *error, size_t error_size)
+{
+    bool *wanted = calloc((size_t)latest->count, sizeof *wanted);
+    if (!wanted) return fail(error, error_size, "no memory");
+    wanted[self - latest->files] = true;
+    char what[64];
+    snprintf(what, sizeof what, "the launcher of version %s", latest->version);
+    bool ok = bring(latest, wanted, url, what, report, error, error_size);
+    free(wanted);
+    if (!ok) return false;
+
+    say(report, "Installing the launcher");
+    char staged[MANIFEST_PATH_SIZE + 32];
+    snprintf(staged, sizeof staged, "%s/%s", UPDATE_FILES, self->path);
+    remove(UPDATE_TMP);
+    if (!files_move(self->path, UPDATE_TMP)) return fail(error, error_size, "the launcher can't be moved aside to " UPDATE_TMP);
+    if (!files_move(staged, self->path)) {
+        files_move(UPDATE_TMP, self->path); // the old one back, to try again on the next start
+        return fail(error, error_size, "the new launcher can't be put in place");
+    }
+    files_set_executable(self->path);
     files_remove_tree(UPDATE_STAGING);
     return true;
 }
@@ -335,6 +374,7 @@ UpdateOutcome update_run(const UpdateOptions *options, const UpdateReport *repor
     read_version(before, sizeof before);
     snprintf(version, version_size, "%s", before);
     error[0] = '\0';
+    remove(UPDATE_TMP); // the launcher this one replaced, if it did
 
     char why[256];
     Manifest installed;
@@ -374,6 +414,18 @@ UpdateOutcome update_run(const UpdateOptions *options, const UpdateReport *repor
         manifest_free(&installed);
         snprintf(error, error_size, parsed ? "no memory" : "the release's manifest can't be read: %s", why);
         return UPDATE_FAILED;
+    }
+
+    // The launcher first, and alone: the rest is brought by the new one, by its own rules.
+    const ManifestFile *self = options->self && options->self[0] ? manifest_find(&latest, options->self) : NULL;
+    if (self && !matches(self->path, self, true)) {
+        snprintf(url, sizeof url, "%s/download/v%s/%s", options->releases, latest.version, latest.full.path);
+        bool ok = update_self(&latest, self, url, report, error, error_size);
+        if (ok) snprintf(error, error_size, "The launcher has been updated to version %s. Please start the game again.", latest.version);
+        free(wanted);
+        manifest_free(&installed);
+        manifest_free(&latest);
+        return ok ? UPDATE_RESTART : UPDATE_FAILED;
     }
 
     say(report, "Checking the game's files");

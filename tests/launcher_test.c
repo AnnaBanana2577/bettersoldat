@@ -480,6 +480,26 @@ static void update_tests(void)
     CHECK(!files_exists("scripts/kept.lua") && holds("scripts/edited.lua", "mine"),
           "one the release no longer has goes as it came, and stays as the player changed it");
 
+    // version 5 changes the launcher and the game: the launcher comes first and alone, the
+    // running one moved aside, and the game waits for the new one's start
+    files_write("launcher.exe", "old launcher", 12);
+    const Source v5[] = {{"version.txt", "5\n"}, {"client.exe", "newer game"}, {"launcher.exe", "new launcher"},
+                         {"data/a.txt", "new art"}, {"mods/default/big.png", bigger}};
+    enter(here);
+    release(SCRATCH "/releases", "5", v5, 5);
+    enter(SCRATCH "/install");
+    options.self = "launcher.exe";
+    outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
+    CHECK(outcome == UPDATE_RESTART && holds("launcher.exe", "new launcher") && holds(UPDATE_TMP, "old launcher"),
+          "a new launcher comes alone, the running one moved aside to " UPDATE_TMP " (%d: %s)", outcome, error);
+    CHECK(holds("client.exe", "new game") && holds("version.txt", "4\n") && !strcmp(version, "4") && error[0],
+          "and the game is left for the new launcher, the player told to start again");
+    outcome = update_run(&options, NULL, version, sizeof version, error, sizeof error);
+    CHECK(outcome == UPDATE_UPDATED && !files_exists(UPDATE_TMP) && holds("client.exe", "newer game") &&
+              holds("version.txt", "5\n"),
+          "started again, the new launcher clears the old away and brings the rest (%d: %s)", outcome, error);
+    options.self = NULL;
+
     enter(here);
 }
 

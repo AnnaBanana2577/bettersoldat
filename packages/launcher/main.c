@@ -332,21 +332,23 @@ static void draw(SDL_Renderer *r, const Shared *s, bool waiting)
 
     float y = HEADER_H + 22, w = WINDOW_WIDTH - 2 * MARGIN;
     if (waiting) {
-        // what went wrong, as a sentence; the window grows to hold all of it
+        // what went wrong, or that the launcher is new and the game wants starting again, as
+        // a sentence; the window grows to hold all of it
+        bool restart = s->outcome == UPDATE_RESTART;
         char error[sizeof s->error];
         snprintf(error, sizeof error, "%s", s->error);
         if (error[0] >= 'a' && error[0] <= 'z') error[0] = (char)(error[0] - 'a' + 'A');
-        float bottom = wrapped(NULL, &S_BODY, MARGIN, y, w, WARN, error);
+        float bottom = wrapped(NULL, &S_BODY, MARGIN, y, w, restart ? TEXT : WARN, error);
         int height = (int)bottom + 52;
         if (height < WINDOW_HEIGHT) height = WINDOW_HEIGHT;
         int ww, wh;
         SDL_Window *window = SDL_RenderGetWindow(r);
         SDL_GetWindowSize(window, &ww, &wh);
         if (wh != height) SDL_SetWindowSize(window, WINDOW_WIDTH, height);
-        wrapped(r, &S_BODY, MARGIN, y, w, WARN, error);
+        wrapped(r, &S_BODY, MARGIN, y, w, restart ? TEXT : WARN, error);
         // the keys, along the bottom: each named in bold, what it does beside it
         float hy = (float)height - MARGIN - S_SMALL.pixels, hx = MARGIN;
-        if (files_exists(CLIENT_FILE)) {
+        if (!restart && files_exists(CLIENT_FILE)) {
             text(r, &S_SMALL_BOLD, hx, hy, TEXT, "Enter");
             hx += text_width(&S_SMALL_BOLD, "Enter") + 6;
             text(r, &S_SMALL, hx, hy, MUTED, "Play the version installed");
@@ -354,7 +356,7 @@ static void draw(SDL_Renderer *r, const Shared *s, bool waiting)
         }
         text(r, &S_SMALL_BOLD, hx, hy, TEXT, "Esc");
         hx += text_width(&S_SMALL_BOLD, "Esc") + 6;
-        text(r, &S_SMALL, hx, hy, MUTED, "Quit");
+        text(r, &S_SMALL, hx, hy, MUTED, restart ? "Close" : "Quit");
     } else {
         text(r, &S_BODY, MARGIN, y, TEXT, s->phase);
         float ty = y + S_BODY.pixels + 18;
@@ -454,6 +456,8 @@ int main(int argc, char **argv)
     }
     // the game's files are beside the launcher, wherever it was started from
     if (!files_enter_own_directory()) fprintf(stderr, "launcher: its own directory can't be found\n");
+    char self[MANIFEST_PATH_SIZE]; // what it is called there, so it is brought first (update.h)
+    if (files_own_name(self, sizeof self)) s.options.self = self;
 
     if (!check || !s.options.releases[0]) {
         if (start_game(rest_count, rest)) return 0;
@@ -489,18 +493,19 @@ int main(int argc, char **argv)
         SDL_LockMutex(s.lock);
         Shared now = s;
         SDL_UnlockMutex(s.lock);
+        bool restart = now.outcome == UPDATE_RESTART;
         if (now.finished && update_only) {
             if (now.error[0]) fprintf(stderr, "launcher: %s\n", now.error);
             status = now.outcome == UPDATE_FAILED;
             break;
         }
         if (now.finished && !waiting) {
-            if (now.outcome != UPDATE_FAILED) {
+            if (now.outcome != UPDATE_FAILED && !restart) {
                 if (now.error[0]) fprintf(stderr, "launcher: %s\n", now.error); // couldn't check: play on
                 play = true;
                 break;
             }
-            waiting = true; // the window says what went wrong and waits for an answer
+            waiting = true; // the window says what went wrong, or to start again, and waits for an answer
         }
         if (!window && (waiting || SDL_GetTicks() - started > WINDOW_DELAY_MS)) {
             window = SDL_CreateWindow("Soldat Reloaded", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH,
@@ -513,8 +518,9 @@ int main(int argc, char **argv)
                 if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
                 fonts_load();
             } else if (waiting) {
-                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Soldat Reloaded", now.error, NULL);
-                play = files_exists(CLIENT_FILE);
+                SDL_ShowSimpleMessageBox(restart ? SDL_MESSAGEBOX_INFORMATION : SDL_MESSAGEBOX_ERROR, "Soldat Reloaded",
+                                         now.error, NULL);
+                play = !restart && files_exists(CLIENT_FILE);
                 break;
             }
         }
@@ -524,7 +530,8 @@ int main(int argc, char **argv)
             if (waiting && e.type == SDL_KEYDOWN) {
                 SDL_Keycode key = e.key.keysym.sym;
                 if (key == SDLK_ESCAPE) quit = true;
-                if ((key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_SPACE) && files_exists(CLIENT_FILE)) play = true;
+                if ((key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_SPACE) && !restart && files_exists(CLIENT_FILE))
+                    play = true;
             }
         }
         if (renderer) draw(renderer, &now, waiting);
