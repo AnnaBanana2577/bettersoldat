@@ -270,7 +270,8 @@ missed:
   collider hit, bounce, split, blood, explosion, thing hit, poly effect, corpse hit,
   rope cut), and every ask between systems within a machine (Hit, knife land, thing
   knock). Hit is the simulation proposing a wound; it never travels, and only the
-  server's wounds pass acts on it.
+  server's wounds pass makes a wound of it, but its shove and bink land on every
+  machine that flew the bullet (docs/netcode.md).
 - **WIRE_OWNER**, a soldier's owner's decision: EVENT_SHOT, numbered so the same bullet
   comes out everywhere; EVENT_WEAPON_DROP; EVENT_FLAG_THROW. A client sends its own
   to the server, which does them as its own and relays them to everyone else.

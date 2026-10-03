@@ -43,7 +43,12 @@ a test holds that every event type is classified.
   simulation proposing a wound; only the server turns it into damage, but its knockback
   and bink land wherever it is produced, as the original writes a victim's NextPush
   wherever the bullet is simulated: the owner's word about its soldier stands, so the
-  owner must feel the knock itself.
+  owner must feel the knock itself. The bink has a second word on a client: the
+  server's damage to it, binked as it is heard rather than when its tick comes on show,
+  which catches the hit the server saw and the bullet flown here missed (judged against
+  the shooter's view there, the present here). Of a hit's two words the first gives the
+  bink and the second, coming within BINK_MATCH_TICKS, is taken as it (hit_spray). The
+  bink goes with the life, cleared while dead, and with the gun put away.
 - **The owner's decisions, in its client state:** the shot (EVENT_SHOT, numbered so the
   same bullet comes out everywhere), the weapon throw (EVENT_WEAPON_DROP) and the flag
   throw (EVENT_FLAG_THROW).

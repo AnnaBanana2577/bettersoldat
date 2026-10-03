@@ -82,3 +82,4 @@ void lobby_tests(void);
 void launcher_tests(void);
 void demo_tests(void);
 void shot_end_tests(void);
+void bink_tests(void);

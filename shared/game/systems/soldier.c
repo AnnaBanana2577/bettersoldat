@@ -121,7 +121,12 @@ void soldier_integrate(Soldier *s, float gravity)
 void soldier_step(const Context *ctx, World *w, uint8_t index, Command cmd, Events *events, bool armed)
 {
     Soldier *s = &w->soldiers[index];
-    if (!s->active || s->dead || s->team == TEAM_SPECTATOR) return;
+    if (!s->active || s->team == TEAM_SPECTATOR) return;
+    if (s->dead) { // the bink goes with the life, so none is carried into the next (a client's placing doesn't wipe it)
+        s->hit_spray = 0;
+        memset(s->bink_owed, 0, sizeof s->bink_owed);
+        return;
+    }
 
     parachute_catch(w, s);
     soldier_integrate(s, w->gravity);

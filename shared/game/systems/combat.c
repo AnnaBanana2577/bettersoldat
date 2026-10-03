@@ -406,6 +406,7 @@ void combat_control(const Context *ctx, World *w, uint8_t index, Events *events)
         s->secondary = held;
         s->weapon.startup_count = ctx->weapons.info[s->weapon.id].stats.startup;
         s->burst_count = 0;
+        s->hit_spray = 0; // the other gun comes up steady: this game's, the original keeps the bink
         info = &ctx->weapons.info[weapon->id];
     }
     if (body->id == ANIM_CHANGE && body->frame == anim_frames(anims, ANIM_CHANGE) && !flame_god && weapon->ammo == 0) {
@@ -535,14 +536,31 @@ uint16_t calculate_bink(uint16_t accumulated, int bink)
     return (uint16_t)clampi(result, 0, 65535);
 }
 
-void hit_spray(const Context *ctx, World *w, uint8_t victim, uint8_t attacker)
+void hit_spray(const Context *ctx, World *w, uint8_t victim, uint8_t attacker, BinkWord word)
 {
     Soldier *v = &w->soldiers[victim];
     const Soldier *a = &w->soldiers[attacker];
+    if (v->dead) return; // it goes with the life (soldier_step)
     if (victim != attacker && !w->rules.friendly_fire && v->team != TEAM_NONE && v->team == a->team) return;
+
+    // the other word of a hit already binked: taken as it. One that waited too long for
+    // its match is forgotten, the hit it stood for missed by the other side
+    int8_t *owed = &v->bink_owed[attacker], sign = word == BINK_FLOWN ? 1 : -1;
+    if (*owed != 0 && w->tick - v->bink_owed_tick[attacker] > BINK_MATCH_TICKS) *owed = 0;
+    v->bink_owed_tick[attacker] = w->tick;
+    if (*owed * sign < 0) {
+        *owed = (int8_t)(*owed + sign);
+        return;
+    }
+    *owed = (int8_t)clampi(*owed + sign, -100, 100);
 
     int32_t bink = ctx->weapons.info[v->weapon.id].stats.bink;
     if (bink > 0) v->hit_spray = calculate_bink(v->hit_spray, bink);
+}
+
+bool weapon_binks(WeaponId weapon)
+{
+    return weapon != WEAPON_NONE && weapon != WEAPON_BOW && weapon != WEAPON_FLAMER && weapon != WEAPON_THROWN_KNIFE;
 }
 
 float movement_inaccuracy(const Context *ctx, const Soldier *s)

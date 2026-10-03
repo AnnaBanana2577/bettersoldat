@@ -277,6 +277,11 @@ typedef struct Soldier {
     // refreshed every 10 ticks; 255 = not near any. Crouching by cover raises the gun.
     uint8_t collider_distance;
     uint16_t hit_spray; // bink: aim disturbance from being hit, decaying one per tick
+    // A hit's bink comes by two words on a client, the bullet flown here and the server's
+    // damage, whichever first: per shooter, the words of one kind not yet matched by the
+    // other (flown positive, told negative) and when the last came (hit_spray).
+    int8_t bink_owed[MAX_PLAYERS];
+    uint32_t bink_owed_tick[MAX_PLAYERS];
     // The sniper view (Control.pas AimDistCoef): how far the camera leads toward the aim,
     // DEFAULT_AIM_DIST as a rule and less while the Barrett is scoped, aiming far from
     // a crouch or prone. Every machine works it out from the rest, so it isn't sent.

@@ -288,6 +288,7 @@ void wire_pending_init(WirePending *p) { memset(p, 0, sizeof *p); }
 void wire_read_pending(NetBuf *b, WirePending *p)
 {
     uint32_t count = 0;
+    p->fresh_count = 0;
     net_range(b, &count, WIRE_PER_PACKET);
     for (uint32_t i = 0; i < count && netbuf_ok(b); i++) {
         Event e = {0};
@@ -302,6 +303,7 @@ void wire_read_pending(NetBuf *b, WirePending *p)
         if (p->seq[seq % WIRE_PENDING] == seq) continue; // a resend of one still waiting
         p->items[seq % WIRE_PENDING] = e;
         p->seq[seq % WIRE_PENDING] = seq;
+        p->fresh[p->fresh_count++] = seq;
         if (seq > p->received) p->received = seq;
     }
 }

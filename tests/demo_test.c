@@ -84,6 +84,7 @@ static uint32_t side_tick(Side *s, Command cmd, const DemoTick *t)
         me->gear = t->self.gear;
         me->primary_choice = t->self.primary_choice;
         me->secondary_choice = t->self.secondary_choice;
+        me->hit_spray = t->self.hit_spray;
         if (t->self.life == me->life) soldier_copy_owned(s->g->ctx.anims, me, &t->self);
     }
     client_net_tick(&s->net, s->g);

@@ -77,6 +77,8 @@ typedef struct WirePending {
     uint32_t seq[WIRE_PENDING]; // the seq held in each slot, 0 for none
     uint32_t received;          // the newest seq kept: the acknowledgement
     uint32_t applied;           // the newest seq applied
+    uint32_t fresh[WIRE_PER_PACKET]; // the seqs the last read kept for the first time, for what can't wait for its tick
+    int fresh_count;
 } WirePending;
 
 void wire_pending_init(WirePending *p);

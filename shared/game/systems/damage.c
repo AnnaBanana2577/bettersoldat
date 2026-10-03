@@ -69,7 +69,7 @@ void hit_shove(const Context *ctx, World *w, Hit hit)
     Soldier *s = &w->soldiers[hit.target];
     if (!s->active) return;
     if (!s->dead) s->next_push = vec2_add(s->next_push, hit.push);
-    if (hit.spray) hit_spray(ctx, w, hit.target, hit.shooter);
+    if (hit.spray) hit_spray(ctx, w, hit.target, hit.shooter, BINK_FLOWN);
 }
 
 void damage_apply(const Context *ctx, World *w, Hit hit, Events *events)

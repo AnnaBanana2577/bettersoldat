@@ -202,6 +202,7 @@ void demo_record_tick(DemoRecorder *r, uint32_t view, const Command *cmd, Vec2 c
         netfields_serialize(&b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, s, NULL);
         netfields_serialize(&b, PLAYER_LOOK_FIELDS, PLAYER_LOOK_COUNT, &s->look, NULL);
         net_bool(&b, &typing);
+        net_u16(&b, &s->hit_spray);
     }
     if (!netbuf_ok(&b)) return;
     record(r, DEMO_TICK, buf, netbuf_bytes(&b));
@@ -240,6 +241,7 @@ static bool read_tick(const uint8_t *data, size_t size, DemoTick *t)
         netfields_serialize(&b, SOLDIER_LOADOUT_FIELDS, SOLDIER_LOADOUT_COUNT, &t->self, NULL);
         netfields_serialize(&b, PLAYER_LOOK_FIELDS, PLAYER_LOOK_COUNT, &t->self.look, NULL);
         net_bool(&b, &typing);
+        net_u16(&b, &t->self.hit_spray);
         t->self.life = life;
         t->self.typing = typing;
     }

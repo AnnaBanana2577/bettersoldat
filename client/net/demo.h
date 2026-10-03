@@ -19,7 +19,7 @@
 //   frame   the frame's packets are all in: what they began (a map, a round's end, a
 //           vote, a line of chat) is taken now, before the ticks
 //   tick    one tick: the tick on show, my command, my cursor, and my soldier if it is
-//           in the game (its owned half, its loadout, look and typing, and its life)
+//           in the game (its owned half, its loadout, look and typing, its bink and its life)
 //
 // A demo begun mid-round (demo_record_join) starts with the round's Map, the vote on,
 // and the snapshots the client keeps for its deltas, whole, with the server's events
@@ -30,7 +30,7 @@
 
 #include "net/client_net.h"
 
-#define DEMO_VERSION 1
+#define DEMO_VERSION 2
 #define DEMO_DIR "demos"
 #define DEMO_EXT ".srdm"
 #define DEMO_RECORD_MAX 65535 // bytes in a record
@@ -52,7 +52,7 @@ typedef struct DemoTick {
     Command cmd;   // my command
     Vec2 cursor;   // my cursor, in the view's units, for the camera
     bool soldier;  // my soldier was in the game: `self` holds it
-    Soldier self;  // its owned half, loadout, look, typing and life, as the tick left it
+    Soldier self;  // its owned half, loadout, look, typing, bink and life, as the tick left it
 } DemoTick;
 
 // --- recording ---------------------------------------------------------------------

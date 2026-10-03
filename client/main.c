@@ -813,6 +813,7 @@ static void demo_apply_self(App *app)
     s->primary_choice = t->self.primary_choice;
     s->secondary_choice = t->self.secondary_choice;
     s->typing = t->self.typing;
+    s->hit_spray = t->self.hit_spray; // my aim as disturbed then: the shots of the next tick spread as they did
     if (t->self.life == s->life) soldier_copy_owned(app->game->ctx.anims, s, &t->self);
 }
 

@@ -280,7 +280,7 @@ static void thing_apply(Thing *t, const Thing *heard)
 
 bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, size_t size)
 {
-    (void)me; // the snapshot is applied later, by the tick that shows it (client_stream_begin_tick)
+    // the snapshot is applied later, by the tick that shows it (client_stream_begin_tick); `me` is for the bink alone
     NetBuf b = netbuf_reader(data, size);
     MsgKind kind;
     MsgSnapshot m;
@@ -339,6 +339,14 @@ bool client_stream_hear(ClientStream *c, Game *g, int me, const uint8_t *data, s
         return false;
     }
     if (m.client_event_ack > c->event_ack) c->event_ack = m.client_event_ack;
+    // The server's damage to me binks me as it is heard, not when its tick comes on show:
+    // the aim is mine, in my present, and a hit the bullet flown here missed is binked
+    // all the same (hit_spray takes it as the flown one's word when both come).
+    for (int i = 0; i < c->pending.fresh_count && me >= 0 && me < MAX_PLAYERS; i++) {
+        const Event *e = &c->pending.items[c->pending.fresh[i] % WIRE_PENDING];
+        if (e->type == EVENT_DAMAGE && e->damage.target == me && weapon_binks(e->damage.weapon))
+            hit_spray(&g->ctx, &g->world, (uint8_t)me, e->damage.attacker, BINK_TOLD);
+    }
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (m.word[i] == SNAP_STATE) {
             c->last_word[i] = m.tick;

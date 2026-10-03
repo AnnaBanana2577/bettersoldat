@@ -204,7 +204,18 @@ void weapon_timers(const Context *ctx, Soldier *s);
 uint16_t calculate_bink(uint16_t accumulated, int bink);
 
 // A hit disturbs the victim's aim by the bink of the weapon they hold.
-void hit_spray(const Context *ctx, World *w, uint8_t victim, uint8_t attacker);
+// Bink (the original's HitSpray): the victim's aim disturbed by a hit, by the bink of the
+// gun it holds. Its word comes from the bullet flown here (BINK_FLOWN), and on a client
+// also from the server's damage (BINK_TOLD), which catches a hit the bullet here missed
+// (it is judged against the shooter's view there, the present here). Of the two words of
+// one hit, whichever comes first gives the bink and the other is taken as it, if it comes
+// within BINK_MATCH_TICKS. None for the dead, nor from a teammate without friendly fire.
+#define BINK_MATCH_TICKS 10
+typedef enum BinkWord { BINK_FLOWN, BINK_TOLD } BinkWord;
+void hit_spray(const Context *ctx, World *w, uint8_t victim, uint8_t attacker, BinkWord word);
+// Whether a wound by `weapon` disturbs the aim: a bullet's, a blade's or a blast's, not a
+// flame's, an arrow's or a thrown knife's, nor one by no weapon (a fall).
+bool weapon_binks(WeaponId weapon);
 
 float movement_inaccuracy(const Context *ctx, const Soldier *s);
 Vec2 hands_aim_direction(const Pose *pose);
