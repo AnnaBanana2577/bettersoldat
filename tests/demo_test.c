@@ -114,8 +114,9 @@ static bool same_seen(const Seen *a, const Seen *b)
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (a->active[i] != b->active[i]) return false;
         if (!a->active[i]) continue;
-        if (a->dead[i] != b->dead[i] || a->pos[i].x != b->pos[i].x || a->pos[i].y != b->pos[i].y || a->health[i] != b->health[i])
-            return false;
+        if (a->dead[i] != b->dead[i] || a->health[i] != b->health[i]) return false;
+        // the living where they stood; the dead are drawn as their bodies, which move as each machine shakes them
+        if (!a->dead[i] && (a->pos[i].x != b->pos[i].x || a->pos[i].y != b->pos[i].y)) return false;
     }
     return a->bullets == b->bullets && a->mine == b->mine;
 }

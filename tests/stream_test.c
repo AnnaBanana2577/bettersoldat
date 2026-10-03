@@ -323,7 +323,7 @@ void stream_tests(void)
     // wounds: the bot fires at me for a while; the server rules and I hear
     float health_before = mine->health;
     play(&conns, gs, &c, 90, 0, BUTTON_FIRE);
-    CHECK(mine->dead && mine->respawn_counter > 0 && abs(mine->respawn_counter - theirs->respawn_counter) <= 2,
+    CHECK(mine->dead && mine->respawn_counter > 0 && abs(mine->respawn_counter - theirs->respawn_counter) <= STREAM_VIEW_SLACK + 1, // the view may run that far behind
           "the volley killed me, and the respawn count reaches me with the served half (%d here, %d there)", mine->respawn_counter,
           theirs->respawn_counter);
     CHECK(c.damages > 0 && mine->health < health_before,
