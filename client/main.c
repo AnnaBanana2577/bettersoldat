@@ -33,9 +33,10 @@
 // number, then a place by its, said to the team from the radio_* cvars. Alt with a
 // letter is a taunt in the config (say, say_team). The view's: Escape the menu, Tab the
 // weapons, M the teams, F1 the scoreboard, F2 the weapon stats, F3 the minimap
-// (ui_minimap), F5 the FPS line (ui_info), F7 the names (ui_playernames). F9 toggles the wireframe
-// (r_wireframe), F10 the debug overlay (r_debug), F4 vsync (r_swapeffect, off as the
-// original's default). There is no zoom: everyone sees the same 480 units of height.
+// (ui_minimap), F5 the FPS line (ui_info), F7 the names (ui_playernames). F9 is a window or
+// fullscreen (togglewindow), Ctrl+F9 the wireframe (r_wireframe), F10 the debug overlay
+// (r_debug), F4 vsync (r_swapeffect, off as the original's default). There is no zoom:
+// everyone sees the same 480 units of height.
 // A demo playing (net/demo.h): F6 pauses it, F8 runs it fast, as the original's F10 and F8;
 // the left and right arrows take it ten seconds back or on.
 
@@ -90,7 +91,7 @@
 static const char *VIEW_BINDS =
     "bind escape escmenu; bind tab weaponsmenu; bind m teammenu; bind f1 fragsmenu; bind f2 statsmenu;"
     "bind f3 \"toggle ui_minimap\"; bind f4 \"toggle r_swapeffect\"; bind f5 \"toggle ui_info\";"
-    "bind f7 \"toggle ui_playernames\"; bind f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
+    "bind f7 \"toggle ui_playernames\"; bind f9 togglewindow; bind ctrl+f9 \"toggle r_wireframe\"; bind f10 \"toggle r_debug\";"
     "bind f6 demo_pause; bind f8 demo_fast; bind leftarrow \"demo_tick_r -600\"; bind rightarrow \"demo_tick_r 600\";"
     "bind v +radio; bind t chat; bind y teamchat; bind slash cmd; bind f12 \"say /yes\"; bind f11 \"say /no\"";
 
@@ -101,6 +102,7 @@ typedef struct App {
     Cvar *width, *height; // the window
     Cvar *swapeffect;     // vsync
     Cvar *fullscreen;     // 0 windowed, 1 fullscreen, 2 borderless
+    int fullscreen_left;  // the fullscreen mode togglewindow left, to go back to
     Cvar *server;         // the address the main menu joins
     Cvar *password;       // and the password it says there (cl_password)
     Cvar *lobby;          // the lobby the server browser asks (cl_lobby)
@@ -246,6 +248,17 @@ static void cmd_quit(Console *con, int argc, char **argv, void *user)
 {
     (void)con, (void)argc, (void)argv;
     ((App *)user)->quit = true;
+}
+
+// togglewindow: a window, or back to the fullscreen it came from (F9); from a window
+// first, fullscreen.
+static void cmd_togglewindow(Console *con, int argc, char **argv, void *user)
+{
+    (void)argc, (void)argv;
+    App *app = user;
+    int mode = app->fullscreen->integer;
+    if (mode != 0) app->fullscreen_left = mode;
+    cvar_set(con, "r_fullscreen", mode != 0 ? "0" : app->fullscreen_left == 2 ? "2" : "1");
 }
 
 // screenshot <file.png>: the 60th frame from now, then quit.
@@ -1131,6 +1144,7 @@ static bool console_open(App *app, int argc, char *argv[])
     console_add_command(con, "demo_tick", cmd_demo_tick, app, "take the demo playing to a tick, 60 a second: demo_tick <tick>");
     console_add_command(con, "demo_tick_r", cmd_demo_tick, app, "take the demo playing on, or back with a minus: demo_tick_r <ticks>");
     console_add_command(con, "quit", cmd_quit, app, "leave the game");
+    console_add_command(con, "togglewindow", cmd_togglewindow, app, "a window, or back to the fullscreen it came from");
     console_add_command(con, "screenshot", cmd_screenshot, app, "write the 60th frame from now to a PNG, then quit");
     console_add_command(con, "escmenu", cmd_menu, app, "the escape menu");
     console_add_command(con, "weaponsmenu", cmd_menu, app, "the weapons menu");
