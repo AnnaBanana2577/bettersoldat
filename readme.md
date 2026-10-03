@@ -107,7 +107,7 @@ xmake              # the client, the server and the launcher
 xmake run client   # play, in runtime/
 xmake run server   # a dedicated server
 xmake test         # the headless tests
-xmake dist         # the release packages, into build/packages/
+xmake dist         # the release packages, into build/release/
 ```
 
 The game finds `data/`, `mods/`, `config/` and `scripts/` in the directory it runs from: `runtime/`
@@ -117,10 +117,10 @@ under `xmake run`, which holds them as an install lays them out, or an unpacked 
 
 | | |
 |---|---|
-| `shared/` | The simulation (`game/`), the maps, animations and skeletons it reads (`resources/`), the wire (`network/`), the console and the utilities. Built into both the client and the server, so both run the same game. |
-| `client/` | The window, input, rendering (OpenGL 2.1), audio, the HUD and menus, and the client's end of the netcode. |
-| `server/` | The headless server: connections, rounds, bots, votes, the Lua scripting and the lobby heartbeat. |
-| `launcher/` | The updater: fetches releases from GitHub, checks every file against the release's hashes, and starts the game. |
+| `packages/shared/` | The simulation (`game/`), the maps, animations and skeletons it reads (`resources/`), the wire (`network/`), the console and the utilities. Built into both the client and the server, so both run the same game. |
+| `packages/client/` | The window, input, rendering (OpenGL 2.1), audio, the HUD and menus, and the client's end of the netcode. |
+| `packages/server/` | The headless server: connections, rounds, bots, votes, the Lua scripting and the lobby heartbeat. |
+| `packages/launcher/` | The updater: fetches releases from GitHub, checks every file against the release's hashes, and starts the game. |
 | `tests/` | Headless checks of the simulation on real maps and of the netcode over the loopback. |
 | `runtime/` | What ships beside the executables, laid out as an install: `data/`, the maps, animations, skeletons and bots the game plays by, and `mods/default/`, the art, sounds and fonts it looks and sounds like, both from [opensoldat/base](https://github.com/opensoldat/base); `config/defaults/`, the game's settings and keys; `scripts/`, the server's Lua scripts. What the game writes there as you play (`config/client/`, `config/server/`, `demos/`) and any mod beside `mods/default/` are yours, and git leaves them out. |
 | `docs/` | How it works and how to work on it. |

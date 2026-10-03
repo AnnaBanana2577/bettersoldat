@@ -5,7 +5,7 @@
 --   xmake run client     in runtime/, where data/, mods/, config/ and scripts/ are
 --   xmake run server
 --   xmake test           the headless checks in tests/
---   xmake dist           the packages, in build/packages/: one for players, one for a server,
+--   xmake dist           the packages, in build/release/: one for players, one for a server,
 --                        the launcher's update, and the manifest it reads (launcher/update.h)
 --
 -- The game finds everything beside itself, in the directory it runs from: data/, what it
@@ -63,8 +63,8 @@ rule("icon")
 -- rendering, audio or networking dependencies.
 target("shared")
     set_kind("static")
-    add_files("shared/**.c")
-    add_includedirs("shared", {public = true})
+    add_files("packages/shared/**.c")
+    add_includedirs("packages/shared", {public = true})
     add_packages("enet", {public = true}) -- the transport (shared/network) is ENet's
     if not is_plat("windows") then
         add_syslinks("m", {public = true})
@@ -78,10 +78,11 @@ target("client")
     set_kind("binary")
     add_rules("icon")
     add_deps("shared")
-    add_files("client/**.c", "server/connections.c", "server/lists.c", "server/rounds.c", "server/bots.c", "server/host.c")
+    add_files("packages/client/**.c", "packages/server/connections.c", "packages/server/lists.c", "packages/server/rounds.c",
+              "packages/server/bots.c", "packages/server/host.c")
     -- the launcher's HTTPS, for the server browser's list from the lobby (client/net/browser.c)
-    add_files("launcher/http.c", "launcher/files.c", "launcher/sha256.c")
-    add_includedirs("client", "server", "launcher")
+    add_files("packages/launcher/http.c", "packages/launcher/files.c", "packages/launcher/sha256.c")
+    add_includedirs("packages/client", "packages/server", "packages/launcher")
     add_packages("libsdl2", "stb", "libcurl")
     if not is_plat("windows") then
         add_syslinks("pthread") -- curl's resolver
@@ -109,11 +110,11 @@ target("client")
 target("server")
     set_kind("binary")
     add_deps("shared")
-    add_files("server/**.c")
+    add_files("packages/server/**.c")
     -- the launcher's HTTPS, for the lobby's heartbeat (server/lobby.c): it finds Linux's
     -- certificates for curl's mbedTLS
-    add_files("launcher/http.c", "launcher/files.c", "launcher/sha256.c")
-    add_includedirs("server", "launcher")
+    add_files("packages/launcher/http.c", "packages/launcher/files.c", "packages/launcher/sha256.c")
+    add_includedirs("packages/server", "packages/launcher")
     add_packages("lua", "libcurl")
     -- the version its requests say
     on_load(function (target)
@@ -133,8 +134,8 @@ target("launcher")
     set_kind("binary")
     add_rules("icon")
     set_basename(is_plat("windows") and "Soldat Reloaded" or "soldatreloaded-launcher")
-    add_files("launcher/*.c")
-    add_includedirs("launcher")
+    add_files("packages/launcher/*.c")
+    add_includedirs("packages/launcher")
     add_packages("libsdl2", "stb", "libcurl", "miniz")
     add_defines('SOLDATRELOADED_RELEASES="https://github.com/soldatreloaded/soldatreloaded/releases"')
     -- the version it says, and the platform whose manifest it asks for (latest-windows-x64.txt)
@@ -161,12 +162,12 @@ target("tests")
     set_kind("binary")
     set_default(false)
     add_deps("shared")
-    add_files("tests/*.c", "server/connections.c", "server/lists.c", "server/rounds.c", "server/bots.c", "server/host.c", "server/script.c",
-              "server/lobby.c")
-    add_files("launcher/*.c|main.c")
+    add_files("tests/*.c", "packages/server/connections.c", "packages/server/lists.c", "packages/server/rounds.c",
+              "packages/server/bots.c", "packages/server/host.c", "packages/server/script.c", "packages/server/lobby.c")
+    add_files("packages/launcher/*.c|main.c")
     -- the client's line and its demos, for the demo's round trip (tests/demo_test.c)
-    add_files("client/net/client_net.c", "client/net/demo.c")
-    add_includedirs("tests", "server", "launcher", "client")
+    add_files("packages/client/net/client_net.c", "packages/client/net/demo.c")
+    add_includedirs("tests", "packages/server", "packages/launcher", "packages/client")
     add_packages("lua", "libcurl", "miniz")
     if not is_plat("windows") then
         add_syslinks("pthread") -- the script's requests
@@ -174,7 +175,7 @@ target("tests")
     set_rundir("$(projectdir)")
     add_tests("default")
 
--- xmake dist: what a release holds for this platform, in build/packages/. Each package
+-- xmake dist: what a release holds for this platform, in build/release/. Each package
 -- unpacks to one directory holding the executables, version.txt, the licence and runtime/'s
 -- data/, mods/default/, config/defaults/ and scripts/, flat, which is how the game expects
 -- to find them (docs/git.md, Releases). Windows gets zips; Linux tar.gzs, which keep the
@@ -203,7 +204,7 @@ task("dist")
 
         local plat, arch = config.plat(), config.arch()
         local version = project.version()
-        local distdir = path.join(config.buildir(), "packages")
+        local distdir = path.join(config.buildir(), "release")
         local stem = ("soldatreloaded-%s-%s-%s"):format(version, plat, arch)
         -- the mingw cross-build's exes are Windows', so they want a zip too
         local extension = (plat == "windows" or plat == "mingw") and ".zip" or ".tar.gz"

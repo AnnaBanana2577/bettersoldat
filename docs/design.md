@@ -8,7 +8,8 @@ into.
 
 ## The shape
 
-Three programs share one library:
+Three programs share one library, each a folder of packages/ (the paths in these docs are
+within it):
 
 - **shared/** is the simulation (shared/game), the data it reads (shared/resources:
   maps, animations, skeletons), the wire (shared/network), the console and the
