@@ -19,7 +19,8 @@ WireSide wire_side(EventType type)
     case EVENT_KIT_PICKUP:
     case EVENT_WEAPON_PICKUP:
     case EVENT_MATCH_END:
-    case EVENT_FLAG_DROP: return WIRE_SERVER;
+    case EVENT_FLAG_DROP:
+    case EVENT_SHOT_END: return WIRE_SERVER;
     case EVENT_FIRE:
     case EVENT_BULLET_SPAWN:
     case EVENT_BULLET_END:
@@ -204,6 +205,17 @@ void wire_event(NetBuf *b, Event *e)
         break;
     }
     case EVENT_MATCH_END: team(b, &e->match_end.winner); break;
+    case EVENT_SHOT_END: {
+        EventShotEnd *s = &e->shot_end;
+        slot(b, &s->owner);
+        net_u32(b, &s->shot);
+        weapon(b, &s->weapon);
+        net_vec2(b, &s->pos);
+        uint32_t blast = s->blast;
+        net_range(b, &blast, 3); // 0 stopped, else an ExplosionKind + 1
+        s->blast = (uint8_t)blast;
+        break;
+    }
     default: b->bad = true; break; // a local event has no place on the wire
     }
 }

@@ -66,6 +66,30 @@ void bullet_end(Bullet *b, uint16_t index, Events *events, const Vec2 *impact)
     event_emit(events, (Event){.type = EVENT_BULLET_END, .bullet_end = e});
 }
 
+void shot_end_tell(const World *w, const Bullet *b, Vec2 pos, uint8_t blast, Events *events)
+{
+    if (!w->authority) return;
+    event_emit(events, (Event){.type = EVENT_SHOT_END,
+                               .shot_end = {.owner = b->owner, .shot = b->shot_id, .weapon = b->weapon, .pos = pos, .blast = blast}});
+}
+
+// The server's word of where a shot ended, on a client: its own flight of the shot, if
+// it is still flying, is put where the server's ended and ended the same way, so a
+// grenade that went off on someone there goes off on them here, whatever path it took
+// here (a body was elsewhere, a corpse was rolled over). One already ended here stays
+// ended: a second blast for it would be a blast twice.
+static void shot_end_heard(const Context *ctx, World *w, const EventShotEnd *end, Events *events)
+{
+    for (int i = 0; i < MAX_BULLETS; i++) {
+        Bullet *b = &w->bullets[i];
+        if (!b->active || b->owner != end->owner || b->shot_id != end->shot || b->weapon != end->weapon) continue;
+        b->pos = b->old_pos = end->pos;
+        if (end->blast) explode(ctx, w, b, (uint16_t)i, (ExplosionKind)(end->blast - 1), -1, -1, events);
+        else bullet_end(b, (uint16_t)i, events, &end->pos);
+        return;
+    }
+}
+
 // One tick of one bullet, all but its flight: the map's edge, its collisions, its
 // timeout, the damage falling off.
 static void bullet_update(const Context *ctx, World *w, Bullet *b, uint16_t index, Events *events)
@@ -163,6 +187,7 @@ void bullets_update(const Context *ctx, World *w, const Events *last, Events *ev
     uint32_t flashed = 0; // the shooters given a flash this pass, by slot
     EventCursor pending = events_pending(last, events, PASS_BULLETS);
     for (const Event *e = events_next(&pending); e; e = events_next(&pending)) {
+        if (e->type == EVENT_SHOT_END && e->tick != 0 && !w->authority) shot_end_heard(ctx, w, &e->shot_end, events);
         if (e->type != EVENT_SHOT) continue;
         const EventShot *shot = &e->shot;
         bool heard = e->tick != 0;

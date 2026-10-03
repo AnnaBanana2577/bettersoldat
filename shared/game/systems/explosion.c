@@ -96,6 +96,7 @@ static void blast_corpse(const Context *ctx, World *w, const Bullet *b, int i, E
 void explode(const Context *ctx, World *w, Bullet *b, uint16_t index, ExplosionKind kind, int hit_soldier, int hit_part, Events *events)
 {
     float radius = kind == EXPLOSION_FRAG ? FRAG_EXPLOSION_RADIUS : kind == EXPLOSION_M79 ? M79_EXPLOSION_RADIUS : CLUSTER_EXPLOSION_RADIUS;
+    shot_end_tell(w, b, b->pos, (uint8_t)(kind + 1), events); // where it went off, for the clients' own flights of it
     event_emit(events, (Event){
         .type = EVENT_EXPLOSION,
         .explosion = {.id = index, .player = b->owner, .weapon = kind == EXPLOSION_M79 ? WEAPON_M79 : WEAPON_FRAG, .pos = b->pos, .radius = radius},

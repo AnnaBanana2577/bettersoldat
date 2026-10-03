@@ -33,7 +33,7 @@ void wire_tests(void)
         case WIRE_LOCAL: local++; break;
         }
     }
-    CHECK(owner == 3 && server == 10 && local == EVENT_ECHO_TEST + 1 - 13, "every event type is classified (%d owner, %d server, %d local)",
+    CHECK(owner == 3 && server == 11 && local == EVENT_ECHO_TEST + 1 - 14, "every event type is classified (%d owner, %d server, %d local)",
           owner, server, local);
 
     // every travelling type round trips whole

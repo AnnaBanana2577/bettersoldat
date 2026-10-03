@@ -474,7 +474,7 @@ static bool body_collide(const Context *ctx, World *w, Bullet *b, uint16_t index
                 b->vel = vec2_scale(b->vel, 0.66f);
                 continue;
             }
-            bullet_end(b, index, events, &point);
+            bullet_end(b, index, events, &point); // too quick for a miss to be seen: not told, which would crowd the wire's queue
             return true;
         }
         case BULLET_FRAG_GRENADE:
@@ -488,6 +488,7 @@ static bool body_collide(const Context *ctx, World *w, Bullet *b, uint16_t index
             bool friendly = !w->rules.friendly_fire && owner->team != TEAM_NONE && owner->team == live->team;
             if (!friendly && live->bonus != BONUS_FLAME_GOD) blood(events, b, ti, point);
             wound(ctx, events, b, ti, vec2_length(b->vel) * b->hit_multiply * modifier, &pose, part, point, push, false);
+            shot_end_tell(w, b, point, 0, events);
             bullet_end(b, index, events, &point);
             return true;
         }
@@ -526,6 +527,7 @@ static bool body_collide(const Context *ctx, World *w, Bullet *b, uint16_t index
             wound(ctx, events, b, ti, vec2_length(b->vel) * b->hit_multiply * 0.01f, &pose, part, point, push, false);
             if (corpse) return true; // it goes through a corpse rather than sticking in it
             knife_land(b, events);
+            shot_end_tell(w, b, point, 0, events);
             bullet_end(b, index, events, &point);
             return true;
         case BULLET_CLUSTER_NADE:

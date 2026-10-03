@@ -176,6 +176,7 @@ int main(void)
     lobby_tests();
     launcher_tests();
     demo_tests();
+    shot_end_tests();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }

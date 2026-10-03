@@ -48,7 +48,15 @@ a test holds that every event type is classified.
   same bullet comes out everywhere), the weapon throw (EVENT_WEAPON_DROP) and the flag
   throw (EVENT_FLAG_THROW).
 - **The server's decisions, in its snapshot:** damage, kill, respawn, flag grab, return
-  and score, kit and weapon pickup, the match's end, a new round.
+  and score, kit and weapon pickup, the match's end, a new round; and where a shot ended
+  (EVENT_SHOT_END), for the shots slow enough that a miss shows: a blast (grenades,
+  rockets, clusters, flak) and an arrow or thrown knife stopped in a body. The same
+  bullet flies everywhere, but not against the same soldiers: the server judges it
+  against the shooter's view, a client against its own present, so a grenade that went
+  off on a player at the server can roll on over that player's corpse at the player's
+  own client. Hearing the word, a client puts its flight of the shot where the server's
+  ended and ends it the same way; one it has already ended stays ended. Plain bullets
+  are not told: too quick for a miss to show, and many enough to crowd the queue.
 - **Neither, and never sent:** what one system asks of another within a machine, such
   as a bullet's knock on a flag (EVENT_THING_KNOCK) or a landed knife (EVENT_KNIFE_LAND);
   every machine produces these for itself.

@@ -305,6 +305,10 @@ typedef enum ExplosionKind {
 // nearby grenades and rockets set off, the bullet ended. `hit_soldier` and `hit_part`
 // name a soldier it struck directly, or are -1.
 void explode(const Context *ctx, World *w, Bullet *b, uint16_t index, ExplosionKind kind, int hit_soldier, int hit_part, Events *events);
+// The server's word of where a shot ended (EventShotEnd), for the clients: `blast` an
+// ExplosionKind + 1, or 0 for one stopped in a body at `pos`. Nothing where the world
+// has no authority, whose shots end as the server's word puts them.
+void shot_end_tell(const World *w, const Bullet *b, Vec2 pos, uint8_t blast, Events *events);
 
 // --- thing.c -----------------------------------------------------------------------
 
