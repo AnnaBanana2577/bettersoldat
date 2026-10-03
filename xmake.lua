@@ -183,9 +183,7 @@ target("tests")
 -- it unpacks (launcher/archive.h), so a package without it would scatter. Windows gets
 -- zips; Linux tar.gzs, which keep the executable bit that a zip would lose. What an
 -- install holds is runtime/'s data/, mods/default/, config/defaults/ and scripts/, flat,
--- which is how the game expects to find them (docs/git.md, Releases); the steps of the
--- release's own (version.txt, the manifest, a tar.gz the old launchers read) are
--- xmake/release.lua's.
+-- which is how the game expects to find them (docs/git.md, Releases).
 --
 --   soldatreloaded          the game, a player's: everything, the launcher and the server
 --                           among it, so anyone can host; and manifest.txt, what it all is
@@ -197,7 +195,8 @@ target("tests")
 --
 -- `xmake dist` packs them in that order, into build/release/, beside the manifest the
 -- launcher reads; the formats are launcher/manifest.h's, what the launcher does with them
--- update.h's.
+-- update.h's. The full package leaves its manifest in build/.xpack/manifest.txt for the
+-- update package, which carries the same, and for latest-<plat>-<arch>.txt.
 local function release_package(name, suffix)
     xpack(name)
         set_formats(is_plat("windows", "mingw") and "zip" or "targz") -- the mingw cross-build's exes are Windows'
@@ -206,25 +205,70 @@ local function release_package(name, suffix)
         set_bindir(".")
         add_installfiles("license.md")
         add_installfiles("runtime/(config/defaults/**)") -- the game's; the player's own are made by the game
+        -- A tar.gz packed again by tar itself. xmake's archiver gzips its own output file
+        -- (empty, just made) before the tar, so its tar.gz is two gzip members, an empty one
+        -- first, and the launchers shipped before 0.7.2 read only the first. The install's
+        -- root is the package's directory (set_prefixdir), so the archive's is too.
         after_package(function (package)
-            import("release", {rootdir = path.join(os.projectdir(), "xmake")}).repack_targz(package)
+            if package:format() ~= "targz" then return end
+            local archivefile = path.absolute(package:outputfile())
+            os.tryrm(archivefile)
+            os.vrunv("tar", {"-czf", archivefile, package:prefixdir()}, {curdir = package:install_rootdir()})
         end)
 end
 
--- What every package's install is given last: version.txt, the executables' bit; and for
--- the full package its manifest, which the update package carries too.
+-- What every package's install is given last, as xpack lays it out: version.txt, and on
+-- Linux the executables' bit, which nothing else is sure to keep; xpack's debug symbols go,
+-- a player having no use for them. The full package writes its manifest, every file of the
+-- install but the manifest itself, by hash; the update package carries the same. (Each step
+-- runs in a sandbox of its own, batchcmds:call's, so what it needs is local to it.)
 local function finish_install(manifest)
     after_installcmd(function (package, batchcmds)
+        local stash = path.join(import("core.project.config").builddir(), ".xpack", "manifest.txt")
+
+        local function finish(installdir, version, executables, linux)
+            io.writefile(path.join(installdir, "version.txt"), version .. "\n")
+            for _, file in ipairs(os.files(path.join(installdir, "*.pdb"))) do
+                os.rm(file)
+            end
+            for _, name in ipairs(linux and executables or {}) do
+                os.vrunv("chmod", {"+x", path.join(installdir, name)})
+            end
+        end
+
+        -- "file <sha256> <bytes> <path>", for each but manifest.txt. The player's own files
+        -- (config/client/, config/server/, their mods) are in no package, so in no manifest.
+        local function write_manifest(installdir, version, stash)
+            local names = {}
+            for _, file in ipairs(os.files(path.join(installdir, "**"))) do
+                local name = path.relative(file, installdir):gsub("\\", "/")
+                if name ~= "manifest.txt" then table.insert(names, name) end
+            end
+            table.sort(names)
+            local lines = {"// What this install holds, which the launcher checks it against.", "version " .. version}
+            for _, name in ipairs(names) do
+                local file = path.join(installdir, name)
+                table.insert(lines, ("file %s %d %s"):format(hash.sha256(file), os.filesize(file), name))
+            end
+            local text = table.concat(lines, "\n") .. "\n"
+            io.writefile(path.join(installdir, "manifest.txt"), text)
+            io.writefile(stash, text)
+        end
+
+        local function copy_manifest(installdir, stash)
+            assert(os.isfile(stash), "the full package is packed first: run `xmake dist`")
+            os.cp(stash, path.join(installdir, "manifest.txt"))
+        end
+
         local executables = {}
         for _, target in ipairs(package:targets()) do
             table.insert(executables, target:filename())
         end
-        local release = import("release", {rootdir = path.join(os.projectdir(), "xmake")})
-        batchcmds:call(release.finish, {package:installdir(), package:version(), executables, not package:is_plat("windows", "mingw")})
+        batchcmds:call(finish, {package:installdir(), package:version(), executables, not package:is_plat("windows", "mingw")})
         if manifest == "write" then
-            batchcmds:call(release.write_manifest, {package:installdir(), package:version()})
+            batchcmds:call(write_manifest, {package:installdir(), package:version(), stash})
         elseif manifest == "copy" then
-            batchcmds:call(release.copy_manifest, {package:installdir()})
+            batchcmds:call(copy_manifest, {package:installdir(), stash})
         end
     end)
 end
@@ -252,15 +296,14 @@ release_package("soldatreloaded-server", "-server")
     finish_install()
 
 -- xmake dist: the three packages, in build/release/, and latest-<plat>-<arch>.txt, the
--- manifest the launcher reads: the version, the two packages it can download and every
--- file of the full one, with their hashes.
+-- manifest the launcher reads: the full package's, with the two packages it can download
+-- named beside it.
 task("dist")
     set_category("action")
     set_menu({usage = "xmake dist", description = "package the client and the server for this platform"})
     on_run(function ()
         import("core.project.config")
         import("core.project.project")
-        import("release", {rootdir = path.join(os.projectdir(), "xmake")})
 
         config.load()
         local outputdir = path.join(config.builddir(), "release")
@@ -274,6 +317,15 @@ task("dist")
         local version, plat, arch = project.version(), config.plat(), config.arch()
         local stem = path.join(outputdir, ("soldatreloaded-%s-%s-%s"):format(version, plat, arch))
         local extension = (plat == "windows" or plat == "mingw") and ".zip" or ".tar.gz"
-        local latest = release.write_latest(outputdir, version, plat, arch, stem .. extension, stem .. "-patch" .. extension)
+        local function entry(kind, archive)
+            return ("package %s %s %d %s"):format(kind, hash.sha256(archive), os.filesize(archive), path.filename(archive))
+        end
+        local lines = io.readfile(path.join(config.builddir(), ".xpack", "manifest.txt")):split("\n")
+        table.remove(lines, 1) -- its comment, for one of the release's own
+        table.insert(lines, 2, entry("update", stem .. "-patch" .. extension))
+        table.insert(lines, 3, entry("full", stem .. extension))
+        local latest = path.join(outputdir, ("latest-%s-%s.txt"):format(plat, arch))
+        io.writefile(latest, ("// SoldatReloaded %s for %s %s, for the launcher (launcher/update.h).\n"):format(version, plat, arch)
+                             .. table.concat(lines, "\n") .. "\n")
         print("listed " .. path.absolute(latest))
     end)
