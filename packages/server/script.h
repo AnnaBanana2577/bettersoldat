@@ -5,15 +5,19 @@
 // things happen and may act on the game through a small API. docs/scripting.md is the
 // reference; scripts/examples/ shows it in use.
 //
-// What the script hears, when it defines these functions:
+// What the script hears, as it hands functions to server.on(event, fn): as many as it
+// likes, from as many files as it requires, so several scripts run side by side. Each
+// event's handlers are heard in the order they were handed in, and a global on_<event>,
+// as a lone script may write it, last. A handler's error is reported and the next heard.
 //
-//   on_chat(slot, text, team) -> keep    a line said; true keeps it from everyone else
-//   on_command(slot, text) -> handled    a /command the server doesn't know
-//   on_join(slot, name)  on_leave(slot, name)
-//   on_kill(killer, victim, weapon)      on_capture(slot, team)
-//   on_spawn(slot)                       on_match_end(winner)
-//   on_round_end(stats)                  on_round_start(map)
-//   on_tick(tick)                        on_second()
+//   chat(slot, text, team) -> keep    a line said; true keeps it from everyone else, and
+//                                     from the handlers after
+//   command(slot, text) -> handled    a /command the server doesn't know; true answers it
+//   join(slot, name)  leave(slot, name)
+//   kill(killer, victim, weapon)      capture(slot, team)
+//   spawn(slot)                       match_end(winner)
+//   round_end(stats)                  round_start(map)
+//   tick(tick)                        second()
 //
 // What it may do: the `server` table (say, say_to, pause, unpause, next_map, players,
 // kick, add_bot, command...), `http` for requests on their own threads with the answer

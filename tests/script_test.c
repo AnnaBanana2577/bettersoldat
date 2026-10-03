@@ -13,6 +13,7 @@
 
 #define PORT 40031
 #define SCRIPT_PATH "build/script_test.lua"
+#define MODULE_PATH "build/script_test_module.lua" // a second script, the first requires
 
 static void write_file(const char *path, const char *text)
 {
@@ -62,7 +63,14 @@ void script_tests(void)
                "function on_round_start(map) started = map end\n"
                "encoded = json.encode({list = {true, 'x\\n', 2.5, json.null}})\n"
                "decoded = json.decode('{\"n\": [1, 2.5, \"s\\\\u0041\"], \"t\": true, \"o\": {}}')\n"
-               "http.request({url = 'http://127.0.0.1:1/', timeout = 2}, function(r) answered = r end)\n");
+               "http.request({url = 'http://127.0.0.1:1/', timeout = 2}, function(r) answered = r end)\n"
+               "require('script_test_module')({greeting = 'hi'})\n");
+    // a second script beside it, as scripts/examples/ are: its own handlers, and settings
+    write_file(MODULE_PATH, "return function(options)\n"
+                            "  module_options = options\n"
+                            "  server.on('join', function(slot, name) module_joins = (module_joins or 0) + 1 end)\n"
+                            "  server.on('command', function(slot, text) return text == 'module' end)\n"
+                            "end\n");
     Script script = {0};
     bool opened = script_open(&script, &host, NULL, SCRIPT_PATH);
     CHECK(opened, "the script is read and run");
@@ -84,6 +92,8 @@ void script_tests(void)
     int bot = host_add_bot(&host, TEAM_ALPHA, NULL);
     CHECK(bot >= 0, "a bot joins (%d)", bot);
     CHECK(script_run(&script, "assert(#joins == 1 and joins[1] == server.player(0).name)", "join"), "on_join heard it, by name");
+    CHECK(script_run(&script, "assert(module_joins == 1 and module_options.greeting == 'hi')", "module"),
+          "and so did the script it requires, set up as it was asked");
     CHECK(script_run(&script, "local p = server.players()[1]; assert(p.team == 'alpha' and p.bot and p.alive and p.kills == 0)", "player"),
           "the player's table says its team, that it is a bot, alive, with no kills");
 
@@ -93,6 +103,29 @@ void script_tests(void)
     CHECK(line->chat && !line->chat(line->user, 0, "hello all", false), "and lets the rest through");
     CHECK(line->command && line->command(line->user, 0, "hello"), "on_command answers a /command it knows");
     CHECK(line->command && !line->command(line->user, 0, "unknown"), "and not one it doesn't");
+    CHECK(line->command && line->command(line->user, 0, "module"), "the script it requires answers its own");
+
+    // handlers handed in by any script: heard in turn, an error passed over, the first to
+    // keep a line ending it, one taken off heard no more
+    CHECK(script_run(&script,
+                     "heard = ''\n"
+                     "server.on('chat', function(_, t) heard = heard .. 'a' end)\n"
+                     "keeper = server.on('chat', function(_, t) heard = heard .. 'b'; return t == 'mine' end)\n"
+                     "server.on('chat', function(_, t) heard = heard .. 'c'; error('boom') end)\n"
+                     "server.on('chat', function(_, t) heard = heard .. 'd' end)",
+                     "handlers"),
+          "handlers are handed in for the chat");
+    CHECK(line->chat && !line->chat(line->user, 0, "a line", false) &&
+              script_run(&script, "assert(heard == 'abcd', heard)", "order"),
+          "every one hears a line, in turn, past one's error, and the global on_chat after");
+    CHECK(script_run(&script, "heard = ''", "reset") && line->chat(line->user, 0, "mine", false) &&
+              script_run(&script, "assert(heard == 'ab', heard)", "kept"),
+          "the first to keep it ends it");
+    CHECK(script_run(&script, "assert(server.off('chat', keeper) and not server.off('chat', keeper))", "off") &&
+              !line->chat(line->user, 0, "mine", false),
+          "one taken off keeps nothing");
+    CHECK(script_run(&script, "assert(not pcall(server.on, 'nothing', print) and not pcall(server.on, 'chat', 1))", "bad"),
+          "an event there isn't, or no function, is refused");
 
     // the ticks, and a kill heard among the tick's events
     host_pump(&host, TICK_SECONDS * 5);

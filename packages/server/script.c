@@ -193,35 +193,114 @@ static int traceback(lua_State *L)
     return 1;
 }
 
-// A hook: true with the function and a traceback handler on the stack, ready for its
-// arguments; false (nothing pushed) if the script has none by that name.
-static bool hook_begin(Script *s, const char *name)
+// --- the handlers ----------------------------------------------------------------------
+
+// What a script may hear, each hook below's event. A script hands a function to as many
+// as it likes with server.on(event, fn), and so does every file it requires, so several
+// scripts run side by side; each event's handlers are called in the order they were
+// handed in. A global on_<event>, as a lone script may still write it, is heard last.
+static const char *const EVENTS[] = {"chat",      "command",   "join",        "leave", "kill",   "capture", "spawn",
+                                     "match_end", "round_end", "round_start", "tick",  "second", NULL};
+
+// The registry's table of them: event -> {fn, fn, ...}.
+#define HANDLERS_KEY "soldatreloaded.handlers"
+
+// The event's list of handlers on the stack, made if it was none.
+static void push_handlers(lua_State *L, const char *event)
+{
+    lua_getfield(L, LUA_REGISTRYINDEX, HANDLERS_KEY);
+    if (lua_getfield(L, -1, event) != LUA_TTABLE) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, -3, event);
+    }
+    lua_remove(L, -2);
+}
+
+// server.on(event, fn): fn heard on `event`, after the handlers already there. It comes
+// back, for server.off.
+static int l_on(lua_State *L)
+{
+    const char *event = EVENTS[luaL_checkoption(L, 1, NULL, EVENTS)];
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    push_handlers(L, event);
+    lua_pushvalue(L, 2);
+    lua_rawseti(L, -2, (lua_Integer)lua_rawlen(L, -2) + 1);
+    lua_pushvalue(L, 2);
+    return 1;
+}
+
+// server.off(event, fn): fn heard no more on `event`; whether it was.
+static int l_off(lua_State *L)
+{
+    const char *event = EVENTS[luaL_checkoption(L, 1, NULL, EVENTS)];
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    push_handlers(L, event);
+    lua_Integer n = (lua_Integer)lua_rawlen(L, -1);
+    for (lua_Integer i = 1; i <= n; i++) {
+        lua_rawgeti(L, -1, i);
+        bool same = lua_rawequal(L, -1, 2);
+        lua_pop(L, 1);
+        if (!same) continue;
+        for (; i < n; i++) { // the ones after it close up, in their order
+            lua_rawgeti(L, -1, i + 1);
+            lua_rawseti(L, -2, i);
+        }
+        lua_pushnil(L);
+        lua_rawseti(L, -2, n);
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+// Whether anything hears `event`: what a hook asks before it builds its arguments.
+static bool listened(Script *s, const char *event)
 {
     lua_State *L = s->L;
     if (!L) return false;
-    lua_getglobal(L, name);
-    if (!lua_isfunction(L, -1)) {
+    push_handlers(L, event);
+    bool heard = lua_rawlen(L, -1) > 0;
+    lua_pop(L, 1);
+    char name[32];
+    snprintf(name, sizeof name, "on_%s", event);
+    if (!heard) {
+        heard = lua_getglobal(L, name) == LUA_TFUNCTION;
         lua_pop(L, 1);
-        return false;
     }
-    lua_pushcfunction(L, traceback);
-    lua_insert(L, -2);
-    return true;
+    return heard;
 }
 
-// Runs it on `nargs` arguments, leaving `nresults`; an error is reported and leaves none.
-static bool hook_call(Script *s, const char *name, int nargs, int nresults)
+// Every handler of `event`, then the global on_<event>, each on the `nargs` values on top
+// of the stack, which go. A handler's error is reported and the next is heard. With
+// `until_true` the first to return true ends it, and true comes back: the line kept, the
+// command answered.
+static bool dispatch(Script *s, const char *event, int nargs, bool until_true)
 {
     lua_State *L = s->L;
-    int base = lua_gettop(L) - nargs - 1; // the handler's index
-    if (lua_pcall(L, nargs, nresults, base) != LUA_OK) {
-        report(s, "%s: %s", name, lua_tostring(L, -1));
-        lua_pop(L, 1);
-        lua_remove(L, base);
-        return false;
+    int args = lua_gettop(L) - nargs + 1;
+    char name[32];
+    snprintf(name, sizeof name, "on_%s", event);
+    push_handlers(L, event);
+    int list = lua_gettop(L);
+    lua_Integer n = (lua_Integer)lua_rawlen(L, list); // those handed in while it runs are heard next time
+    bool taken = false;
+    for (lua_Integer i = 1; i <= n + 1 && !taken; i++) {
+        int top = lua_gettop(L);
+        lua_pushcfunction(L, traceback);
+        if (i <= n) lua_rawgeti(L, list, i);
+        else lua_getglobal(L, name);
+        if (lua_isfunction(L, -1)) {
+            for (int a = 0; a < nargs; a++) lua_pushvalue(L, args + a);
+            if (lua_pcall(L, nargs, 1, top + 1) != LUA_OK) report(s, "%s: %s", name, lua_tostring(L, -1));
+            else if (until_true && lua_toboolean(L, -1)) taken = true;
+        }
+        lua_settop(L, top);
     }
-    lua_remove(L, base);
-    return true;
+    lua_settop(L, args - 1);
+    return taken;
 }
 
 static const char *team_name(Team team)
@@ -468,7 +547,8 @@ static const luaL_Reg SERVER_API[] = {
     {"pause", l_pause},     {"unpause", l_unpause}, {"paused", l_paused},     {"next_map", l_next_map},
     {"map", l_map},         {"round", l_round},     {"mode", l_mode},         {"tick", l_tick},
     {"time_left", l_time_left}, {"scores", l_scores}, {"players", l_players}, {"player", l_player},
-    {"kick", l_kick},       {"add_bot", l_add_bot}, {NULL, NULL},
+    {"kick", l_kick},       {"add_bot", l_add_bot}, {"on", l_on},             {"off", l_off},
+    {NULL, NULL},
 };
 
 // http.request{url=, method=, body=, headers={}, timeout=}, callback(response)
@@ -676,44 +756,38 @@ static const char *const LUA_PRELUDE =
 static bool hook_chat(void *user, int slot, const char *text, bool team)
 {
     Script *s = user;
-    if (!hook_begin(s, "on_chat")) return false;
+    if (!listened(s, "chat")) return false;
     lua_pushinteger(s->L, slot);
     lua_pushstring(s->L, text);
     lua_pushboolean(s->L, team);
-    if (!hook_call(s, "on_chat", 3, 1)) return false;
-    bool keep = lua_toboolean(s->L, -1);
-    lua_pop(s->L, 1);
-    return keep;
+    return dispatch(s, "chat", 3, true);
 }
 
 static bool hook_command(void *user, int slot, const char *text)
 {
     Script *s = user;
-    if (!hook_begin(s, "on_command")) return false;
+    if (!listened(s, "command")) return false;
     lua_pushinteger(s->L, slot);
     lua_pushstring(s->L, text);
-    if (!hook_call(s, "on_command", 2, 1)) return false;
-    bool handled = lua_toboolean(s->L, -1);
-    lua_pop(s->L, 1);
-    return handled;
+    return dispatch(s, "command", 2, true);
 }
 
 static void hook_joined(void *user, int slot)
 {
     Script *s = user;
-    if (!hook_begin(s, "on_join")) return;
+    if (!listened(s, "join")) return;
     lua_pushinteger(s->L, slot);
     lua_pushstring(s->L, s->host->connections.items[slot].name);
-    hook_call(s, "on_join", 2, 0);
+    dispatch(s, "join", 2, false);
 }
 
 static void hook_left(void *user, int slot, const char *name)
 {
     Script *s = user;
-    if (!hook_begin(s, "on_leave")) return;
+    if (!listened(s, "leave")) return;
     lua_pushinteger(s->L, slot);
     lua_pushstring(s->L, name);
-    hook_call(s, "on_leave", 2, 0);
+    dispatch(s, "leave", 2, false);
 }
 
 static void hook_ticked(void *user)
@@ -724,37 +798,37 @@ static void hook_ticked(void *user)
         const Event *e = &g->events.items[i];
         switch (e->type) {
         case EVENT_KILL:
-            if (!hook_begin(s, "on_kill")) break;
+            if (!listened(s, "kill")) break;
             lua_pushinteger(s->L, e->kill.killer);
             lua_pushinteger(s->L, e->kill.target);
             lua_pushstring(s->L, g->ctx.weapons.info[e->kill.weapon].name);
-            hook_call(s, "on_kill", 3, 0);
+            dispatch(s, "kill", 3, false);
             break;
         case EVENT_FLAG_SCORE:
-            if (!hook_begin(s, "on_capture")) break;
+            if (!listened(s, "capture")) break;
             lua_pushinteger(s->L, e->flag_score.player);
             lua_pushstring(s->L, team_name(g->world.soldiers[e->flag_score.player].team));
-            hook_call(s, "on_capture", 2, 0);
+            dispatch(s, "capture", 2, false);
             break;
         case EVENT_RESPAWN:
-            if (!hook_begin(s, "on_spawn")) break;
+            if (!listened(s, "spawn")) break;
             lua_pushinteger(s->L, e->respawn.target);
-            hook_call(s, "on_spawn", 1, 0);
+            dispatch(s, "spawn", 1, false);
             break;
         case EVENT_MATCH_END:
-            if (!hook_begin(s, "on_match_end")) break;
+            if (!listened(s, "match_end")) break;
             if (e->match_end.winner == TEAM_NONE) lua_pushnil(s->L);
             else lua_pushstring(s->L, team_name(e->match_end.winner));
-            hook_call(s, "on_match_end", 1, 0);
+            dispatch(s, "match_end", 1, false);
             break;
         default: break;
         }
     }
-    if (hook_begin(s, "on_tick")) {
+    if (listened(s, "tick")) {
         lua_pushinteger(s->L, g->world.tick);
-        hook_call(s, "on_tick", 1, 0);
+        dispatch(s, "tick", 1, false);
     }
-    if (g->world.tick % TICK_RATE == 0 && hook_begin(s, "on_second")) hook_call(s, "on_second", 0, 0);
+    if (g->world.tick % TICK_RATE == 0 && listened(s, "second")) dispatch(s, "second", 0, false);
 }
 
 // The round's figures, as it ends: why, the map, the scores, the winner (a team's name,
@@ -762,7 +836,7 @@ static void hook_ticked(void *user)
 static void hook_round_ending(void *user, const char *why)
 {
     Script *s = user;
-    if (!hook_begin(s, "on_round_end")) return;
+    if (!listened(s, "round_end")) return;
     const Host *h = s->host;
     const Match *m = &h->game->match;
     lua_State *L = s->L;
@@ -793,15 +867,15 @@ static void hook_round_ending(void *user, const char *why)
         else lua_pushnil(L);
     }
     lua_setfield(L, -2, "winner");
-    hook_call(s, "on_round_end", 1, 0);
+    dispatch(s, "round_end", 1, false);
 }
 
 static void hook_round_started(void *user)
 {
     Script *s = user;
-    if (!hook_begin(s, "on_round_start")) return;
+    if (!listened(s, "round_start")) return;
     lua_pushstring(s->L, host_map(s->host));
-    hook_call(s, "on_round_start", 1, 0);
+    dispatch(s, "round_start", 1, false);
 }
 
 // --- the script's life ---------------------------------------------------------------
@@ -843,6 +917,8 @@ bool script_open(Script *s, Host *h, Console *console, const char *path)
     luaL_openlibs(L);
     lua_pushlightuserdata(L, s);
     lua_setfield(L, LUA_REGISTRYINDEX, REGISTRY_KEY);
+    lua_newtable(L);
+    lua_setfield(L, LUA_REGISTRYINDEX, HANDLERS_KEY);
     luaL_newlib(L, SERVER_API);
     lua_setglobal(L, "server");
     luaL_newlib(L, HTTP_API);
@@ -911,7 +987,11 @@ void script_pump(Script *s)
                 lua_pushstring(L, job->error);
                 lua_setfield(L, -2, "error");
             }
-            hook_call(s, "http callback", 1, 0);
+            if (lua_pcall(L, 1, 0, -3) != LUA_OK) {
+                report(s, "http callback: %s", lua_tostring(L, -1));
+                lua_pop(L, 1);
+            }
+            lua_pop(L, 1); // the traceback
         }
         http_free(s->L, job);
     }

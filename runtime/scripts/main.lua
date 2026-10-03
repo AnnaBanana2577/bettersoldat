@@ -1,10 +1,18 @@
 -- The server's script (docs/scripting.md): sv_script runs it as the server starts. It is
 -- yours: the game ships it once, and no update touches it again.
 --
--- Write your own here, or take up one of the examples in scripts/examples/ by taking the
--- dashes off its line below. The examples are the game's, kept current by every update,
--- so a change made to one is undone by the next: to change one, copy what you want of it
--- in here instead. Each example defines the server's hooks (on_join, on_chat, ...) itself,
--- so take up one at a time; a second's hooks would take the first's place.
+-- Write your own here: hand server.on a function for what you want to hear,
+--
+--   server.on("join", function(slot, name) server.say_to(slot, "Hello, " .. name) end)
+--
+-- and take up as many of the examples in scripts/examples/ as you like, by taking the dashes
+-- off their lines below: each hands in handlers of its own, so they all run, side by side
+-- with yours, each set up by what you give it. The examples are the game's, kept current by
+-- every update, so a change made in one is undone by the next: to change one, copy it beside
+-- this file under a name of your own and require that.
 
--- require("examples.example") -- greets players, answers /stats and /top, reports rounds to a webhook
+-- require("examples.greeter")({welcome = "Welcome, %s. Say /stats or /top."})
+-- require("examples.stats")({streak = 5})
+-- require("examples.chat_filter")({words = {"noob"}})
+-- require("examples.admin")({names = {"Major"}})
+-- require("examples.round_webhook")({url = "https://discord.com/api/webhooks/..."})
