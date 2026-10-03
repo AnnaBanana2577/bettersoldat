@@ -189,11 +189,9 @@ bool input_event(Input *in, Console *con, const SDL_Event *e)
 
 void input_sample(Input *in, Vec2 aim) { in->aim = aim; }
 
-// Jump and crouch held together throw the flag too, as the original's LocalInput has it.
 Command input_command(const Input *in, uint32_t seq)
 {
     Buttons buttons = (Buttons)(in->held | in->pressed);
-    if ((buttons & (BUTTON_JUMP | BUTTON_CROUCH)) == (BUTTON_JUMP | BUTTON_CROUCH)) buttons |= BUTTON_FLAG_THROW;
     return (Command){.seq = seq, .buttons = buttons, .aim = in->aim};
 }
 
