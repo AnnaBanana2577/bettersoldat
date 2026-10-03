@@ -15,6 +15,7 @@
 #include "sha256.h"
 #include "test.h"
 #include "update.h"
+#include "utils/utils.h"
 
 #ifdef _WIN32
 #include <direct.h>
@@ -443,6 +444,105 @@ static void desktop_tests(void)
     CHECK(!desktop_entry_text("l", text, sizeof text), "nor a path that isn't one");
 }
 
+// --- the release xmake dist packed --------------------------------------------------------
+
+#define RELEASE "build/release"
+
+static bool latest_visit(const char *name, void *user)
+{
+    if (strncmp(name, "latest-", 7) != 0 || !strstr(name, ".txt")) return true;
+    snprintf(user, 256, RELEASE "/%s", name);
+    return false;
+}
+
+// Whether a tar.gz's first gzip member begins the tar. The launchers before 0.7.2 read no
+// further than it, so one whose first member is empty (as xmake's own archiver writes)
+// leaves them nothing to unpack.
+static bool first_member_is_tar(const char *path)
+{
+    uint8_t gz[1 << 16], block[512];
+    FILE *f = fopen(path, "rb");
+    size_t size = f ? fread(gz, 1, sizeof gz, f) : 0;
+    if (f) fclose(f);
+    if (size < 18 || gz[0] != 0x1f || gz[1] != 0x8b || gz[2] != 8) return false;
+    uint8_t flags = gz[3];
+    size_t at = 10;
+    if (flags & 4) at += 2 + (size_t)(gz[at] | gz[at + 1] << 8); // FEXTRA
+    for (int field = 8; field <= 16; field *= 2)                 // FNAME, FCOMMENT: zero-ended
+        if (flags & field)
+            while (at < size && gz[at++]) {}
+    if (flags & 2) at += 2; // FHCRC
+    if (at >= size) return false;
+
+    mz_stream s = {0};
+    s.next_in = gz + at;
+    s.avail_in = (unsigned int)(size - at);
+    s.next_out = block;
+    s.avail_out = sizeof block;
+    if (mz_inflateInit2(&s, -MZ_DEFAULT_WINDOW_BITS) != MZ_OK) return false;
+    int result = mz_inflate(&s, MZ_NO_FLUSH);
+    mz_inflateEnd(&s);
+    return (result == MZ_OK || result == MZ_STREAM_END) && s.avail_out == 0 && !memcmp(block + 257, "ustar", 5);
+}
+
+// The packages of build/release/, if `xmake dist` has made them, as a launcher takes them:
+// each is what latest-<plat>.txt lists, and unpacked (archive_extract, which drops the
+// package's own directory) holds every file the manifest names where it says, of its size
+// and hash: the full package all of them, the update package those it carries. The release
+// job runs this after packing, so each platform's packages are checked before they ship.
+static void release_tests(void)
+{
+    char latest[256] = "", error[256];
+    for_each_file(RELEASE, latest_visit, latest);
+    if (!latest[0]) {
+        printf("no release in " RELEASE " to check; `xmake dist` makes one\n");
+        return;
+    }
+    Manifest m;
+    if (!manifest_load(&m, latest, error, sizeof error)) {
+        CHECK(false, "%s reads: %s", latest, error);
+        return;
+    }
+    const ManifestFile *packages[2] = {&m.full, &m.update};
+    for (int p = 0; p < 2; p++) {
+        const ManifestFile *package = packages[p];
+        char archive[512], into[128];
+        snprintf(archive, sizeof archive, RELEASE "/%s", package->path);
+        uint8_t digest[32];
+        uint64_t bytes = 0;
+        CHECK(files_sha256(archive, digest, NULL, NULL) && files_size(archive, &bytes) && bytes == package->size &&
+                  !memcmp(digest, package->sha256, sizeof digest),
+              "%s is the package %s lists", package->path, latest);
+        if (strstr(package->path, ".tar.gz"))
+            CHECK(first_member_is_tar(archive), "%s is whole in its first gzip member, as launchers before 0.7.2 read it",
+                  package->path);
+
+        snprintf(into, sizeof into, SCRATCH "/release-%d", p);
+        files_remove_tree(into);
+        CHECK(archive_extract(archive, into, NULL, NULL, error, sizeof error), "%s unpacks (%s)", package->path, error);
+        int missing = 0, wrong = 0;
+        const char *first = "none";
+        for (int i = 0; i < m.count; i++) {
+            const ManifestFile *file = &m.files[i];
+            if (package == &m.update && !manifest_in_update(file->path)) continue;
+            char path[512];
+            snprintf(path, sizeof path, "%s/%s", into, file->path);
+            if (!files_exists(path)) {
+                if (!missing++ && !wrong) first = file->path;
+            } else if (!files_size(path, &bytes) || bytes != file->size || !files_sha256(path, digest, NULL, NULL) ||
+                       memcmp(digest, file->sha256, sizeof digest)) {
+                if (!wrong++ && !missing) first = file->path;
+            }
+        }
+        CHECK(missing == 0 && wrong == 0, "%s unpacks as an install: %d files missing, %d not as listed (first %s)",
+              package->path, missing, wrong, first);
+        snprintf(archive, sizeof archive, "%s/manifest.txt", into);
+        CHECK(files_exists(archive), "and carries its manifest.txt");
+        files_remove_tree(into);
+    }
+    manifest_free(&m);
+}
+
 void launcher_tests(void)
 {
     http_init();
@@ -451,5 +551,6 @@ void launcher_tests(void)
     archive_tests();
     desktop_tests();
     update_tests();
+    release_tests();
     files_remove_tree(SCRATCH);
 }

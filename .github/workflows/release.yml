@@ -59,11 +59,13 @@ jobs:
       - name: configure
         run: xmake f -m release -y
 
-      - name: test
-        run: xmake test -y
-
+      # packed first, so the tests check the packages too, as a launcher unpacks them
+      # (tests/launcher_test.c, release_tests)
       - name: package
         run: xmake dist
+
+      - name: test
+        run: xmake test -y
 
       - uses: actions/upload-artifact@v4
         with:

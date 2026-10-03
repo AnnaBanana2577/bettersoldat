@@ -123,6 +123,7 @@ under `xmake run`, which holds them as an install lays them out, or an unpacked 
 | `packages/launcher/` | The updater: fetches releases from GitHub, checks every file against the release's hashes, and starts the game. |
 | `tests/` | Headless checks of the simulation on real maps and of the netcode over the loopback. |
 | `runtime/` | What ships beside the executables, laid out as an install: `data/`, the maps, animations, skeletons and bots the game plays by, and `mods/default/`, the art, sounds and fonts it looks and sounds like, both from [opensoldat/base](https://github.com/opensoldat/base); `config/defaults/`, the game's settings and keys; `scripts/`, the server's Lua scripts. What the game writes there as you play (`config/client/`, `config/server/`, `demos/`) and any mod beside `mods/default/` are yours, and git leaves them out. |
+| `xmake/` | The release's own steps around the packages `xmake.lua` defines (xpack): the manifest the launcher checks an install against, and a tar.gz every launcher can read. |
 | `docs/` | How it works and how to work on it. |
 
 The docs go deeper:
