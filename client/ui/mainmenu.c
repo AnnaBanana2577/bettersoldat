@@ -1972,6 +1972,8 @@ static void page_options(Ui *ui)
 {
     section(ui, "SOUND");
     slider(ui, "Volume", "snd_volume", 0, 100, 5, true, "%d%%");
+    toggle(ui, "Distant battle sounds", "snd_effects_battle");
+    toggle(ui, "Deafening blasts", "snd_effects_explosions");
     section(ui, "MOUSE");
     slider(ui, "Sensitivity", "cl_sensitivity", 0.1f, 5.0f, 0.1f, false, "%.1f");
     color_row(ui, "Menu cursor colour", "cl_cursor_color");

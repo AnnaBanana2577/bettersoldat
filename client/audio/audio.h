@@ -9,11 +9,15 @@
 //     live, whom I watch while dead) or the free camera: gain volume * (1 - d / 750), cut
 //     past that, panned by the direction; a sound with no place comes from the camera
 //   - four reserved voices per soldier (reload, jets, gattling, gattling2, the layout
-//     of Sprites.pas): a voice already playing is refreshed, not restarted. That is how
-//     the loops (jets, chainsaw, flamer) live, by being played every tick, and how a
-//     wind-up is cut by stopping its voice
-//   - past half the range a shot or blast also plays its distant sample; a blast next
-//     to me rings the ears (hum) and fades everything else for a few seconds
+//     of Sprites.pas): a voice already playing is refreshed, not restarted, and a
+//     wind-up is cut by stopping its voice. The loops (jets, chainsaw, flamer, wind)
+//     wrap in the mixer, as the original's AL_LOOPING sources do, while they are played
+//     every tick; out of earshot a playing one is kept, silent, not stopped, as the
+//     original leaves its source playing
+//   - with snd_effects_battle, past half the range a shot or blast also plays its
+//     distant sample; with snd_effects_explosions, a blast next to me rings the ears
+//     (hum) and fades every sound but the hum for a few seconds. Both are off unless
+//     asked for, as the original's are
 //   - one departure from the original: everything that happens in the game is placed
 //     where it happened, the flag's return, score and drop included, which the
 //     original plays flat from the camera. What is mine alone (my death, my headshot,
@@ -48,6 +52,11 @@ typedef struct Voice {
     float left, right;    // the gains, from the placing
     bool paused;
     uint32_t started; // the play's number, to steal the oldest
+    // A loop (jets, the chainsaw, the flamer, the wind: the original's AL_LOOPING) wraps
+    // in the mixer, seamless, for as long as it is kept up: `held` frames more, which
+    // each refresh renews, so one nobody refreshes (the ticks stopped) falls silent.
+    bool loop;
+    int held;
 } Voice;
 
 typedef struct Reserved {
@@ -65,6 +74,8 @@ typedef struct Audio {
     Reserved reserved[MAX_PLAYERS][VOICE_COUNT];
     Reserved weather; // the wind, while the map has weather
     bool weather_off; // r_weathereffects 0: no wind, as the original plays it with the weather's sparks
+    bool battle;      // snd_effects_battle: a far shot or blast also plays its distant sample
+    bool explosions;  // snd_effects_explosions: a blast next to me rings the ears and deafens
     Soldier prev[MAX_PLAYERS];  // everyone as of the tick before
     bool whizzed[MAX_BULLETS];  // bullets that have already whizzed past the listener
     Vec2 listener, camera;

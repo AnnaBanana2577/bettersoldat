@@ -17,6 +17,15 @@
 #define GRENADE_EFFECT_TIME 320
 #define CORPSE_CRACK_FALL 2.5f // a body falling this fast onto the map cracks
 #define CORPSE_CRACK_HITS 3    // for its first landings only
+#define LOOP_HELD (AUDIO_RATE / 8) // frames a loop plays on unrefreshed: some ticks, so a late one doesn't gap it
+
+// The original's looping sources (Sound.pas: SFX_ROCKETZ, SFX_CHAINSAW_R, SFX_FLAMER),
+// and the wind, which is kept up every tick as they are.
+static bool loops(const char *name)
+{
+    return strcmp(name, "rocketz.wav") == 0 || strcmp(name, "chainsaw-r.wav") == 0 || strcmp(name, "flamer.wav") == 0 ||
+           strcmp(name, "sfx_wind.wav") == 0;
+}
 
 // ---- the device ----
 
@@ -31,14 +40,21 @@ static void mix(void *user, Uint8 *stream, int len)
         Voice *voice = &a->voices[v];
         if (!voice->sample || voice->paused) continue;
         const float *in = voice->sample->frames;
-        int left = voice->sample->count - voice->cursor;
-        int n = left < frames ? left : frames;
-        for (int i = 0; i < n; i++) {
-            out[2 * i] += in[2 * (voice->cursor + i)] * voice->left;
-            out[2 * i + 1] += in[2 * (voice->cursor + i) + 1] * voice->right;
+        int count = voice->sample->count;
+        for (int done = 0; done < frames && voice->sample;) {
+            int left = count - voice->cursor;
+            int n = left < frames - done ? left : frames - done;
+            for (int i = 0; i < n; i++) {
+                out[2 * (done + i)] += in[2 * (voice->cursor + i)] * voice->left;
+                out[2 * (done + i) + 1] += in[2 * (voice->cursor + i) + 1] * voice->right;
+            }
+            voice->cursor += n;
+            done += n;
+            if (voice->cursor < count) continue;
+            if (voice->loop && count > 0) voice->cursor = 0; // round again, with no gap
+            else voice->sample = NULL; // over
         }
-        voice->cursor += n;
-        if (voice->cursor >= voice->sample->count) voice->sample = NULL; // over
+        if (voice->loop && voice->sample && (voice->held -= frames) <= 0) voice->sample = NULL; // no longer kept up
     }
     for (int i = 0; i < 2 * frames; i++) out[i] = clampf(out[i], -1.0f, 1.0f);
 }
@@ -123,13 +139,14 @@ static const Sample *sample(Audio *a, const char *name)
 // ---- playing ----
 
 // Gain and pan for a sound at `at`, and whether it is within earshot. The pan is what
-// OpenAL gave the original: the source at (dx, dy, -1000) meters, heard on x.
-static bool place(const Audio *a, Vec2 at, bool distant, float *left, float *right)
+// OpenAL gave the original: the source at (dx, dy, -1000) meters, heard on x. Ringing
+// ears fade everything but the ringing itself (`muffled` false), as the original's do.
+static bool place(const Audio *a, Vec2 at, bool distant, bool muffled, float *left, float *right)
 {
     Vec2 d = vec2_sub(at, a->listener);
     float dist = vec2_length(d) / SOUND_MAXDIST;
     if (distant) dist = dist > 1.0f ? dist - 1.0f : 1.0f - 2.0f * dist;
-    if (a->ringing > 0) dist += (1.0f - dist) * sqrtf((float)a->ringing / 280.0f);
+    if (muffled && a->ringing > 0) dist += (1.0f - dist) * sqrtf((float)a->ringing / 280.0f);
     if (dist > 1.0f) return false;
     float gain = clampf(a->volume * (1.0f - dist), 0.0f, 1.0f);
     float sx = d.x / SOUND_METERLENGTH, sy = d.y / SOUND_METERLENGTH, sz = -1000.0f / SOUND_METERLENGTH;
@@ -139,14 +156,21 @@ static bool place(const Audio *a, Vec2 at, bool distant, float *left, float *rig
     return true;
 }
 
-// A free voice, or the oldest playing one.
+// A free voice, or the oldest playing one that isn't a loop: a loop plays on from one
+// start, so it is always the oldest, and is held to only while all else is newer.
 static int voice_take(Audio *a)
 {
-    int oldest = 0;
+    int oldest = -1, oldest_loop = 0;
     for (int v = 0; v < AUDIO_VOICES; v++) {
-        if (!a->voices[v].sample) return v;
-        if (a->voices[v].started < a->voices[oldest].started) oldest = v;
+        const Voice *voice = &a->voices[v];
+        if (!voice->sample) return v;
+        if (voice->loop) {
+            if (voice->started < a->voices[oldest_loop].started || !a->voices[oldest_loop].loop) oldest_loop = v;
+        } else if (oldest < 0 || voice->started < a->voices[oldest].started) {
+            oldest = v;
+        }
     }
+    if (oldest < 0) oldest = oldest_loop;
     // a reserved voice stolen is let go of
     for (int i = 0; i < MAX_PLAYERS; i++)
         for (int k = 0; k < VOICE_COUNT; k++)
@@ -182,12 +206,12 @@ static const char *distant_sample(Audio *a, const char *name)
 static void sound_at(Audio *a, const char *name, Vec2 at, bool distant)
 {
     if (!a->ready || !name) return;
-    if (!distant && vec2_length(vec2_sub(at, a->listener)) > SOUND_MAXDIST / 2) {
+    if (a->battle && !distant && vec2_length(vec2_sub(at, a->listener)) > SOUND_MAXDIST / 2) {
         const char *alt = distant_sample(a, name);
         if (alt) sound_at(a, alt, at, true);
     }
     float left, right;
-    if (!place(a, at, distant, &left, &right)) return;
+    if (!place(a, at, distant, strcmp(name, "hum.wav") != 0, &left, &right)) return;
     const Sample *s = sample(a, name);
     if (!s || !s->frames) return;
     SDL_LockAudioDevice(a->device);
@@ -218,16 +242,14 @@ static void reserved_stop(Audio *a, Reserved *r)
 
 static void voice_stop(Audio *a, int slot, ReservedVoice kind) { reserved_stop(a, &a->reserved[slot][kind]); }
 
-// A reserved voice: refreshed while it plays, restarted with `name` once it has ended,
-// so a loop lives by being played every tick.
+// A reserved voice: refreshed while it plays, started with `name` when it isn't; a loop
+// wraps by itself while it is refreshed. Out of earshot a playing one goes silent and
+// plays on, as the original's source does, and none is started.
 static void reserved_play(Audio *a, Reserved *r, const char *name, Vec2 at)
 {
     if (!a->ready || !name) return;
-    float left, right;
-    if (!place(a, at, false, &left, &right)) {
-        reserved_stop(a, r);
-        return;
-    }
+    float left = 0.0f, right = 0.0f;
+    bool heard = place(a, at, false, true, &left, &right);
     const Sample *s = sample(a, name); // read before the lock: a file is slow
     if (!s || !s->frames) {
         reserved_stop(a, r);
@@ -235,15 +257,22 @@ static void reserved_play(Audio *a, Reserved *r, const char *name, Vec2 at)
     }
     SDL_LockAudioDevice(a->device);
     bool playing = reserved_playing(a, r) && !a->voices[r->voice - 1].paused;
+    if (!playing && !heard) {
+        SDL_UnlockAudioDevice(a->device);
+        return;
+    }
     if (!playing) {
         int v = voice_take(a);
         voice_start(a, v, s, left, right);
+        a->voices[v].loop = loops(name);
         r->voice = v + 1;
         r->started = a->voices[v].started;
         snprintf(r->name, sizeof r->name, "%s", name);
     }
-    a->voices[r->voice - 1].left = left;
-    a->voices[r->voice - 1].right = right;
+    Voice *voice = &a->voices[r->voice - 1];
+    voice->left = left;
+    voice->right = right;
+    voice->held = LOOP_HELD;
     SDL_UnlockAudioDevice(a->device);
 }
 
@@ -333,7 +362,7 @@ static void audio_event(Audio *a, const Event *e, const World *w, int me)
     case EVENT_EXPLOSION: {
         const EventExplosion *x = &e->explosion;
         const Soldier *mine = &w->soldiers[me];
-        if (mine->active && mine->health > -50.0f && vec2_length(vec2_sub(x->pos, mine->pos)) < GRENADE_EFFECT_DIST) {
+        if (a->explosions && mine->active && mine->health > -50.0f && vec2_length(vec2_sub(x->pos, mine->pos)) < GRENADE_EFFECT_DIST) {
             a->ringing = GRENADE_EFFECT_TIME;
             audio_flat(a, "hum.wav");
         }

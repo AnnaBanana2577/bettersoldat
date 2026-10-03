@@ -127,6 +127,7 @@ typedef struct App {
     Cvar *netstats;                               // a line a second on the console of how the line is doing (cl_netstats)
     Cvar *rope_debug;                             // cl_rope_debug: each soldier's rope each half second, and changes at once
     Cvar *volume;                                 // snd_volume, 0 to 100
+    Cvar *effects_battle, *effects_explosions;    // snd_effects_battle, snd_effects_explosions: the original's, off as it has them
     Cvar *radio_first[RADIO_CALLS];               // the radio menu's calls
     Cvar *radio_second[RADIO_CALLS][RADIO_CALLS]; // and each call's places
     Cvar *hud_demo;       // the HUD full of sample data, to see every part of it: page 1, 2 or 3
@@ -1107,6 +1108,8 @@ static bool console_open(App *app, int argc, char *argv[])
     app->rope_debug = cvar_register(con, "cl_rope_debug", "0", 0,
                                     "log each soldier's rope each half second and changes at once, with the snapshots dropped");
     app->volume = cvar_register(con, "snd_volume", "50", CVAR_ARCHIVE, "the sound's volume, 0 to 100");
+    app->effects_battle = cvar_register(con, "snd_effects_battle", "0", CVAR_ARCHIVE, "1: a far shot or blast also plays its distant sound");
+    app->effects_explosions = cvar_register(con, "snd_effects_explosions", "0", CVAR_ARCHIVE, "1: a blast next to you rings your ears and muffles the rest for a few seconds");
     const char *calls[RADIO_CALLS] = {"Enemy flagger", "Friendly flagger", "Enemy spotted"};
     const char *places[RADIO_CALLS] = {"up!", "middle!", "down!"};
     for (int i = 0; i < RADIO_CALLS; i++) {
@@ -1272,6 +1275,8 @@ static void apply_cvars(App *app)
     app->render_options.scenery = app->scenery->integer != 0;
     app->render_options.trails = app->trails->integer != 0;
     app->audio.weather_off = !app->weather->integer;
+    app->audio.battle = app->effects_battle->integer != 0;
+    app->audio.explosions = app->effects_explosions->integer != 0;
     // the sky's colours: the map's, or mine; the minimap carries them too, so it is built again on a change
     if (map_view_force_background(&app->render.map_view, app->forcebg->integer != 0, cvar_color(app->forcebg_color1), cvar_color(app->forcebg_color2)))
         map_view_build_minimap(&app->render.map_view, window_rect(app).height);
