@@ -168,6 +168,7 @@ int main(void)
     stream_tests();
     rewind_tests();
     console_tests();
+    taunt_tests();
     color_tests();
     bot_tests();
     round_tests();

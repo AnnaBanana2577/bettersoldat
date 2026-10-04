@@ -190,8 +190,10 @@ target("tests")
               "packages/server/bots.c", "packages/server/host.c", "packages/server/script.c", "packages/server/lobby.c",
               "packages/server/host_cvars.c", "packages/server/weapons_ini.c")
     add_files("packages/launcher/*.c|main.c")
-    -- the client's line and its demos, for the demo's round trip (tests/demo_test.c)
-    add_files("packages/client/net/client_net.c", "packages/client/net/demo.c", "packages/client/net/hwid.c")
+    -- the client's line and its demos, for the demo's round trip (tests/demo_test.c),
+    -- and its taunts, for the taunt editor's round trip (tests/taunts_test.c)
+    add_files("packages/client/net/client_net.c", "packages/client/net/demo.c", "packages/client/net/hwid.c",
+              "packages/client/ui/taunts.c")
     add_includedirs("tests", "packages/server", "packages/launcher", "packages/client")
     add_packages("lua", "libcurl", "miniz")
     if is_plat("windows") then

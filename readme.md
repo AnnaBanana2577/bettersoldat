@@ -23,9 +23,9 @@ It is playable now, online and against bots, but it is not finished: see
   hides jitter, and remote shots drawn from the muzzle however high the ping. The design
   is in [docs/netcode.md](docs/netcode.md).
 - **A main menu again.** Join from a server browser, host a game with bots (Local
-  Play), set up your player, controls and options, all inside the game, as the original
-  Soldat let you; OpenSoldat has no menu of its own and leaves this to a separate
-  launcher.
+  Play), set up your player, controls, taunts and options, all inside the game, as the
+  original Soldat let you; OpenSoldat has no menu of its own and leaves this to a
+  separate launcher.
 - **A server browser and a lobby.** Servers that want to be found list themselves with
   [the lobby](https://github.com/soldatreloaded/soldatreloaded-lobby); the browser asks
   each one directly for its players and ping.
@@ -52,12 +52,14 @@ From the main menu, **Servers** lists the games being played, **Join by Address*
 connects to one you know, and **Local Play** hosts a game here, against bots or for
 friends on your network: it starts the dedicated server beside the game, so it plays by
 the same files in `config/` (the settings, the weapons mod, the rotation it ticks into
-`maplist.txt`) as a server from this install would.
+`maplist.txt`) as a server from this install would. **Taunts** sets what a key says: a
+message to everyone or to your team, or your own words as a radio call.
 
 Some keys, all rebindable on the Controls page: A/D to move, W to jump, S to crouch,
 X to go prone, the right mouse button for the jets, Space to throw a grenade, Q to
 switch weapons, R to reload, Tab for the weapons menu, Escape for the game menu, T to
-chat, Y to chat to your team, V for the radio menu, F1 for the scoreboard.
+chat, Y to chat to your team, V for the radio menu, Alt+letter for the taunts, F1 for
+the scoreboard.
 
 ### The install
 
